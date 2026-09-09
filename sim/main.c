@@ -540,6 +540,9 @@ int main(int argc, char **argv)
     weather_ui_set_callbacks(on_search, on_select_city, on_refresh, on_settings_changed);
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
+    /* The simulator has no camera; render the adaptive switch the way a real
+     * board with nothing on the MIPI-CSI connector would. */
+    weather_ui_set_brightness_adaptive_available(false);
     weather_ui_set_language(s_lang);
     weather_ui_set_units(s_temp_unit, s_wind_unit, s_time_fmt);
 

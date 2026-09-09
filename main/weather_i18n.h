@@ -11,7 +11,7 @@ typedef enum {
 
 typedef struct {
     const char *cancel, *retry, *search_placeholder, *no_cities, *searching, *settings;
-    const char *temperature, *wind_speed, *time_format, *language, *h24, *h12, *brightness;
+    const char *temperature, *wind_speed, *time_format, *language, *h24, *h12, *brightness, *brightness_adaptive;
     const char *humidity, *feels_like, *wind, *precip, *forecast, *loading;
     const char *today, *tomorrow, *error, *space, *done;
     const char *humid_dry, *humid_comfortable, *humid_humid, *humid_very_humid;

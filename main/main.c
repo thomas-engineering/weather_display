@@ -17,6 +17,7 @@
 #include "app_wifi.h"
 #include "app_weather.h"
 #include "app_prefs.h"
+#include "app_light.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "app";
@@ -40,6 +41,24 @@ static void on_wifi_forget(void) { app_weather_wifi_forget(); }
 static void on_brightness(int percent, bool final) {
     bsp_display_brightness_set(percent);
     if (final) app_prefs_save_brightness(percent);
+}
+
+static void on_brightness_adaptive(bool on) {
+    app_prefs_save_brightness_adaptive(on);
+    app_light_set_adaptive(on);
+}
+
+/* Runs on app_light's own sensor task, not the LVGL task — bsp_display_brightness_set()
+ * is a plain LEDC duty write (safe from anywhere), but weather_ui_set_brightness()
+ * touches LVGL objects and needs the display lock like any other cross-task UI update.
+ * Deliberately doesn't persist to NVS: the stored "brightness" is the manual value to
+ * fall back to if adaptive mode is turned off, not whatever the sensor last picked. */
+static void on_ambient_brightness(int percent) {
+    bsp_display_brightness_set(percent);
+    if (bsp_display_lock(100)) {
+        weather_ui_set_brightness(percent);
+        bsp_display_unlock();
+    }
 }
 
 static void on_settings_changed(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf) {
@@ -98,14 +117,30 @@ void app_main(void) {
     ESP_ERROR_CHECK(display != NULL ? ESP_OK : ESP_FAIL);
     bsp_display_brightness_set(prefs.brightness);
 
+    /* Probe for the optional OV5647 before building the UI, so the Settings
+     * panel's adaptive-brightness switch starts in the right enabled/disabled
+     * state instead of flipping right after boot. Safe with no camera fitted
+     * — see app_light.h. Needs the BSP's shared I2C bus, already up as part of
+     * bsp_display_start_with_config() (touch bring-up brings it up too). */
+    bool have_light_sensor = app_light_init(bsp_i2c_get_handle());
+    app_light_set_callback(on_ambient_brightness);
+
     ESP_ERROR_CHECK(bsp_display_lock(-1) ? ESP_OK : ESP_ERR_TIMEOUT);
     weather_ui_create(lv_screen_active());
     weather_ui_set_callbacks(on_search, on_select_city, on_refresh, on_settings_changed);
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
+    weather_ui_set_brightness_adaptive_callback(on_brightness_adaptive);
     weather_ui_set_language(prefs.lang);
     weather_ui_set_units(prefs.temp_unit, prefs.wind_unit, prefs.time_fmt);
     weather_ui_set_brightness(prefs.brightness);
+    weather_ui_set_brightness_adaptive_available(have_light_sensor);
+    /* A camera once fitted and later removed shouldn't leave adaptive mode
+     * silently stuck on — only honor the saved preference if it's actually
+     * usable right now. */
+    bool adaptive_on = have_light_sensor && prefs.brightness_adaptive;
+    weather_ui_set_brightness_adaptive(adaptive_on);
+    app_light_set_adaptive(adaptive_on);
     weather_ui_set_loading(true);
 #if CONFIG_WEATHER_TOUCH_DEBUG
     lv_timer_create(touch_probe_cb, 30, NULL);

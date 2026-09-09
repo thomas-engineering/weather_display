@@ -61,3 +61,14 @@ CONFIG_LV_USE_LINE=y
 
 CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 CONFIG_WEATHER_USE_INTER_FONTS=y
+
+# Ambient-light sensing via the optional OV5647 on the MIPI-CSI connector.
+# ESP_VIDEO_ENABLE_MIPI_CSI_VIDEO_DEVICE/_ISP_VIDEO_DEVICE already default to y
+# on P4 (SOC_MIPI_CSI_SUPPORTED/SOC_ISP_SUPPORTED) once esp_video is a
+# dependency; spelled out here so the choice isn't silent. CAMERA_OV5647's own
+# default (RAW8 800x800 @ 50fps, auto-detected over SCCB at esp_video_init())
+# is used as-is — app_light.c only needs *a* frame to average, not a specific
+# resolution.
+CONFIG_ESP_VIDEO_ENABLE_MIPI_CSI_VIDEO_DEVICE=y
+CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE=y
+CONFIG_CAMERA_OV5647=y

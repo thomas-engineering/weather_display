@@ -33,6 +33,7 @@ void app_prefs_load(app_prefs_t *out) {
     s_prefs.wind_unit = WX_WIND_KMH;
     s_prefs.time_fmt = WX_TIME_24;
     s_prefs.brightness = 100;
+    s_prefs.brightness_adaptive = false;
 
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READONLY, &h) == ESP_OK) {
@@ -52,6 +53,7 @@ void app_prefs_load(app_prefs_t *out) {
         tmp = s_prefs.wind_unit; get_u8(h, "wunit", &tmp); s_prefs.wind_unit = (wx_wind_unit_t)tmp;
         tmp = s_prefs.time_fmt;  get_u8(h, "tfmt", &tmp);  s_prefs.time_fmt = (wx_time_fmt_t)tmp;
         tmp = s_prefs.brightness; get_u8(h, "bright", &tmp); s_prefs.brightness = tmp;
+        tmp = s_prefs.brightness_adaptive; get_u8(h, "bright_auto", &tmp); s_prefs.brightness_adaptive = tmp != 0;
         nvs_close(h);
     }
 
@@ -103,6 +105,16 @@ void app_prefs_save_brightness(int percent) {
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
     nvs_set_u8(h, "bright", (uint8_t)percent);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
+void app_prefs_save_brightness_adaptive(bool enabled) {
+    s_prefs.brightness_adaptive = enabled;
+
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u8(h, "bright_auto", enabled ? 1 : 0);
     nvs_commit(h);
     nvs_close(h);
 }

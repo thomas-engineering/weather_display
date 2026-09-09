@@ -68,6 +68,10 @@ typedef void (*weather_ui_wifi_forget_cb_t)(void);
  * false while the user is still dragging (apply the level but don't wear NVS
  * out writing every intermediate tick) and true once on release (persist it). */
 typedef void (*weather_ui_brightness_cb_t)(int percent, bool final);
+/* `on` is the switch's new state. Fires both when the user taps the switch
+ * directly and when dragging the manual slider turns adaptive mode off (the
+ * two controls fight over the same backlight, so a manual drag wins). */
+typedef void (*weather_ui_brightness_adaptive_cb_t)(bool on);
 
 /* Builds the whole 1024x600 screen as a child of `parent` (typically lv_screen_active()). */
 void weather_ui_create(lv_obj_t *parent);
@@ -77,12 +81,22 @@ void weather_ui_set_callbacks(weather_ui_search_cb_t on_search, weather_ui_selec
 void weather_ui_set_wifi_callbacks(weather_ui_wifi_scan_cb_t on_scan, weather_ui_wifi_connect_cb_t on_connect,
                                     weather_ui_wifi_forget_cb_t on_forget);
 void weather_ui_set_brightness_callback(weather_ui_brightness_cb_t on_brightness);
+void weather_ui_set_brightness_adaptive_callback(weather_ui_brightness_adaptive_cb_t on_adaptive);
 
 void weather_ui_set_language(weather_lang_t lang);
 void weather_ui_set_units(wx_temp_unit_t temp, wx_wind_unit_t wind, wx_time_fmt_t time_fmt);
 /* Sets the Settings panel's brightness slider (10-100) without firing on_brightness
  * — call once at startup with the persisted value. */
 void weather_ui_set_brightness(int percent);
+/* Sets the adaptive-brightness switch without firing on_adaptive — call once
+ * at startup with the persisted value (already ANDed with camera presence by
+ * the caller) and again whenever app_light's own sampling loop needs the UI
+ * to reflect a state it didn't originate (it never does today, but this is
+ * the same one-way sync pattern as weather_ui_set_brightness()). */
+void weather_ui_set_brightness_adaptive(bool on);
+/* Greys the switch out (and forces it visually off) when no camera was
+ * found — call once at startup, before weather_ui_set_brightness_adaptive(). */
+void weather_ui_set_brightness_adaptive_available(bool available);
 
 void weather_ui_set_current(const weather_current_t *cur);
 void weather_ui_set_days(const weather_day_t days[WEATHER_UI_DAYS]);

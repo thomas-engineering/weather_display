@@ -34,6 +34,8 @@
 #define C_NEUTRAL_900 lv_color_hex(0x292B31)
 #define C_DIVIDER     lv_color_hex(0x3A3D4A)
 #define C_NEUTRAL_800 lv_color_hex(0x3F424D)
+#define C_NEUTRAL_600 lv_color_hex(0x75798C)
+#define C_NEUTRAL_300 lv_color_hex(0xCFD3E5)
 #define C_GOOD        lv_color_hex(0x7FBF8F)  /* status: online */
 #define C_WARN        lv_color_hex(0xD9C184)  /* status: stale data */
 #define R_MD 8
@@ -74,7 +76,7 @@ typedef struct {
 
     lv_obj_t *settings_backdrop, *settings_panel;
     lv_obj_t *seg_lang[4], *seg_temp[2], *seg_wind[3], *seg_time[2];
-    lv_obj_t *brightness_slider;
+    lv_obj_t *brightness_slider, *brightness_adaptive_sw;
 
     lv_obj_t *search_backdrop, *search_ta, *search_kb, *search_results, *search_status_lbl, *search_cancel_lbl;
 
@@ -91,6 +93,7 @@ typedef struct {
     wx_wind_unit_t wind_unit;
     wx_time_fmt_t time_fmt;
     int brightness; /* 10-100, mirrors the slider; also its value before it exists */
+    bool brightness_adaptive_available; /* false: no camera found, switch stays disabled */
 
     weather_ui_search_cb_t on_search;
     weather_ui_select_city_cb_t on_select_city;
@@ -100,6 +103,7 @@ typedef struct {
     weather_ui_wifi_connect_cb_t on_wifi_connect;
     weather_ui_wifi_forget_cb_t on_wifi_forget;
     weather_ui_brightness_cb_t on_brightness;
+    weather_ui_brightness_adaptive_cb_t on_brightness_adaptive;
 } weather_ui_t;
 
 static weather_ui_t ui;
@@ -1017,6 +1021,19 @@ static void on_seg_time(int idx, void *user) { LV_UNUSED(user); ui.time_fmt = (w
 static void on_brightness_slider(lv_event_t *e) {
     ui.brightness = (int)lv_slider_get_value(ui.brightness_slider);
     if (ui.on_brightness) ui.on_brightness(ui.brightness, lv_event_get_code(e) == LV_EVENT_RELEASED);
+    /* Manual adjustment wins over the sensor: dragging the slider while
+     * adaptive mode is on turns it back off, same as tapping the switch
+     * itself — the two controls would otherwise fight over the backlight. */
+    if (ui.brightness_adaptive_sw && lv_obj_has_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED)) {
+        lv_obj_remove_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
+        if (ui.on_brightness_adaptive) ui.on_brightness_adaptive(false);
+    }
+}
+
+static void on_brightness_adaptive_sw(lv_event_t *e) {
+    LV_UNUSED(e);
+    bool on = lv_obj_has_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
+    if (ui.on_brightness_adaptive) ui.on_brightness_adaptive(on);
 }
 
 void weather_ui_set_callbacks(weather_ui_search_cb_t on_search, weather_ui_select_city_cb_t on_select_city,
@@ -1063,6 +1080,19 @@ void weather_ui_set_units(wx_temp_unit_t temp, wx_wind_unit_t wind, wx_time_fmt_
 void weather_ui_set_brightness(int percent) {
     ui.brightness = percent;
     if (ui.brightness_slider) lv_slider_set_value(ui.brightness_slider, percent, LV_ANIM_OFF);
+}
+
+void weather_ui_set_brightness_adaptive(bool on) {
+    if (!ui.brightness_adaptive_sw) return;
+    if (on) lv_obj_add_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
+    else lv_obj_remove_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
+}
+
+void weather_ui_set_brightness_adaptive_available(bool available) {
+    ui.brightness_adaptive_available = available;
+    if (!ui.brightness_adaptive_sw) return;
+    if (available) lv_obj_remove_state(ui.brightness_adaptive_sw, LV_STATE_DISABLED);
+    else lv_obj_add_state(ui.brightness_adaptive_sw, LV_STATE_DISABLED);
 }
 
 void weather_ui_set_current(const weather_current_t *cur) { ui.cur = *cur; ui.has_data = true; render_current(); }
@@ -1166,9 +1196,9 @@ static void build_settings_panel(lv_obj_t *parent) {
     seg_create(f4, time_labels, 2, ui.time_fmt, on_seg_time, NULL, ui.seg_time);
 
     /* Synced from Claude Design 2026-09-09 (the "Weather app with 7-day forecast"
-     * project's settingsOpen field grew a brightness slider). The design also has
-     * an "Adapt to ambient light" toggle next to it — left out here, see the OV5647
-     * camera-as-light-sensor follow-up task instead of a switch with nothing behind it. */
+     * project's settingsOpen field grew a brightness slider), with the design's
+     * "Adapt to ambient light" toggle added below it now that app_light.c gives
+     * it something real to drive (the optional OV5647 on the MIPI-CSI connector). */
     lv_obj_t *f5 = field_wrap(ui.settings_panel, weather_strings[ui.lang].brightness);
     /* FIX: the knob sits half outside the track at each end (it's centered on the
      * value position, which reaches the track's own edge at min/max) — without this
@@ -1193,6 +1223,42 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_set_style_bg_opa(ui.brightness_slider, LV_OPA_COVER, LV_PART_KNOB);
     lv_obj_add_event_cb(ui.brightness_slider, on_brightness_slider, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ui.brightness_slider, on_brightness_slider, LV_EVENT_RELEASED, NULL);
+
+    lv_obj_t *adaptive_row = lv_obj_create(f5);
+    lv_obj_remove_style_all(adaptive_row);
+    lv_obj_set_size(adaptive_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(adaptive_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(adaptive_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(adaptive_row, 8, 0);
+    lv_obj_remove_flag(adaptive_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui.brightness_adaptive_sw = lv_switch_create(adaptive_row);
+    /* Matches the Nocturne switch tokens exactly (switchTrackStyle /
+     * switchThumbStyle in the design source), not LVGL's built-in default
+     * theme. FIX: the indicator and border previously had no distinct
+     * unchecked-state color, so LVGL's own default-theme fill/border showed
+     * through behind the knob and on the track outline instead of the
+     * design's neutral tones. */
+    lv_obj_set_style_bg_color(ui.brightness_adaptive_sw, C_NEUTRAL_800, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.brightness_adaptive_sw, C_NEUTRAL_600, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.brightness_adaptive_sw, C_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_border_width(ui.brightness_adaptive_sw, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.brightness_adaptive_sw, C_NEUTRAL_800, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(ui.brightness_adaptive_sw, C_ACCENT_700, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(ui.brightness_adaptive_sw, C_NEUTRAL_300, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(ui.brightness_adaptive_sw, C_ACCENT_100, LV_PART_KNOB | LV_STATE_CHECKED);
+    /* No lv_theme is installed (everything here is styled from scratch), so
+     * LV_STATE_DISABLED has no visual effect of its own — spell it out so a
+     * board with no camera fitted actually looks non-interactive, not just
+     * silently ignore taps. */
+    lv_obj_set_style_opa(ui.brightness_adaptive_sw, LV_OPA_40, LV_STATE_DISABLED);
+    lv_obj_add_event_cb(ui.brightness_adaptive_sw, on_brightness_adaptive_sw, LV_EVENT_VALUE_CHANGED, NULL);
+    if (!ui.brightness_adaptive_available) lv_obj_add_state(ui.brightness_adaptive_sw, LV_STATE_DISABLED);
+
+    lv_obj_t *adaptive_lbl = lv_label_create(adaptive_row);
+    lv_label_set_text(adaptive_lbl, weather_strings[ui.lang].brightness_adaptive);
+    lv_obj_set_style_text_color(adaptive_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(adaptive_lbl, FONT_14, 0);
 
     /* Network row — the entry point into the on-device Wi-Fi setup the design added. */
     lv_obj_t *fnet = field_wrap(ui.settings_panel, weather_strings[ui.lang].network);
@@ -1523,6 +1589,10 @@ void weather_ui_set_wifi_callbacks(weather_ui_wifi_scan_cb_t on_scan, weather_ui
 
 void weather_ui_set_brightness_callback(weather_ui_brightness_cb_t on_brightness) {
     ui.on_brightness = on_brightness;
+}
+
+void weather_ui_set_brightness_adaptive_callback(weather_ui_brightness_adaptive_cb_t on_adaptive) {
+    ui.on_brightness_adaptive = on_adaptive;
 }
 
 void weather_ui_open_wifi_setup(void) {

@@ -24,5 +24,12 @@ dependencies:
   espressif/cjson:
     version: "^1.7.18"
 
+  # Ambient-light sensing: the optional OV5647 on the board's MIPI-CSI connector,
+  # read as a V4L2 device. Pulls in esp_cam_sensor and esp_ipa transitively.
+  # Camera absence at runtime is handled in app_light.c, not here — this only
+  # makes the driver available to link against.
+  espressif/esp_video:
+    version: "2.4.*"
+
   idf:
     version: ">=5.4.0"
