@@ -119,6 +119,14 @@ void app_main(void) {
          * time. X still tracks X, so no axis swap is needed. */
         .touch_flags = { .swap_xy = 0, .mirror_x = 0, .mirror_y = 0 },
     };
+    /* ESP_LV_ADAPTER_DEFAULT_CONFIG() leaves this at -1 (no affinity), which lets
+     * the scheduler run LVGL — and its touch-indev polling — on core 0, the same
+     * core app_light.c pins its sensor task to. The two also share the I2C bus
+     * (GT911 touch, OV5647 SCCB), and a touch read has to wait out an in-flight
+     * I2C transaction from the camera regardless of task priority, since a bus
+     * mutex isn't preemptible. Pinning LVGL to core 1 removes that contention
+     * entirely instead of chasing it through priorities. */
+    cfg.lv_adapter_cfg.task_core_id = 1;
     lv_display_t *display = bsp_display_start_with_config(&cfg);
     ESP_ERROR_CHECK(display != NULL ? ESP_OK : ESP_FAIL);
     bsp_display_brightness_set(prefs.brightness);
