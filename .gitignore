@@ -15,3 +15,4 @@ design/src/weather-app/_host.html
 .cache/
 .vscode/settings.json
 tmp/
+design/.project-ids
