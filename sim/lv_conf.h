@@ -9,6 +9,7 @@
  *                                              waere mit 64 kB fuer 1024x600 zu klein
  *   3. LV_FONT_MONTSERRAT_18 = 1               FONT_SYMBOL in main/ui_fonts.h
  *                                              zeigt fest auf lv_font_montserrat_18
+ *   3b. LV_FONT_MONTSERRAT_26 = 1              FONT_SYMBOL_LG, dito fuer lv_font_montserrat_26
  *   4. LV_USE_LOG / LV_LOG_PRINTF = 1          LVGL-Warnungen ins Terminal
  *   5. LV_USE_SDL = 1                          SDL-Fenster + Maus als Eingabe
  *
@@ -681,7 +682,7 @@
 #define LV_FONT_MONTSERRAT_20 0
 #define LV_FONT_MONTSERRAT_22 0
 #define LV_FONT_MONTSERRAT_24 0
-#define LV_FONT_MONTSERRAT_26 0
+#define LV_FONT_MONTSERRAT_26 1
 #define LV_FONT_MONTSERRAT_28 0
 #define LV_FONT_MONTSERRAT_30 0
 #define LV_FONT_MONTSERRAT_32 0

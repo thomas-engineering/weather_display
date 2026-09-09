@@ -206,6 +206,7 @@ typedef enum {
     ACT_SEARCH_RESULTS = 1,
     ACT_CITY_SELECTED,
     ACT_REFRESH_DONE,
+    ACT_MANUAL_REFRESH_DONE,
     ACT_WIFI_SCAN_RESULTS,
     ACT_WIFI_CONNECT_RESULT,
     ACT_OPEN_SCREEN,
@@ -235,6 +236,14 @@ static void deferred_cb(lv_timer_t *timer)
 
     case ACT_REFRESH_DONE:
         publish_weather();
+        break;
+
+    /* Distinct from ACT_REFRESH_DONE (used for the silent initial load): only
+     * a user-triggered refresh shows the toast, matching real firmware's
+     * is_manual distinction in app_weather.c's do_refresh(). */
+    case ACT_MANUAL_REFRESH_DONE:
+        publish_weather();
+        weather_ui_show_refresh_toast(true);
         break;
 
     case ACT_WIFI_SCAN_RESULTS:
@@ -288,7 +297,7 @@ static void on_select_city(int idx)
 static void on_refresh(void)
 {
     weather_ui_set_loading(true);
-    defer(ACT_REFRESH_DONE, SIM_LATENCY_MS);
+    defer(ACT_MANUAL_REFRESH_DONE, SIM_LATENCY_MS);
 }
 
 static void on_settings_changed(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf)
@@ -345,6 +354,7 @@ typedef enum {
     SCREEN_SEARCH,
     SCREEN_SETTINGS,
     SCREEN_SETTINGS_ADAPTIVE_ON,
+    SCREEN_REFRESH_TOAST,
     SCREEN_DETAIL,
     SCREEN_WIFI,
 } sim_screen_t;
@@ -421,6 +431,18 @@ static void open_screen(void)
     case SCREEN_SETTINGS: {
         lv_obj_t *gear = find_label(root, LV_SYMBOL_SETTINGS);
         if (gear == NULL || !click_owner_of(gear)) warn_missing("Zahnrad im Header");
+        break;
+    }
+
+    case SCREEN_REFRESH_TOAST: {
+        /* Clicking the header's refresh icon runs the real on_refresh() path
+         * (ACT_MANUAL_REFRESH_DONE, SIM_LATENCY_MS later), so the toast this
+         * captures is the same one a real tap produces — use
+         * --screenshot-after somewhere between SIM_LATENCY_MS+200+
+         * SIM_LATENCY_MS (when it appears) and +1000 more (when success
+         * auto-dismisses it), e.g. 2000. */
+        lv_obj_t *refresh = find_label(root, LV_SYMBOL_REFRESH);
+        if (refresh == NULL || !click_owner_of(refresh)) warn_missing("Refresh-Icon im Header");
         break;
     }
 
@@ -504,11 +526,12 @@ int main(int argc, char **argv)
             else if (strcmp(name, "search")   == 0) s_screen = SCREEN_SEARCH;
             else if (strcmp(name, "settings") == 0) s_screen = SCREEN_SETTINGS;
             else if (strcmp(name, "settings-adaptive-on") == 0) s_screen = SCREEN_SETTINGS_ADAPTIVE_ON;
+            else if (strcmp(name, "refresh-toast") == 0) s_screen = SCREEN_REFRESH_TOAST;
             else if (strcmp(name, "detail")   == 0) s_screen = SCREEN_DETAIL;
             else if (strcmp(name, "wifi")     == 0) s_screen = SCREEN_WIFI;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, detail, wifi\n", name);
+                                "settings, settings-adaptive-on, refresh-toast, detail, wifi\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
@@ -522,7 +545,10 @@ int main(int argc, char **argv)
                     "        [--screenshot DATEI.bmp [--screenshot-after MS]]\n"
                     "  --screen            oeffnet den Screen nach dem Laden der Daten:\n"
                     "                      main (Vorgabe), search, settings,\n"
-                    "                      settings-adaptive-on, detail, wifi\n"
+                    "                      settings-adaptive-on, refresh-toast, detail, wifi\n"
+                    "                      refresh-toast braucht ein kurzes --screenshot-after\n"
+                    "                      (z.B. 2000) — der Toast blendet sich nach 1s\n"
+                    "                      wieder aus, der Standard-Wert (3000) verpasst ihn.\n"
                     "  --wifi-setup        WLAN-Setup im Erstboot-Zustand: offline, ohne\n"
                     "                      Wetterdaten. Nicht dasselbe wie --screen wifi.\n"
                     "  --screenshot        schreibt den Frame als BMP und beendet sich\n"

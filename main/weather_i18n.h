@@ -18,7 +18,7 @@ typedef struct {
     const char *network, *configure_network, *forget_network, *wifi_title, *scan, *scanning, *no_networks, *secured, *open_net;
     const char *enter_password, *connect, *back, *connecting, *connected, *show, *hide;
     const char *enter_manually, *enter_ssid, *next, *cancel2;
-    const char *online, *offline, *data_outdated;
+    const char *online, *offline, *data_outdated, *data_updated;
 } weather_strings_t;
 
 /* Weather condition text, indexed by WMO weather code buckets used elsewhere in this port

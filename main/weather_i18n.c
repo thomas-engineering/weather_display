@@ -25,7 +25,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .enter_password = "Enter password for", .connect = "Connect", .back = "Back",
         .connecting = "Connecting...", .connected = "Connected", .show = "Show", .hide = "Hide",
         .enter_manually = "Enter network name manually", .enter_ssid = "Network name (SSID)", .next = "Next", .cancel2 = "Cancel",
-        .online = "Online", .offline = "Offline", .data_outdated = "Data may be outdated",
+        .online = "Online", .offline = "Offline", .data_outdated = "Data may be outdated", .data_updated = "Weather data updated.",
     },
     [LANG_DE] = {
         .cancel = "Abbrechen", .retry = "Erneut versuchen", .search_placeholder = "Stadt suchen...",
@@ -42,7 +42,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .enter_password = "Passwort eingeben für", .connect = "Verbinden", .back = "Zurück",
         .connecting = "Verbinde...", .connected = "Verbunden", .show = "Anzeigen", .hide = "Verbergen",
         .enter_manually = "Netzwerkname manuell eingeben", .enter_ssid = "Netzwerkname (SSID)", .next = "Weiter", .cancel2 = "Abbrechen",
-        .online = "Online", .offline = "Offline", .data_outdated = "Daten könnten veraltet sein",
+        .online = "Online", .offline = "Offline", .data_outdated = "Daten könnten veraltet sein", .data_updated = "Wetterdaten aktualisiert.",
     },
     [LANG_ES] = {
         .cancel = "Cancelar", .retry = "Reintentar", .search_placeholder = "Buscar una ciudad...",
@@ -59,7 +59,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .enter_password = "Ingresa la contraseña para", .connect = "Conectar", .back = "Atrás",
         .connecting = "Conectando...", .connected = "Conectado", .show = "Mostrar", .hide = "Ocultar",
         .enter_manually = "Ingresar nombre de red manualmente", .enter_ssid = "Nombre de red (SSID)", .next = "Siguiente", .cancel2 = "Cancelar",
-        .online = "En línea", .offline = "Sin conexión", .data_outdated = "Los datos podrían estar desactualizados",
+        .online = "En línea", .offline = "Sin conexión", .data_outdated = "Los datos podrían estar desactualizados", .data_updated = "Datos del clima actualizados.",
     },
     [LANG_FR] = {
         .cancel = "Annuler", .retry = "Réessayer", .search_placeholder = "Rechercher une ville...",
@@ -76,6 +76,6 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .enter_password = "Entrez le mot de passe pour", .connect = "Connecter", .back = "Retour",
         .connecting = "Connexion...", .connected = "Connecté", .show = "Afficher", .hide = "Masquer",
         .enter_manually = "Saisir le nom du réseau manuellement", .enter_ssid = "Nom du réseau (SSID)", .next = "Suivant", .cancel2 = "Annuler",
-        .online = "En ligne", .offline = "Hors ligne", .data_outdated = "Les données sont peut-être obsolètes",
+        .online = "En ligne", .offline = "Hors ligne", .data_outdated = "Les données sont peut-être obsolètes", .data_updated = "Données météo mises à jour.",
     },
 };

@@ -35,6 +35,22 @@ same 44px-wide question the touch-target pass raised for a different reason.
 The day-detail sheet's own (visually identical but smaller) stat boxes were
 not part of this change and were left alone — `stat_box_create()` now takes
 `width`/`pad_hor`/`big` so the two call sites can diverge on purpose.
+Re-pulled again 2026-09-10 for two changes: the header's refresh/settings icon
+buttons grew again (44px -> 56px, glyph 20px -> 26px, needing
+`CONFIG_LV_FONT_MONTSERRAT_26` — no generated Inter equivalent needed since
+`LV_SYMBOL_*` glyphs only exist in Montserrat), with an extra `--space-6` gap
+on both sides of the clock/date group to keep them from crowding the bigger
+buttons; and a new refresh toast — tapping the header refresh icon or the
+error bar's retry button (both share `refresh()`/`on_refresh`) now shows
+"Weather data updated." for 1s on success, or the existing error message,
+staying until tapped away, on failure. Ported to `weather_ui.c`
+(`icon_btn_create`, new `build_refresh_toast`/`weather_ui_show_refresh_toast`)
+and `app_weather.c` (`do_refresh()` gained an `is_manual` flag so only the
+refresh-button path — not periodic auto-refresh, city selection, or the
+post-Wi-Fi-connect refresh — triggers the toast, matching the design's own
+`refresh()` handler being the only place it sets `refreshToast`). New
+`data_updated` string added to `weather_i18n.c` in all four locales, copied
+verbatim from the design's `strings` blocks.
 
 ## `src/weather-app/` — the app design
 

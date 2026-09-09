@@ -25,6 +25,12 @@
 </helmet>
 <div lang="{{ htmlLang }}" style="width:1024px;height:600px;position:relative;overflow:hidden;background:radial-gradient(120% 140% at 20% -10%, var(--color-accent-900), var(--color-bg) 55%);display:flex;flex-direction:column;font-family:var(--font-body);hyphens:auto">
 
+  <sc-if value="{{ refreshToastVisible }}">
+    <div data-lv="overlay.toast" onClick="{{ dismissRefreshToast }}" style="position:absolute;top:20px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:10px;padding:14px 20px;border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);cursor:pointer;background:var(--color-surface);border:1px solid {{ refreshToastBorderColor }};max-width:520px">
+      <span data-lv="label.body" style="font-size:14px;color:var(--color-text)">{{ refreshToastMessage }}</span>
+    </div>
+  </sc-if>
+
   <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-6) var(--space-6) var(--space-3)">
     <button data-lv="button.ghost" onClick="{{ openSearch }}" style="display:flex;align-items:center;gap:8px;background:transparent;border:none;color:var(--color-text);cursor:pointer;padding:12px 14px;min-height:44px;border-radius:var(--radius-md);font-family:var(--font-heading)">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"></path></svg>
@@ -41,15 +47,15 @@
           {{ netStatusLabel }}
         </span>
       </div>
-      <div style="text-align:right">
+      <div style="text-align:right;margin-left:var(--space-6)">
         <div data-lv="label.title" style="font-size:30px;font-weight:500;font-family:var(--font-heading);line-height:1.1">{{ nowTimeStr }}</div>
         <div data-lv="label.caption" style="font-size:18px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ nowDateStr }}</div>
       </div>
-      <button data-lv="button.icon" onClick="{{ refresh }}" title="Refresh" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.74 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"></path></svg>
+      <button data-lv="button.icon" onClick="{{ refresh }}" title="Refresh" style="margin-left:var(--space-6);width:56px;height:56px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.74 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"></path></svg>
       </button>
-      <button data-lv="button.icon" onClick="{{ openSettings }}" title="Settings" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.14 7.14 0 0 0 .06-.94 7.14 7.14 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94L2.83 14.5a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.32.6.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.24.1.46 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"></path></svg>
+      <button data-lv="button.icon" onClick="{{ openSettings }}" title="Settings" style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.14 7.14 0 0 0 .06-.94 7.14 7.14 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94L2.83 14.5a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.32.6.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.24.1.46 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"></path></svg>
       </button>
     </div>
   </div>
@@ -429,6 +435,7 @@ class Component extends DCLogic {
     selectedDayIndex: null,
     sheetClosing: false,
     language: 'en',
+    refreshToast: null,
     wifiOpen: false,
     wifiScanning: false,
     wifiNetworks: [],
@@ -455,6 +462,7 @@ class Component extends DCLogic {
         language: 'Language', h24: '24-hour', h12: '12-hour', humidity: 'Humidity',
         feelsLike: 'Feels like', wind: 'Wind', precip: 'Precip.', forecast: '7-Day Forecast',
         loading: 'Loading weather…', today: 'Today', tomorrow: 'Tomorrow', error: 'Could not load weather',
+        dataUpdated: 'Weather data updated.',
         space: 'Space', done: 'Done',
         brightness: 'Brightness', brightnessAdaptive: 'Adapt to ambient light',
         network: 'Network', configureNetwork: 'Configure network', wifiTitle: 'Wi-Fi networks',
@@ -475,6 +483,7 @@ class Component extends DCLogic {
         language: 'Sprache', h24: '24-Stunden', h12: '12-Stunden', humidity: 'Luftfeuchtigkeit',
         feelsLike: 'Gefühlt', wind: 'Wind', precip: 'Niederschlag', forecast: '7-Tage-Vorhersage',
         loading: 'Wetter wird geladen…', today: 'Heute', tomorrow: 'Morgen', error: 'Wetter konnte nicht geladen werden',
+        dataUpdated: 'Wetterdaten aktualisiert.',
         space: 'Leerzeichen', done: 'Fertig',
         brightness: 'Helligkeit', brightnessAdaptive: 'An Umgebungslicht anpassen',
         network: 'Netzwerk', configureNetwork: 'Netzwerk konfigurieren', wifiTitle: 'WLAN-Netzwerke',
@@ -495,6 +504,7 @@ class Component extends DCLogic {
         language: 'Idioma', h24: '24 horas', h12: '12 horas', humidity: 'Humedad',
         feelsLike: 'Sensación', wind: 'Viento', precip: 'Precip.', forecast: 'Pronóstico de 7 días',
         loading: 'Cargando el clima…', today: 'Hoy', tomorrow: 'Mañana', error: 'No se pudo cargar el clima',
+        dataUpdated: 'Datos del clima actualizados.',
         space: 'Espacio', done: 'Listo',
         brightness: 'Brillo', brightnessAdaptive: 'Adaptar a la luz ambiental',
         network: 'Red', configureNetwork: 'Configurar red', wifiTitle: 'Redes Wi-Fi',
@@ -515,6 +525,7 @@ class Component extends DCLogic {
         language: 'Langue', h24: '24 heures', h12: '12 heures', humidity: 'Humidité',
         feelsLike: 'Ressenti', wind: 'Vent', precip: 'Précip.', forecast: 'Prévisions sur 7 jours',
         loading: 'Chargement de la météo…', today: 'Aujourd\u2019hui', tomorrow: 'Demain', error: 'Impossible de charger la météo',
+        dataUpdated: 'Données météo mises à jour.',
         space: 'Espace', done: 'Terminé',
         brightness: 'Luminosité', brightnessAdaptive: 'Adapter à la lumière ambiante',
         network: 'Réseau', configureNetwork: 'Configurer le réseau', wifiTitle: 'Réseaux Wi-Fi',
@@ -562,7 +573,23 @@ class Component extends DCLogic {
     this.sheetTimer = setTimeout(() => this.setState({ selectedDayIndex: null, sheetClosing: false }), 220);
   };
   stopClick = (e) => e.stopPropagation();
-  refresh = () => this.fetchWeather();
+  refresh = () => {
+    clearTimeout(this.refreshToastTimer);
+    this.setState({ refreshToast: null });
+    this.fetchWeather().then((ok) => {
+      const strings = this.getStrings(this.state.language);
+      if (ok) {
+        this.setState({ refreshToast: { type: 'success', message: strings.dataUpdated } });
+        this.refreshToastTimer = setTimeout(() => this.setState({ refreshToast: null }), 1000);
+      } else {
+        this.setState({ refreshToast: { type: 'error', message: strings.error } });
+      }
+    });
+  };
+  dismissRefreshToast = () => {
+    clearTimeout(this.refreshToastTimer);
+    this.setState({ refreshToast: null });
+  };
   onSearchInput = (e) => this.searchCities(e.target.value);
   kbAppend = (ch) => this.searchCities((this.state.searchQuery || '') + ch);
   kbBackspace = () => this.searchCities((this.state.searchQuery || '').slice(0, -1));
@@ -629,14 +656,19 @@ class Component extends DCLogic {
   async fetchWeather() {
     this.setState({ loading: true, error: null });
     const { lat, lon } = this.state.location;
+    return this._fetchWeatherInner(lat, lon);
+  }
+  async _fetchWeatherInner(lat, lon) {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,wind_speed_10m,weather_code&hourly=temperature_2m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max&timezone=auto&forecast_days=7`;
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error('Weather service unavailable');
       const data = await res.json();
       this.setState({ weather: data, timezone: data.timezone || this.state.timezone, loading: false, lastFetchSuccessAt: Date.now() });
+      return true;
     } catch (e) {
       this.setState({ error: e.message || 'Could not load weather', loading: false });
+      return false;
     }
   }
 
@@ -782,7 +814,7 @@ class Component extends DCLogic {
   }
 
   renderVals() {
-    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt } = this.state;
+    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt } = this.state;
     const isDataStale = !!lastFetchSuccessAt && (now.getTime() - lastFetchSuccessAt) > this.STALE_MS;
     const strings = this.getStrings(language);
     const locale = this.LOCALE[language] || 'en-US';
@@ -842,6 +874,10 @@ class Component extends DCLogic {
       isLoading: loading && !weather,
       hasError: !!error,
       errorMsg: error ? strings.error : '',
+      refreshToastVisible: !!refreshToast,
+      refreshToastMessage: refreshToast ? refreshToast.message : '',
+      refreshToastBorderColor: refreshToast && refreshToast.type === 'error' ? 'var(--color-accent)' : 'var(--color-divider)',
+      dismissRefreshToast: this.dismissRefreshToast,
       showContent: !!weather && !(loading && !weather),
       current, days, selectedDay,
       hasSelectedDay: selectedDay != null,

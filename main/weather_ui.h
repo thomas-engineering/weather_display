@@ -106,6 +106,11 @@ void weather_ui_set_days(const weather_day_t days[WEATHER_UI_DAYS]);
 void weather_ui_set_hourly(const weather_hourly_t *today, const weather_hourly_t *const days[WEATHER_UI_DAYS]);
 void weather_ui_set_loading(bool loading);
 void weather_ui_set_error(const char *msg_or_null); /* NULL hides the error bar */
+/* Toast for a user-triggered refresh (header icon or the error bar's retry
+ * button) completing: true shows "data updated" and auto-dismisses after 1s,
+ * false shows the same message as weather_ui_set_error() and stays until
+ * tapped away. Periodic/background refreshes don't call this. */
+void weather_ui_show_refresh_toast(bool ok);
 
 /* Header indicators. `stale` should be true once more than ~1 hour has passed
  * without a successful weather fetch — the app owns that timing, this just displays it. */

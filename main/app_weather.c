@@ -145,6 +145,12 @@ static void ui_error(const char *msg) {
     bsp_display_unlock();
 }
 
+static void show_refresh_toast(bool ok) {
+    if (!bsp_display_lock(1000)) return;
+    weather_ui_show_refresh_toast(ok);
+    bsp_display_unlock();
+}
+
 /* Renders the cached forecast in the current language/units. */
 static void push_forecast_to_ui(void) {
     if (!s_have_forecast) return;
@@ -208,7 +214,12 @@ static void push_forecast_to_ui(void) {
 
 /* ---- forecast ------------------------------------------------------------ */
 
-static void do_refresh(void) {
+/* is_manual: only the refresh icon / error-bar retry button (both funnel
+ * through app_weather_refresh() -> CMD_REFRESH) show the toast Claude Design
+ * added for this — periodic auto-refresh, city selection and the post-Wi-Fi-
+ * connect refresh all call this same function but stay silent, matching the
+ * design's own refresh() handler being the only place refreshToast is set. */
+static void do_refresh(bool is_manual) {
     const app_prefs_t *p = app_prefs_get();
 
     if (bsp_display_lock(1000)) { weather_ui_set_loading(true); bsp_display_unlock(); }
@@ -226,17 +237,18 @@ static void do_refresh(void) {
              p->lat, p->lon, WEATHER_UI_DAYS);
 
     char *body = http_get(url);
-    if (!body) { ui_error(weather_strings[p->lang].error); return; }
+    if (!body) { ui_error(weather_strings[p->lang].error); if (is_manual) show_refresh_toast(false); return; }
 
     cJSON *root = cJSON_Parse(body);
     free(body);
-    if (!root) { ui_error(weather_strings[p->lang].error); return; }
+    if (!root) { ui_error(weather_strings[p->lang].error); if (is_manual) show_refresh_toast(false); return; }
 
     const cJSON *cur = cJSON_GetObjectItemCaseSensitive(root, "current");
     const cJSON *daily = cJSON_GetObjectItemCaseSensitive(root, "daily");
     if (!cJSON_IsObject(cur) || !cJSON_IsObject(daily)) {
         cJSON_Delete(root);
         ui_error(weather_strings[p->lang].error);
+        if (is_manual) show_refresh_toast(false);
         return;
     }
 
@@ -293,6 +305,7 @@ static void do_refresh(void) {
     s_have_forecast = true;
     ESP_LOGI(TAG, "forecast ok: %.1fC code=%d, %d days", s_cur_temp, s_cur_code, n);
     push_forecast_to_ui();
+    if (is_manual) show_refresh_toast(true);
 }
 
 /* ---- geocoding ----------------------------------------------------------- */
@@ -373,7 +386,7 @@ static void weather_task(void *arg) {
     TickType_t search_due = 0;
 
     TickType_t last_auto = xTaskGetTickCount();
-    if (app_wifi_is_connected()) do_refresh();
+    if (app_wifi_is_connected()) do_refresh(false);
 
     for (;;) {
         TickType_t wait = pdMS_TO_TICKS(500);
@@ -390,12 +403,12 @@ static void weather_task(void *arg) {
                     if (cmd.index >= 0 && cmd.index < s_hit_count) {
                         geo_hit_t *h = &s_hits[cmd.index];
                         app_prefs_save_city(h->name, h->country, h->lat, h->lon);
-                        do_refresh();
+                        do_refresh(false);
                         last_auto = xTaskGetTickCount();
                     }
                     break;
                 case CMD_REFRESH:
-                    do_refresh();
+                    do_refresh(true);
                     last_auto = xTaskGetTickCount();
                     break;
                 case CMD_RELANG:
@@ -419,7 +432,7 @@ static void weather_task(void *arg) {
                     }
                     if (ok) {
                         app_wifi_sync_time(15000);
-                        do_refresh();
+                        do_refresh(false);
                         last_auto = xTaskGetTickCount();
                     }
                     break;
@@ -442,7 +455,7 @@ static void weather_task(void *arg) {
         /* Periodic refresh, and a per-minute clock tick so the header stays live. */
         TickType_t now = xTaskGetTickCount();
         if ((now - last_auto) >= pdMS_TO_TICKS(CONFIG_WEATHER_REFRESH_MINUTES * 60 * 1000)) {
-            do_refresh();
+            do_refresh(false);
             last_auto = now;
         } else if (s_have_forecast) {
             static int tick = 0;

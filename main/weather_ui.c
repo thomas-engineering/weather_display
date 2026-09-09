@@ -57,6 +57,8 @@ typedef struct {
     lv_obj_t *day_hi_lbl[WEATHER_UI_DAYS], *day_lo_lbl[WEATHER_UI_DAYS], *day_precip_lbl[WEATHER_UI_DAYS];
 
     lv_obj_t *error_bar, *error_lbl, *error_retry_lbl;
+    lv_obj_t *refresh_toast, *refresh_toast_lbl;
+    lv_timer_t *refresh_toast_timer;
 
     /* Header location is split so the LV_SYMBOL_* pin can keep a Montserrat font:
      * the generated Inter faces carry Latin-1 but not the FontAwesome codepoints. */
@@ -241,9 +243,9 @@ static void open_settings_cb(lv_event_t *e);
 static lv_obj_t *icon_btn_create(lv_obj_t *parent, const char *symbol, lv_event_cb_t cb) {
     lv_obj_t *btn = lv_obj_create(parent);
     lv_obj_remove_style_all(btn);
-    /* Synced from Claude Design 2026-09-10: touch targets enlarged to >=44px for
-     * the 7" panel — was 36x36. */
-    lv_obj_set_size(btn, 44, 44);
+    /* Synced from Claude Design 2026-09-10: touch targets enlarged again, now
+     * 44x44 -> 56x56 (icon glyph 20px -> 26px to match), was 36x36 before that. */
+    lv_obj_set_size(btn, 56, 56);
     lv_obj_set_style_border_width(btn, 1, 0);
     lv_obj_set_style_border_color(btn, C_DIVIDER, 0);
     lv_obj_set_style_radius(btn, R_MD, 0);
@@ -252,7 +254,7 @@ static lv_obj_t *icon_btn_create(lv_obj_t *parent, const char *symbol, lv_event_
     lv_obj_t *lbl = lv_label_create(btn);
     lv_label_set_text(lbl, symbol);
     lv_obj_set_style_text_color(lbl, C_TEXT, 0);
-    lv_obj_set_style_text_font(lbl, FONT_SYMBOL, 0);   /* LV_SYMBOL_* live in Montserrat only */
+    lv_obj_set_style_text_font(lbl, FONT_SYMBOL_LG, 0);   /* LV_SYMBOL_* live in Montserrat only */
     lv_obj_center(lbl);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
     return btn;
@@ -341,6 +343,9 @@ static void build_header(lv_obj_t *parent) {
     lv_obj_set_size(time_wrap, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(time_wrap, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(time_wrap, 2, 0);
+    /* Synced from Claude Design 2026-09-10: extra --space-6 (17px) on top of
+     * the row's own --space-4 gap, on both sides of the clock/date group. */
+    lv_obj_set_style_margin_left(time_wrap, 17, 0);
     lv_obj_remove_flag(time_wrap, LV_OBJ_FLAG_SCROLLABLE);
     ui.header_time_lbl = lv_label_create(time_wrap);
     lv_label_set_text(ui.header_time_lbl, "--:--");
@@ -352,7 +357,8 @@ static void build_header(lv_obj_t *parent) {
     lv_obj_set_style_text_color(ui.header_date_lbl, C_TEXT_MUTED, 0);
     lv_obj_set_style_text_font(ui.header_date_lbl, FONT_18, 0);
 
-    icon_btn_create(right, LV_SYMBOL_REFRESH, refresh_click_cb);
+    lv_obj_t *refresh_btn = icon_btn_create(right, LV_SYMBOL_REFRESH, refresh_click_cb);
+    lv_obj_set_style_margin_left(refresh_btn, 17, 0); /* --space-6, same reasoning as time_wrap above */
     icon_btn_create(right, LV_SYMBOL_SETTINGS, open_settings_cb);
 }
 
@@ -1351,6 +1357,69 @@ static void build_error_bar(lv_obj_t *parent) {
     lv_obj_center(ui.error_retry_lbl);
 }
 
+/* ---- refresh toast ---------------------------------------------------------
+ *
+ * Synced from Claude Design 2026-09-10: tapping the header refresh icon (or
+ * the error bar's retry button, which shares the same on_refresh callback)
+ * now shows a small toast — "Weather data updated." on success, auto-
+ * dismissing after 1s, or the existing error message on failure, staying
+ * until tapped away. */
+
+static void refresh_toast_hide_cb(lv_timer_t *t) {
+    LV_UNUSED(t);
+    ui.refresh_toast_timer = NULL;
+    lv_obj_add_flag(ui.refresh_toast, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void refresh_toast_dismiss_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    if (ui.refresh_toast_timer) { lv_timer_delete(ui.refresh_toast_timer); ui.refresh_toast_timer = NULL; }
+    lv_obj_add_flag(ui.refresh_toast, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void build_refresh_toast(lv_obj_t *parent) {
+    ui.refresh_toast = lv_obj_create(parent);
+    lv_obj_remove_style_all(ui.refresh_toast);
+    lv_obj_set_size(ui.refresh_toast, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_width(ui.refresh_toast, 520, 0);
+    lv_obj_set_style_bg_color(ui.refresh_toast, C_SURFACE, 0);
+    lv_obj_set_style_bg_opa(ui.refresh_toast, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(ui.refresh_toast, 1, 0);
+    lv_obj_set_style_border_color(ui.refresh_toast, C_DIVIDER, 0);
+    lv_obj_set_style_radius(ui.refresh_toast, R_LG, 0);
+    lv_obj_set_style_pad_hor(ui.refresh_toast, 20, 0);
+    lv_obj_set_style_pad_ver(ui.refresh_toast, 14, 0);
+    lv_obj_add_flag(ui.refresh_toast, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(ui.refresh_toast, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(ui.refresh_toast, refresh_toast_dismiss_cb, LV_EVENT_CLICKED, NULL);
+    /* Floats above the whole screen regardless of which panel is open, same as
+     * the dialog backdrops — see the matching comment in build_detail_panel(). */
+    lv_obj_add_flag(ui.refresh_toast, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(ui.refresh_toast, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_add_flag(ui.refresh_toast, LV_OBJ_FLAG_HIDDEN);
+
+    ui.refresh_toast_lbl = lv_label_create(ui.refresh_toast);
+    lv_label_set_text(ui.refresh_toast_lbl, "");
+    lv_obj_set_style_text_color(ui.refresh_toast_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(ui.refresh_toast_lbl, FONT_14, 0);
+}
+
+void weather_ui_show_refresh_toast(bool ok) {
+    if (!ui.refresh_toast) return;
+    if (ui.refresh_toast_timer) { lv_timer_delete(ui.refresh_toast_timer); ui.refresh_toast_timer = NULL; }
+    lv_label_set_text(ui.refresh_toast_lbl, ok ? weather_strings[ui.lang].data_updated : weather_strings[ui.lang].error);
+    lv_obj_set_style_border_color(ui.refresh_toast, ok ? C_DIVIDER : C_ACCENT, 0);
+    lv_obj_remove_flag(ui.refresh_toast, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui.refresh_toast);
+    /* Success dismisses itself; an error stays until the user taps it away —
+     * same asymmetry as the design's own refreshToastTimer, which is only
+     * ever set in the success branch of refresh(). */
+    if (ok) {
+        ui.refresh_toast_timer = lv_timer_create(refresh_toast_hide_cb, 1000, NULL);
+        lv_timer_set_repeat_count(ui.refresh_toast_timer, 1);
+    }
+}
+
 
 /* ---- Wi-Fi setup screen --------------------------------------------------
  *
@@ -1752,6 +1821,7 @@ void weather_ui_create(lv_obj_t *parent) {
 
     build_header(ui.root);
     build_error_bar(ui.root);
+    build_refresh_toast(ui.root);
 
     lv_obj_t *content = lv_obj_create(ui.root);
     lv_obj_remove_style_all(content);

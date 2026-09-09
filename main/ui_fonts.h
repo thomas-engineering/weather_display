@@ -62,5 +62,9 @@ LV_FONT_DECLARE(inter_48)
 
 /* Always a Montserrat build: this is the only place the LV_SYMBOL_* glyphs exist. */
 #define FONT_SYMBOL (&lv_font_montserrat_18)
+/* Synced from Claude Design 2026-09-10: the header's refresh/settings icon
+ * buttons grew from 20px to 26px glyphs alongside their 44->56px touch
+ * targets. */
+#define FONT_SYMBOL_LG (&lv_font_montserrat_26)
 
 #endif
