@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Bash(./scripts/hw-flash.sh:*)",
       "Bash(./scripts/host-test.sh:*)",
       "Bash(./scripts/emu-test.sh:*)",
       "Bash(git status:*)",
@@ -18,8 +19,7 @@
       "Bash(idf.py set-target:*)",
       "Bash(idf.py fullclean:*)",
       "Bash(esp-emu:*)",
-      "Bash(esptool.py:*)",
-      "Bash(./scripts/hw-flash.sh:*)"
+      "Bash(esptool.py:*)"
     ]
   }
 }

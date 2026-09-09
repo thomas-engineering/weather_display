@@ -11,7 +11,7 @@ ESP32-P4 auf diesem board ist noch Hardware-Vesion 1.3>
 | `components/app_logic/**` | `./scripts/host-test.sh` | ~5 s |
 | `main/**`, Treiber, Startup, sdkconfig | `./scripts/emu-test.sh` | ~60 s |
 | UI-Darstellung (`main/weather_ui.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, `main/fonts/**`) | `./scripts/sim.sh --screen <name> --screenshot <datei.bmp>` und den Screenshot ansehen; `--shots <verzeichnis>` nimmt alle sechs Zustände auf | ~5 s pro Screen, ~20 s für alle |
-| Peripherie-Anbindung (Display, Kamera, SDMMC, ESP-Hosted) | nichts automatisch — sag mir, dass ich auf Hardware testen soll |
+| Peripherie-Anbindung (Display, Kamera, SDMMC, ESP-Hosted) | `./scripts/hw-flash.sh [/dev/ttyACM0]` — baut, flasht und liest den Boot-Log mit Timeout; Log liegt in `.logs/hw.log` | ~30 s |
 
 Nach jeder inhaltlichen Änderung mindestens `./scripts/host-test.sh` laufen
 lassen, bevor du die Aufgabe als erledigt meldest. Beide Skripte beenden sich
@@ -21,12 +21,23 @@ von selbst und liefern Exit-Code 0 nur bei Erfolg.
 
 Diese Kommandos enden nie von selbst und blockieren die Session:
 
-- `idf.py monitor` — stattdessen `./scripts/emu-test.sh`, das Log liegt in `.logs/emu-test.log`
+- `idf.py monitor` direkt — ist ein interaktives Curses-Tool und bricht ohne
+  echtes TTY sofort mit "Monitor requires standard input to be attached to
+  TTY" ab. Für den Emulator stattdessen `./scripts/emu-test.sh` (Log in
+  `.logs/emu-test.log`), für echte Hardware `./scripts/hw-flash.sh` (Log in
+  `.logs/hw.log`) — beide lesen den Log non-interaktiv mit Timeout.
 - `esp-emu` direkt ohne `--timeout` — immer über `./scripts/emu-test.sh`
 - `./scripts/sim.sh` ohne `--screenshot` — das öffnet ein Fenster und läuft, bis
   ich es schließe. Der interaktive Simulator ist für mich; du nimmst
   `--screenshot <datei.bmp>`, das beendet sich von selbst.
-- `idf.py flash` / `./scripts/hw-flash.sh` — Flashen auf echte Hardware mache ich, nicht du. Sag mir, wenn ein Hardwaretest nötig ist.
+
+Flashen auf echte Hardware (Peripherie-Änderungen, Kamera, Display-Timing,
+alles was der Emulator nicht abdeckt) läuft über `./scripts/hw-flash.sh
+[/dev/ttyACM0]` — das Skript baut aus `build/`, flasht und liest danach den
+rohen Boot-Log mit festem Timeout (`MONITOR_SECONDS`, Standard 20s), ohne
+`idf.py monitor` zu benutzen. Direktes `idf.py flash` bleibt außerhalb dieses
+Skripts tabu — nur der Wrapper mit Timeout ist erlaubt, damit die Session
+garantiert nicht an einem hängenden Monitor blockiert.
 
 Ebenfalls nicht selbst ausführen:
 

@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 #
 # Flasht die Firmware auf echte Hardware und liest den Boot-Log mit Timeout.
-# Gedacht fuer den Menschen, nicht fuer den Agenten (siehe .claude/settings.json).
+# Seit <policy update> auch fuer den Agenten erlaubt (siehe .claude/settings.json
+# und CLAUDE.md) — deshalb bewusst ohne "idf.py monitor": das ist ein
+# interaktives Curses-Tool und bricht ohne echtes TTY mit "Monitor requires
+# standard input to be attached to TTY" ab. Stattdessen wird der Port roh
+# mit `stty`/`cat` unter `timeout` gelesen — das terminiert garantiert von
+# selbst und braucht kein TTY.
 #
 # Nutzung:  ./scripts/hw-flash.sh [/dev/ttyACM0]
 #
@@ -15,6 +20,7 @@ BUILD_DIR="$REPO_ROOT/build"
 LOG_DIR="$REPO_ROOT/.logs"
 LOG="$LOG_DIR/hw.log"
 PORT="${1:-${ESPPORT:-}}"
+BAUD="${MONITOR_BAUD:-115200}"
 MONITOR_SECONDS="${MONITOR_SECONDS:-20}"
 
 mkdir -p "$LOG_DIR"
@@ -37,13 +43,20 @@ if [ -z "$PORT" ]; then
     exit 2
 fi
 
+if [ ! -e "$PORT" ]; then
+    echo "FEHLER: $PORT nicht gefunden. Board angeschlossen?" >&2
+    exit 2
+fi
+
 echo "== Flash auf $PORT =="
 idf.py -B "$BUILD_DIR" -p "$PORT" flash
 
-# Monitor mit Zeitlimit, damit auch dieses Skript garantiert endet.
-echo "== Boot-Log, ${MONITOR_SECONDS}s =="
+# idf.py flash setzt das Board bereits per Reset neu — direkt danach lesen,
+# damit der Boot-Log nicht verpasst wird.
+echo "== Boot-Log, ${MONITOR_SECONDS}s (roh, ohne idf_monitor-Dekodierung) =="
+stty -F "$PORT" "$BAUD" raw -echo -echoe -echok
 set +e
-timeout "$MONITOR_SECONDS" idf.py -B "$BUILD_DIR" -p "$PORT" monitor --no-reset 2>&1 | tee "$LOG"
+timeout "$MONITOR_SECONDS" cat "$PORT" | tee "$LOG"
 set -e
 
 echo "Log: $LOG"
