@@ -26,6 +26,9 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .connecting = "Connecting...", .connected = "Connected", .show = "Show", .hide = "Hide",
         .enter_manually = "Enter network name manually", .enter_ssid = "Network name (SSID)", .next = "Next", .cancel2 = "Cancel",
         .online = "Online", .offline = "Offline", .data_outdated = "Data may be outdated", .data_updated = "Weather data updated.",
+        .device_info = "Device information", .device_name = "Device name", .hardware_version = "Hardware version",
+        .firmware_version = "Firmware version", .ip_address = "IP address", .dns = "DNS", .gateway = "Gateway",
+        .not_connected = "Not connected to the internet",
     },
     [LANG_DE] = {
         .cancel = "Abbrechen", .retry = "Erneut versuchen", .search_placeholder = "Stadt suchen...",
@@ -43,6 +46,9 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .connecting = "Verbinde...", .connected = "Verbunden", .show = "Anzeigen", .hide = "Verbergen",
         .enter_manually = "Netzwerkname manuell eingeben", .enter_ssid = "Netzwerkname (SSID)", .next = "Weiter", .cancel2 = "Abbrechen",
         .online = "Online", .offline = "Offline", .data_outdated = "Daten könnten veraltet sein", .data_updated = "Wetterdaten aktualisiert.",
+        .device_info = "Geräteinformationen", .device_name = "Gerätename", .hardware_version = "Hardware-Version",
+        .firmware_version = "Firmware-Version", .ip_address = "IP-Adresse", .dns = "DNS", .gateway = "Gateway",
+        .not_connected = "Nicht mit dem Internet verbunden",
     },
     [LANG_ES] = {
         .cancel = "Cancelar", .retry = "Reintentar", .search_placeholder = "Buscar una ciudad...",
@@ -60,6 +66,9 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .connecting = "Conectando...", .connected = "Conectado", .show = "Mostrar", .hide = "Ocultar",
         .enter_manually = "Ingresar nombre de red manualmente", .enter_ssid = "Nombre de red (SSID)", .next = "Siguiente", .cancel2 = "Cancelar",
         .online = "En línea", .offline = "Sin conexión", .data_outdated = "Los datos podrían estar desactualizados", .data_updated = "Datos del clima actualizados.",
+        .device_info = "Información del dispositivo", .device_name = "Nombre del dispositivo", .hardware_version = "Versión de hardware",
+        .firmware_version = "Versión de firmware", .ip_address = "Dirección IP", .dns = "DNS", .gateway = "Puerta de enlace",
+        .not_connected = "Sin conexión a Internet",
     },
     [LANG_FR] = {
         .cancel = "Annuler", .retry = "Réessayer", .search_placeholder = "Rechercher une ville...",
@@ -77,5 +86,8 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .connecting = "Connexion...", .connected = "Connecté", .show = "Afficher", .hide = "Masquer",
         .enter_manually = "Saisir le nom du réseau manuellement", .enter_ssid = "Nom du réseau (SSID)", .next = "Suivant", .cancel2 = "Annuler",
         .online = "En ligne", .offline = "Hors ligne", .data_outdated = "Les données sont peut-être obsolètes", .data_updated = "Données météo mises à jour.",
+        .device_info = "Informations sur l'appareil", .device_name = "Nom de l'appareil", .hardware_version = "Version du matériel",
+        .firmware_version = "Version du micrologiciel", .ip_address = "Adresse IP", .dns = "DNS", .gateway = "Passerelle",
+        .not_connected = "Pas de connexion à Internet",
     },
 };

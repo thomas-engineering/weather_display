@@ -80,6 +80,16 @@ typedef struct {
     lv_obj_t *seg_lang[4], *seg_temp[2], *seg_wind[3], *seg_time[2];
     lv_obj_t *brightness_slider, *brightness_adaptive_sw;
 
+    lv_obj_t *device_info_backdrop;
+    lv_obj_t *device_info_online_group, *device_info_offline_lbl;
+    lv_obj_t *device_info_name_val, *device_info_hw_val, *device_info_fw_val;
+    lv_obj_t *device_info_ip_val, *device_info_dns_val, *device_info_gw_val, *device_info_note_lbl;
+    bool has_device_info;
+    char device_info_name[64], device_info_hw[32], device_info_fw[32];
+    bool device_info_online;
+    char device_info_ip[16], device_info_dns[16], device_info_gw[16];
+    char device_info_note[160];
+
     lv_obj_t *search_backdrop, *search_ta, *search_kb, *search_results, *search_status_lbl, *search_cancel_lbl;
 
     lv_obj_t *detail_backdrop, *detail_panel, *detail_icon, *detail_day_lbl, *detail_hilo_lbl, *detail_cond_lbl;
@@ -112,6 +122,10 @@ typedef struct {
 static weather_ui_t ui;
 
 static void build_settings_panel(lv_obj_t *parent);
+static void build_device_info_panel(lv_obj_t *parent);
+static void device_info_rebuild(bool keep_open);
+static void open_device_info_cb(lv_event_t *e);
+static void close_device_info_cb(lv_event_t *e);
 static void build_wifi_screen(lv_obj_t *parent);
 static void wifi_show_list(void);
 static void wifi_relabel(void);
@@ -232,6 +246,27 @@ static lv_obj_t *field_wrap(lv_obj_t *parent, const char *label_text) {
     lv_obj_set_style_text_color(lbl, C_TEXT_MUTED, 0);
     lv_obj_set_style_text_font(lbl, FONT_12, 0);
     return wrap;
+}
+
+/* One "caption ... value" row for the Device information dialog (design's
+ * `justify-content:space-between` div pairs). Returns the value label so the
+ * caller can fill/update its text. */
+static lv_obj_t *info_row_create(lv_obj_t *parent, const char *caption) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *cap = lv_label_create(row);
+    lv_label_set_text(cap, caption);
+    lv_obj_set_style_text_color(cap, C_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(cap, FONT_12, 0);
+    lv_obj_t *val = lv_label_create(row);
+    lv_label_set_text(val, "");   /* not "Text" (LVGL's own default) until real data arrives */
+    lv_obj_set_style_text_color(val, C_TEXT, 0);
+    lv_obj_set_style_text_font(val, FONT_14, 0);
+    return val;
 }
 
 /* ---- header ------------------------------------------------------------ */
@@ -1065,16 +1100,22 @@ static void settings_rebuild(bool keep_open) {
     if (ui.search_backdrop) lv_obj_move_foreground(ui.search_backdrop);
     if (ui.detail_backdrop) lv_obj_move_foreground(ui.detail_backdrop);
     if (ui.wifi_backdrop)   lv_obj_move_foreground(ui.wifi_backdrop);
+    /* Device info stacks on top of settings (see the "device info dialog"
+     * comment above build_device_info_panel) — without this a rebuild here
+     * makes settings the newest (topmost) sibling and buries it underneath. */
+    if (ui.device_info_backdrop) lv_obj_move_foreground(ui.device_info_backdrop);
 }
 
 void weather_ui_set_language(weather_lang_t lang) {
     if (lang < 0 || lang >= LANG_COUNT) return;
     bool was_open = ui.settings_backdrop && !lv_obj_has_flag(ui.settings_backdrop, LV_OBJ_FLAG_HIDDEN);
+    bool device_info_was_open = ui.device_info_backdrop && !lv_obj_has_flag(ui.device_info_backdrop, LV_OBJ_FLAG_HIDDEN);
     ui.lang = lang;
     /* FIX: the export's README listed re-localizing the settings panel's own captions
      * as a TODO — the panel built its labels once, so switching to e.g. German left
      * "Language / Temperature / Wind speed" in English. Rebuild it in place. */
     settings_rebuild(was_open);
+    device_info_rebuild(device_info_was_open);
     wifi_relabel();
     notify_settings_changed();
 }
@@ -1186,10 +1227,53 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_set_style_text_color(title, C_TEXT, 0);
     lv_obj_set_style_text_font(title, FONT_20, 0);
 
-    lv_obj_t *close_btn = lv_obj_create(title_row);
+    /* Synced from Claude Design 2026-09-10: a new info button appeared next to the
+     * close button (opens the Device information dialog below), wrapped with it in
+     * its own row so the pair stays grouped against title_row's space-between. Also
+     * grew both buttons 44x44 -> 56x56 in the same pull, matching the header icons'
+     * earlier bump. */
+    lv_obj_t *btn_group = lv_obj_create(title_row);
+    lv_obj_remove_style_all(btn_group);
+    lv_obj_set_size(btn_group, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(btn_group, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_group, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(btn_group, 8, 0);
+    lv_obj_remove_flag(btn_group, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *info_btn = lv_obj_create(btn_group);
+    lv_obj_remove_style_all(info_btn);
+    lv_obj_set_size(info_btn, 56, 56);
+    lv_obj_add_flag(info_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(info_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(info_btn, open_device_info_cb, LV_EVENT_CLICKED, NULL);
+    /* The design's info glyph is a filled circle with a cut-out "i" (single SVG
+     * path, currentColor) — LVGL's built-in symbol font has no equivalent, so
+     * it's composed from a small circle + label instead of a font glyph, same
+     * idea as weather_icons.c's hand-drawn condition glyphs. */
+    lv_obj_t *info_circle = lv_obj_create(info_btn);
+    lv_obj_remove_style_all(info_circle);
+    lv_obj_set_size(info_circle, 24, 24);
+    lv_obj_set_style_radius(info_circle, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(info_circle, C_ACCENT, 0);
+    lv_obj_set_style_bg_opa(info_circle, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(info_circle, LV_OBJ_FLAG_SCROLLABLE);
+    /* FIX: lv_obj_create() defaults to CLICKABLE. Left on, this purely
+     * decorative inner circle intercepted the tap before it reached
+     * info_btn's own handler — found via the simulator's click-by-label-text
+     * helper (sim/main.c), which walks up to the first clickable ancestor
+     * exactly like real touch input would target the deepest clickable
+     * object under the point. */
+    lv_obj_remove_flag(info_circle, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_center(info_circle);
+    lv_obj_t *info_lbl = lv_label_create(info_circle);
+    lv_label_set_text(info_lbl, "i");
+    lv_obj_set_style_text_color(info_lbl, C_BG, 0);
+    lv_obj_set_style_text_font(info_lbl, FONT_14, 0);
+    lv_obj_center(info_lbl);
+
+    lv_obj_t *close_btn = lv_obj_create(btn_group);
     lv_obj_remove_style_all(close_btn);
-    /* Synced from Claude Design 2026-09-10: 36x36 -> 44x44 touch target. */
-    lv_obj_set_size(close_btn, 44, 44);
+    lv_obj_set_size(close_btn, 56, 56);
     lv_obj_add_flag(close_btn, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(close_btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(close_btn, settings_close_cb, LV_EVENT_CLICKED, NULL);
@@ -1313,6 +1397,159 @@ static void build_settings_panel(lv_obj_t *parent) {
      * layout pass has resolved the panel's real height. */
     lv_obj_update_layout(ui.settings_panel);
     lv_obj_center(ui.settings_panel);
+}
+
+/* ---- device info dialog ----------------------------------------------------
+ *
+ * Synced from Claude Design 2026-09-10: a "Device information" dialog opens
+ * from the new info button in the Settings title row. It stacks on top of
+ * Settings rather than replacing it (the design's openDeviceInfo doesn't
+ * touch settingsOpen), same relationship the Wi-Fi screen would have if it
+ * didn't intentionally close Settings first. */
+
+static void open_device_info_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    lv_obj_remove_flag(ui.device_info_backdrop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui.device_info_backdrop);
+}
+static void close_device_info_cb(lv_event_t *e) { LV_UNUSED(e); lv_obj_add_flag(ui.device_info_backdrop, LV_OBJ_FLAG_HIDDEN); }
+
+static void build_device_info_panel(lv_obj_t *parent) {
+    const weather_strings_t *s = &weather_strings[ui.lang];
+
+    ui.device_info_backdrop = lv_obj_create(parent);
+    lv_obj_remove_style_all(ui.device_info_backdrop);
+    lv_obj_set_size(ui.device_info_backdrop, LV_PCT(100), LV_PCT(100));
+    lv_obj_add_flag(ui.device_info_backdrop, LV_OBJ_FLAG_IGNORE_LAYOUT);  /* see build_settings_panel's FIX comment */
+    lv_obj_set_style_bg_color(ui.device_info_backdrop, C_NEUTRAL_900, 0);
+    lv_obj_set_style_bg_opa(ui.device_info_backdrop, LV_OPA_50, 0);
+    lv_obj_add_flag(ui.device_info_backdrop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui.device_info_backdrop, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.device_info_backdrop, close_device_info_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *panel = lv_obj_create(ui.device_info_backdrop);
+    lv_obj_remove_style_all(panel);
+    /* Design fixes 326x383 regardless of online/offline state, so the dialog
+     * doesn't resize/jump when connectivity changes while it's open. */
+    lv_obj_set_size(panel, 326, 383);
+    lv_obj_set_style_bg_color(panel, C_SURFACE, 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(panel, R_LG, 0);
+    lv_obj_set_style_pad_all(panel, 20, 0);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(panel, 12, 0);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *title_row = lv_obj_create(panel);
+    lv_obj_remove_style_all(title_row);
+    lv_obj_set_size(title_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(title_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(title_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(title_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = lv_label_create(title_row);
+    lv_label_set_text(title, s->device_info);
+    lv_obj_set_style_text_color(title, C_TEXT, 0);
+    lv_obj_set_style_text_font(title, FONT_20, 0);
+
+    lv_obj_t *close_btn = lv_obj_create(title_row);
+    lv_obj_remove_style_all(close_btn);
+    lv_obj_set_size(close_btn, 56, 56);
+    lv_obj_add_flag(close_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(close_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(close_btn, close_device_info_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *close_lbl = lv_label_create(close_btn);
+    lv_label_set_text(close_lbl, LV_SYMBOL_CLOSE);
+    lv_obj_set_style_text_color(close_lbl, C_ACCENT, 0);
+    lv_obj_set_style_text_font(close_lbl, FONT_SYMBOL, 0);
+    lv_obj_center(close_lbl);
+
+    ui.device_info_name_val = info_row_create(panel, s->device_name);
+    ui.device_info_hw_val   = info_row_create(panel, s->hardware_version);
+    ui.device_info_fw_val   = info_row_create(panel, s->firmware_version);
+
+    ui.device_info_online_group = lv_obj_create(panel);
+    lv_obj_remove_style_all(ui.device_info_online_group);
+    lv_obj_set_size(ui.device_info_online_group, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(ui.device_info_online_group, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(ui.device_info_online_group, 12, 0);
+    lv_obj_remove_flag(ui.device_info_online_group, LV_OBJ_FLAG_SCROLLABLE);
+    ui.device_info_ip_val = info_row_create(ui.device_info_online_group, s->ip_address);
+    ui.device_info_dns_val = info_row_create(ui.device_info_online_group, s->dns);
+    ui.device_info_gw_val = info_row_create(ui.device_info_online_group, s->gateway);
+    ui.device_info_note_lbl = lv_label_create(ui.device_info_online_group);
+    lv_obj_set_style_text_color(ui.device_info_note_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(ui.device_info_note_lbl, FONT_14, 0);
+    lv_label_set_long_mode(ui.device_info_note_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(ui.device_info_note_lbl, LV_PCT(100));
+
+    ui.device_info_offline_lbl = lv_label_create(panel);
+    lv_label_set_text(ui.device_info_offline_lbl, s->not_connected);
+    lv_obj_set_style_text_color(ui.device_info_offline_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(ui.device_info_offline_lbl, FONT_14, 0);
+
+    /* Fill in whatever weather_ui_set_device_info() was last called with —
+     * needed after a language-change rebuild, where the panel is torn down
+     * and recreated from scratch but the underlying data hasn't changed. */
+    if (ui.has_device_info) {
+        lv_label_set_text(ui.device_info_name_val, ui.device_info_name);
+        lv_label_set_text(ui.device_info_hw_val, ui.device_info_hw);
+        lv_label_set_text(ui.device_info_fw_val, ui.device_info_fw);
+        lv_label_set_text(ui.device_info_ip_val, ui.device_info_ip);
+        lv_label_set_text(ui.device_info_dns_val, ui.device_info_dns);
+        lv_label_set_text(ui.device_info_gw_val, ui.device_info_gw);
+        lv_label_set_text(ui.device_info_note_lbl, ui.device_info_note);
+    }
+    if (ui.device_info_online) {
+        lv_obj_remove_flag(ui.device_info_online_group, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui.device_info_offline_lbl, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(ui.device_info_online_group, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(ui.device_info_offline_lbl, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    lv_obj_update_layout(panel);   /* see build_settings_panel's matching FIX comment */
+    lv_obj_center(panel);
+}
+
+/* Rebuilding makes it the topmost child; restore stacking like settings_rebuild(). */
+static void device_info_rebuild(bool keep_open) {
+    if (!ui.device_info_backdrop) return;
+    lv_obj_delete(ui.device_info_backdrop);
+    build_device_info_panel(ui.root);
+    if (keep_open) lv_obj_remove_flag(ui.device_info_backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (ui.search_backdrop) lv_obj_move_foreground(ui.search_backdrop);
+    if (ui.detail_backdrop) lv_obj_move_foreground(ui.detail_backdrop);
+    if (ui.wifi_backdrop)   lv_obj_move_foreground(ui.wifi_backdrop);
+}
+
+void weather_ui_set_device_info(const weather_device_info_t *info) {
+    if (!info) return;
+    ui.has_device_info = true;
+    snprintf(ui.device_info_name, sizeof ui.device_info_name, "%s", info->device_name ? info->device_name : "");
+    snprintf(ui.device_info_hw, sizeof ui.device_info_hw, "%s", info->hardware_version ? info->hardware_version : "");
+    snprintf(ui.device_info_fw, sizeof ui.device_info_fw, "%s", info->firmware_version ? info->firmware_version : "");
+    ui.device_info_online = info->online;
+    snprintf(ui.device_info_ip, sizeof ui.device_info_ip, "%s", info->ip ? info->ip : "");
+    snprintf(ui.device_info_dns, sizeof ui.device_info_dns, "%s", info->dns ? info->dns : "");
+    snprintf(ui.device_info_gw, sizeof ui.device_info_gw, "%s", info->gateway ? info->gateway : "");
+    snprintf(ui.device_info_note, sizeof ui.device_info_note, "%s", info->note ? info->note : "");
+
+    if (!ui.device_info_backdrop) return;   /* not built yet; weather_ui_create() picks this up */
+    lv_label_set_text(ui.device_info_name_val, ui.device_info_name);
+    lv_label_set_text(ui.device_info_hw_val, ui.device_info_hw);
+    lv_label_set_text(ui.device_info_fw_val, ui.device_info_fw);
+    lv_label_set_text(ui.device_info_ip_val, ui.device_info_ip);
+    lv_label_set_text(ui.device_info_dns_val, ui.device_info_dns);
+    lv_label_set_text(ui.device_info_gw_val, ui.device_info_gw);
+    lv_label_set_text(ui.device_info_note_lbl, ui.device_info_note);
+    if (ui.device_info_online) {
+        lv_obj_remove_flag(ui.device_info_online_group, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui.device_info_offline_lbl, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(ui.device_info_online_group, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(ui.device_info_offline_lbl, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 /* ---- error bar ------------------------------------------------------------ */
@@ -1844,6 +2081,7 @@ void weather_ui_create(lv_obj_t *parent) {
     build_forecast_strip(content);
 
     build_settings_panel(ui.root);
+    build_device_info_panel(ui.root);
     build_search_overlay(ui.root);
     build_detail_panel(ui.root);
     build_wifi_screen(ui.root);

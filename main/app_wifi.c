@@ -118,6 +118,24 @@ void app_wifi_init(void) {
 bool app_wifi_have_credentials(void) { return s_ssid[0] != '\0'; }
 bool app_wifi_is_connected(void) { return s_connected; }
 
+/* For the Settings > Device information dialog (Claude Design, 2026-09-10).
+ * Buffers must be at least 16 bytes (IPSTR is "%d.%d.%d.%d"). Returns false
+ * (buffers left untouched) if not connected or the netif has no address yet. */
+bool app_wifi_get_ip_info(char *ip, size_t ip_len, char *dns, size_t dns_len, char *gw, size_t gw_len) {
+    if (!s_connected || !s_sta_netif) return false;
+    esp_netif_ip_info_t ip_info;
+    if (esp_netif_get_ip_info(s_sta_netif, &ip_info) != ESP_OK || ip_info.ip.addr == 0) return false;
+    snprintf(ip, ip_len, IPSTR, IP2STR(&ip_info.ip));
+    snprintf(gw, gw_len, IPSTR, IP2STR(&ip_info.gw));
+    esp_netif_dns_info_t dns_info = {0};
+    if (esp_netif_get_dns_info(s_sta_netif, ESP_NETIF_DNS_MAIN, &dns_info) == ESP_OK) {
+        snprintf(dns, dns_len, IPSTR, IP2STR(&dns_info.ip.u_addr.ip4));
+    } else {
+        snprintf(dns, dns_len, "-");
+    }
+    return true;
+}
+
 /* Shared by both connect paths. */
 static bool connect_locked(const char *ssid, const char *pass) {
     s_want_reconnect = true;

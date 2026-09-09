@@ -12,6 +12,7 @@
 #define APP_WIFI_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include "weather_ui.h"
 
 #define APP_WIFI_MAX_SCAN 12
@@ -41,6 +42,11 @@ int app_wifi_scan(wx_wifi_network_t *out, int max);
 
 /* True while the station holds an IP. */
 bool app_wifi_is_connected(void);
+
+/* Fills ip/dns/gw (each must be >=16 bytes, IPSTR is "%d.%d.%d.%d") for the
+ * Settings > Device information dialog. Returns false, buffers untouched, if
+ * not connected or the netif has no address yet. */
+bool app_wifi_get_ip_info(char *ip, size_t ip_len, char *dns, size_t dns_len, char *gw, size_t gw_len);
 
 /* Starts SNTP and waits up to `timeout_ms` for the clock to be set. The header
  * clock and the "Today/Tomorrow" labels are wrong without this. */

@@ -84,7 +84,7 @@ if [ "${1:-}" = "--shots" ]; then
     mkdir -p "$OUT"
 
     echo "== Aufnahmen nach $OUT =="
-    for screen in main detail search settings settings-adaptive-on wifi; do
+    for screen in main detail search settings settings-adaptive-on device-info wifi; do
         SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
             "$BUILD_DIR/weather_sim" --screen "$screen" --screenshot "$OUT/$screen.bmp" \
             || { echo "FEHLER bei Screen '$screen'." >&2; exit 1; }

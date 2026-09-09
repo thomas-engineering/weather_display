@@ -51,6 +51,33 @@ post-Wi-Fi-connect refresh — triggers the toast, matching the design's own
 `refresh()` handler being the only place it sets `refreshToast`). New
 `data_updated` string added to `weather_i18n.c` in all four locales, copied
 verbatim from the design's `strings` blocks.
+Re-pulled again 2026-09-10 for a new "Device information" dialog: an info
+button (filled circle, "i") next to the Settings dialog's close button opens
+it on top of Settings without closing that dialog first. Shows device name,
+hardware version and firmware version always; IP address, DNS, gateway and a
+short note only while online, or "Not connected to the internet" while
+offline. The Settings dialog's own close button also grew 44px -> 56px in the
+same pull, matching the info button next to it. New strings (`deviceInfo`,
+`deviceName`, `hardwareVersion`, `firmwareVersion`, `ipAddress`, `dns`,
+`gateway`, `notConnected`) added to `weather_i18n.c`/`.h` in all four locales.
+Ported to `weather_ui.c` (`build_device_info_panel`, `weather_ui_set_device_info`,
+`device_info_rebuild` for language-change re-localization — same pattern as
+`settings_rebuild`) and `app_wifi.c` (new `app_wifi_get_ip_info()`) /
+`app_weather.c` (`push_device_info_to_ui()`, firmware version from
+`esp_app_get_description()`, hardware version hardcoded to this board's fixed
+silicon revision per CLAUDE.md). The design has no built-in glyph for the info
+icon (LVGL's symbol font has none either), so it's composed from a small
+circle + "i" label instead of a font glyph — same approach as
+`weather_icons.c`'s hand-drawn condition icons.
+
+Also caught a bug in the port itself while wiring the new button: LVGL's
+`lv_obj_create()` defaults to `LV_OBJ_FLAG_CLICKABLE`, and the info button's
+purely decorative inner circle inherited it, intercepting every tap before it
+reached the button's own handler. Found via `sim/main.c`'s click-by-label-text
+helper (which walks up to the first clickable ancestor, the same way real
+touch input targets the deepest clickable object under a point) rather than
+on hardware — added a `device-info` screen state to `sim/main.c` and
+`scripts/sim.sh --shots` alongside the fix.
 
 ## `src/weather-app/` — the app design
 

@@ -117,6 +117,17 @@ void weather_ui_show_refresh_toast(bool ok);
 void weather_ui_set_network_status(wx_net_status_t status);
 void weather_ui_set_data_stale(bool stale);
 
+/* Settings > Device information dialog (Claude Design, 2026-09-10). ip/dns/gateway
+ * and note are only shown while online — pass NULL for any of them while offline,
+ * the dialog falls back to "not connected" text instead. Strings are copied in,
+ * safe to pass stack buffers. */
+typedef struct {
+    const char *device_name, *hardware_version, *firmware_version;
+    bool online;
+    const char *ip, *dns, *gateway, *note;
+} weather_device_info_t;
+void weather_ui_set_device_info(const weather_device_info_t *info);
+
 /* Current settings, so the app can persist them / re-fetch in the right language. */
 weather_lang_t weather_ui_get_language(void);
 wx_time_fmt_t  weather_ui_get_time_fmt(void);

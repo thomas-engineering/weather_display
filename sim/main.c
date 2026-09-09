@@ -148,6 +148,21 @@ static void publish_weather(void)
     weather_ui_set_error(NULL);
     weather_ui_set_network_status(WX_NET_ONLINE);
     weather_ui_set_data_stale(false);
+
+    /* Sample data for the Settings > Device information dialog (--screen
+     * device-info) — the real values come from app_weather.c on the device,
+     * which the simulator has no equivalent of. */
+    weather_device_info_t dev_info = {
+        .device_name = "Weather Display",
+        .hardware_version = "ESP32-P4 Rev 1.3",
+        .firmware_version = "1.0.0-sim",
+        .online = true,
+        .ip = "192.168.1.42",
+        .dns = "1.1.1.1",
+        .gateway = "192.168.1.1",
+        .note = "Created by M. Thomas using Claude Design and Claude Code.",
+    };
+    weather_ui_set_device_info(&dev_info);
 }
 
 /* ---- Fake-Geocoding ----------------------------------------------------- */
@@ -354,6 +369,7 @@ typedef enum {
     SCREEN_SEARCH,
     SCREEN_SETTINGS,
     SCREEN_SETTINGS_ADAPTIVE_ON,
+    SCREEN_DEVICE_INFO,
     SCREEN_REFRESH_TOAST,
     SCREEN_DETAIL,
     SCREEN_WIFI,
@@ -431,6 +447,17 @@ static void open_screen(void)
     case SCREEN_SETTINGS: {
         lv_obj_t *gear = find_label(root, LV_SYMBOL_SETTINGS);
         if (gear == NULL || !click_owner_of(gear)) warn_missing("Zahnrad im Header");
+        break;
+    }
+
+    case SCREEN_DEVICE_INFO: {
+        /* Settings > the new info button opens Device information on top of
+         * it (see the "device info dialog" comment in weather_ui.c) — open
+         * both in sequence like a real tap would. */
+        lv_obj_t *gear = find_label(root, LV_SYMBOL_SETTINGS);
+        if (gear == NULL || !click_owner_of(gear)) { warn_missing("Zahnrad im Header"); break; }
+        lv_obj_t *info = find_label(root, "i");
+        if (info == NULL || !click_owner_of(info)) warn_missing("Info-Knopf im Einstellungsdialog");
         break;
     }
 
@@ -526,12 +553,13 @@ int main(int argc, char **argv)
             else if (strcmp(name, "search")   == 0) s_screen = SCREEN_SEARCH;
             else if (strcmp(name, "settings") == 0) s_screen = SCREEN_SETTINGS;
             else if (strcmp(name, "settings-adaptive-on") == 0) s_screen = SCREEN_SETTINGS_ADAPTIVE_ON;
+            else if (strcmp(name, "device-info") == 0) s_screen = SCREEN_DEVICE_INFO;
             else if (strcmp(name, "refresh-toast") == 0) s_screen = SCREEN_REFRESH_TOAST;
             else if (strcmp(name, "detail")   == 0) s_screen = SCREEN_DETAIL;
             else if (strcmp(name, "wifi")     == 0) s_screen = SCREEN_WIFI;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, refresh-toast, detail, wifi\n", name);
+                                "settings, settings-adaptive-on, device-info, refresh-toast, detail, wifi\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
@@ -545,7 +573,7 @@ int main(int argc, char **argv)
                     "        [--screenshot DATEI.bmp [--screenshot-after MS]]\n"
                     "  --screen            oeffnet den Screen nach dem Laden der Daten:\n"
                     "                      main (Vorgabe), search, settings,\n"
-                    "                      settings-adaptive-on, refresh-toast, detail, wifi\n"
+                    "                      settings-adaptive-on, device-info, refresh-toast, detail, wifi\n"
                     "                      refresh-toast braucht ein kurzes --screenshot-after\n"
                     "                      (z.B. 2000) — der Toast blendet sich nach 1s\n"
                     "                      wieder aus, der Standard-Wert (3000) verpasst ihn.\n"

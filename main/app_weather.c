@@ -15,6 +15,7 @@
 #include "freertos/queue.h"
 #include "cJSON.h"
 #include "mbedtls/error.h"
+#include "esp_app_desc.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -152,6 +153,34 @@ static float jarr(const cJSON *o, const char *k, int i, float dflt) {
 
 /* ---- UI push (always under the display lock) ----------------------------- */
 
+/* Settings > Device information dialog (Claude Design, 2026-09-10). Called
+ * from both UI-push points below (display already locked there) rather than
+ * on its own schedule — IP/DNS/gateway only change on the same connect/
+ * disconnect transitions that already drive weather_ui_set_network_status(),
+ * so piggybacking here keeps it current without a separate poll.
+ *
+ * Hardware version is this board's fixed silicon revision (see CLAUDE.md /
+ * the P4 board memory note), not something firmware can read back at
+ * runtime. Firmware version comes from esp_app_get_description(), which
+ * ESP-IDF fills from `git describe` at build time. */
+static void push_device_info_to_ui(void) {
+    char ip[16] = "", dns[16] = "", gw[16] = "";
+    bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
+    weather_device_info_t info = {
+        .device_name = "Weather Display",
+        .hardware_version = "ESP32-P4 Rev 1.3",
+        .firmware_version = esp_app_get_description()->version,
+        .online = online,
+        .ip = online ? ip : NULL,
+        .dns = online ? dns : NULL,
+        .gateway = online ? gw : NULL,
+        /* Copied verbatim from the design's deviceInfoNote field, same as
+         * every other UI string in this port. */
+        .note = "Created by M. Thomas using Claude Design and Claude Code.",
+    };
+    weather_ui_set_device_info(&info);
+}
+
 static void ui_error(const char *msg) {
     bool stale = s_last_success == 0 || (time(NULL) - s_last_success) > STALE_AFTER_SEC;
     if (!bsp_display_lock(1000)) return;
@@ -159,6 +188,7 @@ static void ui_error(const char *msg) {
     weather_ui_set_error(msg);
     weather_ui_set_network_status(app_wifi_is_connected() ? WX_NET_ONLINE : WX_NET_OFFLINE);
     weather_ui_set_data_stale(stale);
+    push_device_info_to_ui();
     bsp_display_unlock();
 }
 
@@ -226,6 +256,7 @@ static void push_forecast_to_ui(void) {
     weather_ui_set_network_status(app_wifi_is_connected() ? WX_NET_ONLINE : WX_NET_OFFLINE);
     weather_ui_set_data_stale(stale);
     weather_ui_set_loading(false);
+    push_device_info_to_ui();
     bsp_display_unlock();
 }
 

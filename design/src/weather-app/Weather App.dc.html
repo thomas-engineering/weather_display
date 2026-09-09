@@ -8,8 +8,8 @@
 <body>
 <x-dc>
 <helmet>
-  <link rel="stylesheet" href="_ds/nocturne/styles.css">
-  <script src="_ds/nocturne/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="_ds/nocturne-0f9c6512-6f99-4fa1-bf1d-02f21ece359a/styles.css">
+  <script src="_ds/nocturne-0f9c6512-6f99-4fa1-bf1d-02f21ece359a/_ds_bundle.js"></script>
   <style>
     body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)}
     a{color:var(--color-accent)} a:hover{color:var(--color-accent-300)}
@@ -157,7 +157,7 @@
   <sc-if value="{{ searchOpen }}">
     <div style="position:absolute;inset:0;background:color-mix(in srgb, var(--color-bg) 92%, transparent);backdrop-filter:blur(6px);display:flex;flex-direction:column;padding:var(--space-6);animation:fadeIn 0.15s ease-out">
       <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4)">
-        <input data-lv="input.search" class="input" readOnly="{{ true }}" placeholder="{{ t.searchPlaceholder }}" value="{{ searchQuery }}" style="font-size:16px;padding:10px 14px;caret-color:transparent"></input>
+        <input data-lv="input.search" class="input" readOnly="{{ true }}" placeholder="{{ t.searchPlaceholder }}" value="{{ searchQuery }}" style="font-size:16px;padding:10px 14px;caret-color:transparent">
         <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ closeSearch }}" style="min-height:44px;padding:10px 18px;font-size:15px">{{ t.cancel }}</button>
       </div>
       <sc-if value="{{ searching }}">
@@ -197,45 +197,50 @@
       <div class="dialog">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div data-lv="label.title" class="dialog-title">{{ t.settings }}</div>
-          <button data-lv="button.icon" class="btn btn-ghost" onClick="{{ closeSettings }}" style="width:44px;height:44px">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
+          <div style="display:flex;align-items:center;gap:8px">
+          <button data-lv="button.icon" class="btn btn-ghost" onClick="{{ openDeviceInfo }}" title="Info" style="width:56px;height:56px">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 5a1.25 1.25 0 1 1 0 2.5A1.25 1.25 0 0 1 12 7zm1.25 12h-2.5v-8h2.5v8z"></path></svg>
           </button>
+          <button data-lv="button.icon" class="btn btn-ghost" onClick="{{ closeSettings }}" style="width:56px;height:56px">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
+          </button>
+          </div>
         </div>
         <div class="field">
           <label data-lv="label.caption">{{ t.language }}</label>
           <div data-lv="segmented" class="seg">
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangDe }}" onChange="{{ setLangDe }}"></input>Deutsch</label>
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangEn }}" onChange="{{ setLangEn }}"></input>English</label>
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangEs }}" onChange="{{ setLangEs }}"></input>Español</label>
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangFr }}" onChange="{{ setLangFr }}"></input>Français</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangDe }}" onChange="{{ setLangDe }}">Deutsch</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangEn }}" onChange="{{ setLangEn }}">English</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangEs }}" onChange="{{ setLangEs }}">Español</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangFr }}" onChange="{{ setLangFr }}">Français</label>
           </div>
         </div>
         <div class="field">
           <label data-lv="label.caption">{{ t.temperature }}</label>
           <div data-lv="segmented" class="seg">
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempC }}" onChange="{{ setTempC }}"></input>°C</label>
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempF }}" onChange="{{ setTempF }}"></input>°F</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempC }}" onChange="{{ setTempC }}">°C</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempF }}" onChange="{{ setTempF }}">°F</label>
           </div>
         </div>
         <div class="field">
           <label data-lv="label.caption">{{ t.windSpeed }}</label>
           <div data-lv="segmented" class="seg">
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindKmh }}" onChange="{{ setWindKmh }}"></input>km/h</label>
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindMph }}" onChange="{{ setWindMph }}"></input>mph</label>
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindMs }}" onChange="{{ setWindMs }}"></input>m/s</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindKmh }}" onChange="{{ setWindKmh }}">km/h</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindMph }}" onChange="{{ setWindMph }}">mph</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindMs }}" onChange="{{ setWindMs }}">m/s</label>
           </div>
         </div>
         <div class="field">
           <label data-lv="label.caption">{{ t.timeFormat }}</label>
           <div data-lv="segmented" class="seg">
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime24 }}" onChange="{{ setTime24 }}"></input>{{ t.h24 }}</label>
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime12 }}" onChange="{{ setTime12 }}"></input>{{ t.h12 }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime24 }}" onChange="{{ setTime24 }}">{{ t.h24 }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime12 }}" onChange="{{ setTime12 }}">{{ t.h12 }}</label>
           </div>
         </div>
         <div class="field">
           <label data-lv="label.caption">{{ t.brightness }}</label>
           <div style="padding:14px 0">
-            <input data-lv="input.range" type="range" min="10" max="100" step="1" value="{{ brightness }}" onInput="{{ setBrightness }}" style="display:block;width:100%;margin:0;accent-color:var(--color-accent)"></input>
+            <input data-lv="input.range" type="range" min="10" max="100" step="1" value="{{ brightness }}" onInput="{{ setBrightness }}" style="display:block;width:100%;margin:0;accent-color:var(--color-accent)">
           </div>
           <div data-lv="switch.option" style="display:inline-flex;align-items:center;gap:var(--space-2);margin-top:var(--space-1);cursor:pointer" onClick="{{ toggleBrightnessAdaptive }}" role="switch" aria-checked="{{ brightnessAdaptive }}">
             <span style="{{ switchTrackStyle }}"><span style="{{ switchThumbStyle }}"></span></span>
@@ -248,6 +253,51 @@
         </div>
       </div>
     </div>
+  </sc-if>
+
+  <sc-if value="{{ deviceInfoOpen }}">
+    <div class="dialog-backdrop" style="position:absolute">
+      
+    <div class="dialog" style="width: 326px; height: 383px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div data-lv="label.title" class="dialog-title">{{ t.deviceInfo }}</div>
+          <button data-lv="button.icon" class="btn btn-ghost" onClick="{{ closeDeviceInfo }}" style="width:56px;height:56px">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
+          </button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-4)">
+          <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.deviceName }}</span>
+            <span data-lv="label.body">{{ deviceInfo.deviceName }}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.hardwareVersion }}</span>
+            <span data-lv="label.body">{{ deviceInfo.hardwareVersion }}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.firmwareVersion }}</span>
+            <span data-lv="label.body">{{ deviceInfo.firmwareVersion }}</span>
+          </div>
+          <sc-if value="{{ deviceInfo.online }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+              <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.ipAddress }}</span>
+              <span data-lv="label.body">{{ deviceInfo.ip }}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+              <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.dns }}</span>
+              <span data-lv="label.body">{{ deviceInfo.dns }}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+              <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.gateway }}</span>
+              <span data-lv="label.body">{{ deviceInfo.gateway }}</span>
+            </div><div data-lv="label.body" style="min-height:4.6em;line-height:1.15em;overflow:hidden">{{ deviceInfoNote }}</div>
+          </sc-if>
+          <sc-if value="{{ deviceInfoOffline }}">
+            <div data-lv="label.body" style="color:color-mix(in srgb, var(--color-text) 70%, transparent)">{{ t.notConnected }}</div>
+          </sc-if>
+          
+        </div>
+      </div></div>
   </sc-if>
 
   <sc-if value="{{ wifiOpen }}">
@@ -294,7 +344,7 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
             </button>
           </div>
-          <input data-lv="input.text" class="input" readOnly="{{ true }}" placeholder="{{ t.enterSsid }}" value="{{ wifiManualSsid }}" style="font-size:16px;padding:10px 14px;caret-color:transparent"></input>
+          <input data-lv="input.text" class="input" readOnly="{{ true }}" placeholder="{{ t.enterSsid }}" value="{{ wifiManualSsid }}" style="font-size:16px;padding:10px 14px;caret-color:transparent">
           <div style="display:flex;flex-direction:column;gap:6px;padding-top:6px">
             <sc-for list="{{ manualKbRows }}" as="row" hint-placeholder-count="4">
               <div style="display:flex;gap:5px;justify-content:center">
@@ -320,7 +370,7 @@
           </div>
           <p data-lv="label.body" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 70%, transparent);margin:0">{{ t.enterPassword }} {{ wifiSelectedSsid }}</p>
           <div style="display:flex;align-items:center;gap:var(--space-2)">
-            <input data-lv="input.password" class="input" readOnly="{{ true }}" value="{{ wifiPasswordDisplay }}" style="flex:1;font-size:16px;padding:10px 14px;caret-color:transparent"></input>
+            <input data-lv="input.password" class="input" readOnly="{{ true }}" value="{{ wifiPasswordDisplay }}" style="flex:1;font-size:16px;padding:10px 14px;caret-color:transparent">
             <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ toggleWifiShowPassword }}">{{ wifiShowHideLabel }}</button>
           </div>
 
@@ -436,6 +486,7 @@ class Component extends DCLogic {
     sheetClosing: false,
     language: 'en',
     refreshToast: null,
+    deviceInfoOpen: false,
     wifiOpen: false,
     wifiScanning: false,
     wifiNetworks: [],
@@ -463,6 +514,9 @@ class Component extends DCLogic {
         feelsLike: 'Feels like', wind: 'Wind', precip: 'Precip.', forecast: '7-Day Forecast',
         loading: 'Loading weather…', today: 'Today', tomorrow: 'Tomorrow', error: 'Could not load weather',
         dataUpdated: 'Weather data updated.',
+        deviceInfo: 'Device information', deviceName: 'Device name', hardwareVersion: 'Hardware version',
+        firmwareVersion: 'Firmware version', ipAddress: 'IP address', dns: 'DNS', gateway: 'Gateway',
+        notConnected: 'Not connected to the internet',
         space: 'Space', done: 'Done',
         brightness: 'Brightness', brightnessAdaptive: 'Adapt to ambient light',
         network: 'Network', configureNetwork: 'Configure network', wifiTitle: 'Wi-Fi networks',
@@ -484,6 +538,9 @@ class Component extends DCLogic {
         feelsLike: 'Gefühlt', wind: 'Wind', precip: 'Niederschlag', forecast: '7-Tage-Vorhersage',
         loading: 'Wetter wird geladen…', today: 'Heute', tomorrow: 'Morgen', error: 'Wetter konnte nicht geladen werden',
         dataUpdated: 'Wetterdaten aktualisiert.',
+        deviceInfo: 'Geräteinformationen', deviceName: 'Gerätename', hardwareVersion: 'Hardware-Version',
+        firmwareVersion: 'Firmware-Version', ipAddress: 'IP-Adresse', dns: 'DNS', gateway: 'Gateway',
+        notConnected: 'Nicht mit dem Internet verbunden',
         space: 'Leerzeichen', done: 'Fertig',
         brightness: 'Helligkeit', brightnessAdaptive: 'An Umgebungslicht anpassen',
         network: 'Netzwerk', configureNetwork: 'Netzwerk konfigurieren', wifiTitle: 'WLAN-Netzwerke',
@@ -505,6 +562,9 @@ class Component extends DCLogic {
         feelsLike: 'Sensación', wind: 'Viento', precip: 'Precip.', forecast: 'Pronóstico de 7 días',
         loading: 'Cargando el clima…', today: 'Hoy', tomorrow: 'Mañana', error: 'No se pudo cargar el clima',
         dataUpdated: 'Datos del clima actualizados.',
+        deviceInfo: 'Información del dispositivo', deviceName: 'Nombre del dispositivo', hardwareVersion: 'Versión de hardware',
+        firmwareVersion: 'Versión de firmware', ipAddress: 'Dirección IP', dns: 'DNS', gateway: 'Puerta de enlace',
+        notConnected: 'Sin conexión a Internet',
         space: 'Espacio', done: 'Listo',
         brightness: 'Brillo', brightnessAdaptive: 'Adaptar a la luz ambiental',
         network: 'Red', configureNetwork: 'Configurar red', wifiTitle: 'Redes Wi-Fi',
@@ -526,6 +586,9 @@ class Component extends DCLogic {
         feelsLike: 'Ressenti', wind: 'Vent', precip: 'Précip.', forecast: 'Prévisions sur 7 jours',
         loading: 'Chargement de la météo…', today: 'Aujourd\u2019hui', tomorrow: 'Demain', error: 'Impossible de charger la météo',
         dataUpdated: 'Données météo mises à jour.',
+        deviceInfo: 'Informations sur l\u2019appareil', deviceName: 'Nom de l\u2019appareil', hardwareVersion: 'Version du matériel',
+        firmwareVersion: 'Version du micrologiciel', ipAddress: 'Adresse IP', dns: 'DNS', gateway: 'Passerelle',
+        notConnected: 'Pas de connexion à Internet',
         space: 'Espace', done: 'Terminé',
         brightness: 'Luminosité', brightnessAdaptive: 'Adapter à la lumière ambiante',
         network: 'Réseau', configureNetwork: 'Configurer le réseau', wifiTitle: 'Réseaux Wi-Fi',
@@ -561,12 +624,15 @@ class Component extends DCLogic {
     window.removeEventListener('offline', this.onOffline);
   }
 
+  DEVICE_INFO = { deviceName: 'Weather Display', hardwareVersion: 'ESP32-P4 Rev A', firmwareVersion: '1.4.2', online: true, ip: '192.168.1.42', dns: '1.1.1.1', gateway: '192.168.1.1' };
   openSearch = () => this.setState({ searchOpen: true });
   closeSearch = () => this.setState({ searchOpen: false, searchQuery: '', searchResults: [] });
   openSettings = () => this.setState({ settingsOpen: true });
   setBrightness = (e) => this.setState({ brightness: Number(e.target.value) });
   toggleBrightnessAdaptive = () => this.setState((s) => ({ brightnessAdaptive: !s.brightnessAdaptive }));
   closeSettings = () => this.setState({ settingsOpen: false });
+  openDeviceInfo = () => this.setState({ deviceInfoOpen: true });
+  closeDeviceInfo = () => this.setState({ deviceInfoOpen: false });
   closeDay = () => {
     this.setState({ sheetClosing: true });
     clearTimeout(this.sheetTimer);
@@ -814,7 +880,7 @@ class Component extends DCLogic {
   }
 
   renderVals() {
-    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt } = this.state;
+    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, deviceInfoOpen, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt } = this.state;
     const isDataStale = !!lastFetchSuccessAt && (now.getTime() - lastFetchSuccessAt) > this.STALE_MS;
     const strings = this.getStrings(language);
     const locale = this.LOCALE[language] || 'en-US';
@@ -878,6 +944,10 @@ class Component extends DCLogic {
       refreshToastMessage: refreshToast ? refreshToast.message : '',
       refreshToastBorderColor: refreshToast && refreshToast.type === 'error' ? 'var(--color-accent)' : 'var(--color-divider)',
       dismissRefreshToast: this.dismissRefreshToast,
+      deviceInfoOpen, openDeviceInfo: this.openDeviceInfo, closeDeviceInfo: this.closeDeviceInfo,
+      deviceInfo: this.DEVICE_INFO,
+      deviceInfoOffline: !this.DEVICE_INFO.online,
+      deviceInfoNote: 'Created by M. Thomas using Claude Design and Claude Code.',
       showContent: !!weather && !(loading && !weather),
       current, days, selectedDay,
       hasSelectedDay: selectedDay != null,
