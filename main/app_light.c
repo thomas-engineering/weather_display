@@ -6,11 +6,13 @@
 #include "esp_log.h"
 #include "esp_video_init.h"
 #include "esp_video_device.h"
+#include "light_policy.h"
 #include "linux/videodev2.h"
 
+#include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
@@ -23,30 +25,23 @@ static const char *TAG = "light";
 #define DQBUF_RETRIES        20
 #define DQBUF_RETRY_DELAY_MS 50
 #define BUF_COUNT            2
-#define BRIGHTNESS_MIN       10
-#define BRIGHTNESS_MAX       100
-/* The OV5647's own AEC/AGC keeps the sensor's own exposure roughly correct
- * for whatever it's pointed at, which compresses average luma into a much
- * narrower band than the theoretical 0-255: on-hardware calibration (this
- * board, this lens) measured luma=1 covered, luma=60 in a dim room on an
- * overcast day, luma=117 pointed directly at a torch. Scaling against 255
- * would leave a merely bright room stuck around half brightness — scale
- * against this measured ceiling instead so typical bright-but-not-blinding
- * light reaches near BRIGHTNESS_MAX. Re-measure if the sensor, lens, or
- * mounting position changes. */
-#define LUMA_CEILING         130
-/* Report a new brightness only once it moves by this much, so sensor/AEC
- * noise doesn't chatter the backlight PWM every sample. */
-#define CHANGE_THRESHOLD_PCT 3
+/* Gives the sensor's own AEC/AGC time to converge after the stream starts, so
+ * the first sample isn't a too-dark pre-exposure frame — on hardware this
+ * showed up as the backlight dropping to minimum on every boot with adaptive
+ * mode already on, because the very first frame off a cold stream is
+ * evaluated before the sensor has adjusted to the actual scene. */
+#define SETTLE_MS            300
 
-static bool s_available;
-static bool s_adaptive;
+static bool s_available;         /* camera responded when app_light_init() probed it */
+static volatile bool s_adaptive; /* requested by the UI; read by light_sensor_task */
+static bool s_streaming;         /* owned entirely by light_sensor_task */
 static int s_video_fd = -1;
 static void *s_buf[BUF_COUNT];
+static size_t s_buf_len[BUF_COUNT];
+static int s_buf_mapped_count;   /* how many of s_buf[] are valid mmap()s, for cleanup */
 static uint32_t s_buf_mem_type;
 static app_light_brightness_cb_t s_cb;
-static int s_last_reported_pct = -1;
-static int s_ema_luma = -1;
+static light_policy_t s_policy;
 static TaskHandle_t s_task;
 
 /* RGB565, little-endian, sampled at a stride rather than every pixel — a
@@ -71,19 +66,25 @@ static uint8_t average_luma(const uint8_t *buf, size_t len) {
     return n ? (uint8_t)(sum / n) : 0;
 }
 
+static void unmap_buffers(void) {
+    for (int i = 0; i < s_buf_mapped_count; i++) {
+        munmap(s_buf[i], s_buf_len[i]);
+        s_buf[i] = NULL;
+        s_buf_len[i] = 0;
+    }
+    s_buf_mapped_count = 0;
+}
+
+/* Opens the CSI device, negotiates RGB565, and queues BUF_COUNT mmap'd
+ * buffers — but does not start the stream. Called only from
+ * start_streaming(). On any failure, cleans up whatever it already
+ * allocated (buffers mapped so far, then the fd) instead of leaking. */
 static bool open_and_configure(void) {
     s_video_fd = open(ESP_VIDEO_MIPI_CSI_DEVICE_NAME, O_RDONLY | O_NONBLOCK, 0);
     if (s_video_fd < 0) {
-        ESP_LOGI(TAG, "no CSI video device (no camera fitted?)");
+        ESP_LOGW(TAG, "failed to open CSI video device");
         return false;
     }
-
-    struct v4l2_capability cap;
-    if (ioctl(s_video_fd, VIDIOC_QUERYCAP, &cap) != 0) {
-        ESP_LOGI(TAG, "CSI device present but no sensor responded");
-        goto fail;
-    }
-    ESP_LOGI(TAG, "camera detected: %s", cap.card);
 
     struct v4l2_format fmt;
     memset(&fmt, 0, sizeof(fmt));
@@ -92,13 +93,23 @@ static bool open_and_configure(void) {
         ESP_LOGW(TAG, "failed to read default format");
         goto fail;
     }
-    if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_RGB565) {
-        fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565;
-        if (ioctl(s_video_fd, VIDIOC_S_FMT, &fmt) != 0) {
-            ESP_LOGW(TAG, "sensor won't do RGB565, can't average luma from it");
-            goto fail;
-        }
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_RGB565;
+    if (ioctl(s_video_fd, VIDIOC_S_FMT, &fmt) != 0) {
+        ESP_LOGW(TAG, "sensor won't do RGB565, can't average luma from it");
+        goto fail;
     }
+    /* FIX: a successful S_FMT does not guarantee the driver actually granted
+     * what was asked for — V4L2 allows it to negotiate the closest format it
+     * can do instead. average_luma() unconditionally reinterprets the buffer
+     * as RGB565, so trusting an unchecked format here would silently feed it
+     * garbage that still looks like a plausible luma value. */
+    if (fmt.fmt.pix.pixelformat != V4L2_PIX_FMT_RGB565) {
+        ESP_LOGW(TAG, "sensor negotiated pixel format 0x%" PRIx32 " instead of RGB565, refusing",
+                 (uint32_t)fmt.fmt.pix.pixelformat);
+        goto fail;
+    }
+    ESP_LOGI(TAG, "negotiated %" PRIu32 "x%" PRIu32 " RGB565, %" PRIu32 " bytes/frame",
+             (uint32_t)fmt.fmt.pix.width, (uint32_t)fmt.fmt.pix.height, (uint32_t)fmt.fmt.pix.sizeimage);
 
     struct v4l2_requestbuffers req;
     memset(&req, 0, sizeof(req));
@@ -121,59 +132,59 @@ static bool open_and_configure(void) {
             ESP_LOGW(TAG, "querybuf failed");
             goto fail;
         }
-        s_buf[i] = mmap(NULL, buf.length, PROT_READ, MAP_SHARED, s_video_fd, buf.m.offset);
-        if (s_buf[i] == MAP_FAILED) {
+        void *mapped = mmap(NULL, buf.length, PROT_READ, MAP_SHARED, s_video_fd, buf.m.offset);
+        if (mapped == MAP_FAILED) {
             ESP_LOGW(TAG, "mmap failed");
             goto fail;
         }
+        s_buf[i] = mapped;
+        s_buf_len[i] = buf.length;
+        s_buf_mapped_count = i + 1; /* only now is this slot safe to munmap on cleanup */
         if (ioctl(s_video_fd, VIDIOC_QBUF, &buf) != 0) {
             ESP_LOGW(TAG, "qbuf failed");
             goto fail;
         }
     }
 
-    /* FIX: this used to STREAMON/STREAMOFF around every single sample.
-     * VIDIOC_STREAMOFF returns all queued buffers to the driver's dequeued
-     * state, so the *next* STREAMON had nothing queued to fill until the
-     * buffers were re-queued — and if that left the driver waiting on
-     * something that never arrived, the blocking ioctl() call would hang with
-     * no chance to log anything, which is exactly the silent hang observed on
-     * hardware (camera detected, adaptive enabled, then nothing, ever).
-     * Streaming continuously and only dequeuing/requeuing per sample avoids
-     * that lifecycle entirely — it only needs a frame every few seconds, but
-     * there's no V4L2-supported way to say that without stopping the stream. */
-    ESP_LOGI(TAG, "starting continuous capture stream");
-    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    if (ioctl(s_video_fd, VIDIOC_STREAMON, &type) != 0) {
-        ESP_LOGW(TAG, "streamon failed");
-        goto fail;
-    }
-    ESP_LOGI(TAG, "capture stream started");
-
     return true;
 
 fail:
+    unmap_buffers();
     close(s_video_fd);
     s_video_fd = -1;
     return false;
 }
 
-/* Dequeues whatever frame is newest, computes its luma, and immediately
- * requeues the buffer — the stream itself is already running continuously
- * (see the FIX note in open_and_configure()) so this never touches
- * STREAMON/STREAMOFF. */
+/* Dequeues exactly one frame and requeues it immediately after reading its
+ * luma — never holds more than one of the two buffers out of the driver's
+ * rotation at a time.
+ *
+ * An earlier version of this function tried to drain every frame currently
+ * queued and keep only the newest, on the theory that V4L2's oldest-first
+ * DQBUF ordering would otherwise mean acting on a stale backlog. On this
+ * driver that hung completely: with only BUF_COUNT=2 buffers and no backup
+ * buffer, dequeuing one without immediately giving it back stalls the CSI
+ * capture pipeline outright, so a second DQBUF issued before the first is
+ * requeued never completes — confirmed on hardware, where the log went
+ * silent forever right after the first successful dequeue. The self-limiting
+ * effect of only ever having two buffers in flight already keeps the
+ * oldest-available frame within roughly one frame period (~20ms at 50fps) of
+ * current, since the driver simply stops capturing once both buffers are
+ * full and waiting to be collected — there is no unbounded backlog to drain
+ * in the first place. */
 static bool capture_one_frame(uint8_t *out_luma) {
     struct v4l2_buffer buf;
-    bool got_frame = false;
-    ESP_LOGD(TAG, "waiting for a frame (up to %d ms)", DQBUF_RETRIES * DQBUF_RETRY_DELAY_MS);
     for (int attempt = 0; attempt < DQBUF_RETRIES; attempt++) {
         memset(&buf, 0, sizeof(buf));
         buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
         buf.memory = s_buf_mem_type;
-        int r = ioctl(s_video_fd, VIDIOC_DQBUF, &buf);
-        if (r == 0) {
-            got_frame = true;
-            break;
+        if (ioctl(s_video_fd, VIDIOC_DQBUF, &buf) == 0) {
+            *out_luma = average_luma(s_buf[buf.index], buf.bytesused ? buf.bytesused : buf.length);
+            if (ioctl(s_video_fd, VIDIOC_QBUF, &buf) != 0) {
+                ESP_LOGW(TAG, "requeue (qbuf) failed: errno=%d", errno);
+                return false;
+            }
+            return true;
         }
         if (errno != EAGAIN) {
             ESP_LOGW(TAG, "dqbuf failed: errno=%d", errno);
@@ -181,61 +192,92 @@ static bool capture_one_frame(uint8_t *out_luma) {
         }
         vTaskDelay(pdMS_TO_TICKS(DQBUF_RETRY_DELAY_MS));
     }
+    ESP_LOGW(TAG, "no frame within %d ms, skipping this sample",
+             DQBUF_RETRIES * DQBUF_RETRY_DELAY_MS);
+    return false;
+}
 
-    if (!got_frame) {
-        ESP_LOGW(TAG, "no frame within %d ms, skipping this sample",
-                 DQBUF_RETRIES * DQBUF_RETRY_DELAY_MS);
+/* Only called from light_sensor_task. Opens the device, negotiates the
+ * format, queues buffers, and starts the stream — i.e. everything that costs
+ * PSRAM and DMA/CSI bandwidth happens here, not at app_light_init() time, so
+ * a board with adaptive mode turned off (or the switch simply never touched)
+ * doesn't pay for a continuously running 50 fps capture it never reads. */
+static bool start_streaming(void) {
+    if (s_streaming) return true;
+    if (!open_and_configure()) return false;
+
+    int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    if (ioctl(s_video_fd, VIDIOC_STREAMON, &type) != 0) {
+        ESP_LOGW(TAG, "streamon failed");
+        unmap_buffers();
+        close(s_video_fd);
+        s_video_fd = -1;
         return false;
     }
 
-    ESP_LOGD(TAG, "frame received (index=%u, bytesused=%u), computing luma",
-             buf.index, buf.bytesused);
-    *out_luma = average_luma(s_buf[buf.index], buf.bytesused ? buf.bytesused : buf.length);
-    if (ioctl(s_video_fd, VIDIOC_QBUF, &buf) != 0) {
-        ESP_LOGW(TAG, "requeue (qbuf) failed: errno=%d", errno);
-        return false;
-    }
+    /* Just the delay, deliberately not a "drain until empty" loop: with the
+     * stream running continuously, a fresh frame becomes ready again within
+     * milliseconds of draining the last one, so that loop never naturally
+     * exits — it hung exactly like the original STREAMON/STREAMOFF cycling
+     * bug this file's history already fixed once. drain_latest_frame() in
+     * the normal per-sample path already always takes the newest frame, so
+     * once SETTLE_MS has passed, the very next capture_one_frame() call
+     * below is already guaranteed to see a post-settle frame. */
+    vTaskDelay(pdMS_TO_TICKS(SETTLE_MS));
+
+    light_policy_reset(&s_policy);
+    s_streaming = true;
+    ESP_LOGI(TAG, "capture stream started");
     return true;
+}
+
+/* Only called from light_sensor_task (and app_light_deinit(), which must not
+ * run on that task). Safe to call whether or not a stream is actually up. */
+static void stop_streaming(void) {
+    if (s_video_fd >= 0) {
+        int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+        ioctl(s_video_fd, VIDIOC_STREAMOFF, &type);
+        unmap_buffers();
+        close(s_video_fd);
+        s_video_fd = -1;
+    }
+    if (s_streaming) ESP_LOGI(TAG, "capture stream stopped");
+    s_streaming = false;
 }
 
 static void light_sensor_task(void *arg) {
     (void)arg;
     for (;;) {
-        vTaskDelay(pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
-        if (!s_adaptive) {
-            /* DEBUG, not INFO: this is the expected steady state whenever the
-             * switch is off, so it would otherwise spam the log forever. Its
-             * only purpose is to distinguish "off" from "task died" if asked. */
-            ESP_LOGD(TAG, "adaptive mode off, skipping sample");
+        /* Waits up to one sample interval, but app_light_set_adaptive() wakes
+         * this immediately via a task notification — so turning the switch
+         * on doesn't wait up to SAMPLE_INTERVAL_MS for the first reading, and
+         * turning it off tears the stream down right away instead of leaving
+         * the camera running for a flag nothing is reading anymore. */
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
+
+        bool want = s_adaptive;
+        if (want && !s_streaming) {
+            if (!start_streaming()) {
+                ESP_LOGW(TAG, "failed to start capture stream, will retry next tick");
+                continue;
+            }
+        } else if (!want && s_streaming) {
+            stop_streaming();
             continue;
         }
+
+        if (!want || !s_streaming) continue;
 
         uint8_t luma;
         if (!capture_one_frame(&luma)) continue;
 
-        /* Exponential smoothing: the OV5647's own auto-exposure already fights
-         * ambient changes somewhat (see app_light.h / the brightness README
-         * note), so this is a coarse "did the room get darker/brighter" signal,
-         * not a calibrated lux reading — smoothing keeps momentary shadows and
-         * AEC settling from flickering the backlight. */
-        s_ema_luma = (s_ema_luma < 0) ? luma : (s_ema_luma * 3 + luma) / 4;
-
-        int pct = BRIGHTNESS_MIN + (s_ema_luma * (BRIGHTNESS_MAX - BRIGHTNESS_MIN)) / LUMA_CEILING;
-        if (pct < BRIGHTNESS_MIN) pct = BRIGHTNESS_MIN;
-        if (pct > BRIGHTNESS_MAX) pct = BRIGHTNESS_MAX;
-
-        /* Previously silent on the success path — a working sample-and-apply
-         * cycle produced zero log output, indistinguishable from adaptive
-         * mode being off or every sample failing. Log every reading, note
-         * separately when CHANGE_THRESHOLD_PCT suppresses actually applying it. */
-        if (s_last_reported_pct < 0 || abs(pct - s_last_reported_pct) >= CHANGE_THRESHOLD_PCT) {
-            ESP_LOGI(TAG, "luma=%u ema=%d -> brightness=%d%% (was %d%%)",
-                     luma, s_ema_luma, pct, s_last_reported_pct);
-            s_last_reported_pct = pct;
+        int pct;
+        if (light_policy_sample(&s_policy, luma, &pct)) {
+            ESP_LOGI(TAG, "luma=%u ema=%d -> brightness=%d%%", luma, s_policy.ema_luma, pct);
             if (s_cb) s_cb(pct);
         } else {
-            ESP_LOGD(TAG, "luma=%u ema=%d -> brightness=%d%% (unchanged, below %d%% threshold)",
-                      luma, s_ema_luma, pct, CHANGE_THRESHOLD_PCT);
+            ESP_LOGD(TAG, "luma=%u ema=%d -> brightness unchanged (below %d%% threshold)",
+                     luma, s_policy.ema_luma, LIGHT_POLICY_CHANGE_THRESHOLD_PCT);
         }
     }
 }
@@ -259,12 +301,31 @@ bool app_light_init(i2c_master_bus_handle_t i2c_bus) {
         return false;
     }
 
-    s_available = open_and_configure();
+    /* Detect-only: open, probe, close immediately. No buffers are allocated
+     * and nothing streams until adaptive mode is actually turned on — see
+     * start_streaming(). */
+    int fd = open(ESP_VIDEO_MIPI_CSI_DEVICE_NAME, O_RDONLY | O_NONBLOCK, 0);
+    if (fd < 0) {
+        ESP_LOGI(TAG, "no CSI video device (no camera fitted?)");
+        esp_video_deinit();
+        return false;
+    }
+    struct v4l2_capability cap;
+    bool responded = ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0;
+    if (responded) {
+        ESP_LOGI(TAG, "camera detected: %s", cap.card);
+    } else {
+        ESP_LOGI(TAG, "CSI device present but no sensor responded");
+    }
+    close(fd);
+
+    s_available = responded;
     if (!s_available) {
         esp_video_deinit();
         return false;
     }
 
+    light_policy_reset(&s_policy);
     xTaskCreatePinnedToCore(light_sensor_task, "light_sensor", 4096, NULL, 3, &s_task, 0);
     return true;
 }
@@ -275,13 +336,27 @@ void app_light_set_callback(app_light_brightness_cb_t cb) { s_cb = cb; }
 
 void app_light_set_adaptive(bool enabled) {
     if (!s_available) {
-        ESP_LOGW(TAG, "adaptive mode requested but no camera is available, ignoring");
+        /* Every camera-less board hits this exact path at boot (main.c always
+         * calls this once with the saved preference) — that's the normal
+         * case, not something worth a warning. Only trying to actually turn
+         * it on without a camera is unusual enough to log. */
+        if (enabled) ESP_LOGW(TAG, "adaptive mode requested but no camera is available, ignoring");
         return;
     }
     ESP_LOGI(TAG, "adaptive brightness %s", enabled ? "enabled" : "disabled");
     s_adaptive = enabled;
-    if (!enabled) {
-        s_ema_luma = -1;
-        s_last_reported_pct = -1;
+    if (s_task) xTaskNotifyGive(s_task);
+}
+
+void app_light_deinit(void) {
+    if (s_task) {
+        TaskHandle_t t = s_task;
+        s_task = NULL;
+        vTaskDelete(t);
+    }
+    stop_streaming();
+    if (s_available) {
+        esp_video_deinit();
+        s_available = false;
     }
 }

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # Flasht die Firmware auf echte Hardware und liest den Boot-Log mit Timeout.
-# Seit <policy update> auch fuer den Agenten erlaubt (siehe .claude/settings.json
-# und CLAUDE.md) — deshalb bewusst ohne "idf.py monitor": das ist ein
+# Auf ausdrueckliche Ansage des Nutzers (2026-09-09) auch fuer den Agenten
+# erlaubt (siehe .claude/settings.json und CLAUDE.md) — deshalb bewusst ohne
+# "idf.py monitor": das ist ein
 # interaktives Curses-Tool und bricht ohne echtes TTY mit "Monitor requires
 # standard input to be attached to TTY" ab. Stattdessen wird der Port roh
 # mit `stty`/`cat` unter `timeout` gelesen — das terminiert garantiert von

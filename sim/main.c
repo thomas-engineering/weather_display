@@ -344,6 +344,7 @@ typedef enum {
     SCREEN_MAIN,
     SCREEN_SEARCH,
     SCREEN_SETTINGS,
+    SCREEN_SETTINGS_ADAPTIVE_ON,
     SCREEN_DETAIL,
     SCREEN_WIFI,
 } sim_screen_t;
@@ -423,6 +424,23 @@ static void open_screen(void)
         break;
     }
 
+    case SCREEN_SETTINGS_ADAPTIVE_ON: {
+        /* Renders the "Adapt to ambient light" switch in its checked state —
+         * the simulator otherwise only ever shows it unavailable (no camera),
+         * so the Nocturne checked-state styling (accent track/border, light
+         * knob) had no screenshot coverage at all. Setting the state here,
+         * after the screen has already gone through at least one render
+         * pass, matters: lv_switch's own animation code
+         * (lv_switch_trigger_anim -> `if (!obj->rendered) return;`) silently
+         * skips positioning the knob if the state is set before the very
+         * first draw. */
+        lv_obj_t *gear = find_label(root, LV_SYMBOL_SETTINGS);
+        if (gear == NULL || !click_owner_of(gear)) { warn_missing("Zahnrad im Header"); break; }
+        weather_ui_set_brightness_adaptive_available(true);
+        weather_ui_set_brightness_adaptive(true);
+        break;
+    }
+
     case SCREEN_DETAIL: {
         /* Die erste Tageskarte traegt als einzige diesen Text. */
         lv_obj_t *today = find_label(root, weather_strings[s_lang].today);
@@ -485,11 +503,12 @@ int main(int argc, char **argv)
             if      (strcmp(name, "main")     == 0) s_screen = SCREEN_MAIN;
             else if (strcmp(name, "search")   == 0) s_screen = SCREEN_SEARCH;
             else if (strcmp(name, "settings") == 0) s_screen = SCREEN_SETTINGS;
+            else if (strcmp(name, "settings-adaptive-on") == 0) s_screen = SCREEN_SETTINGS_ADAPTIVE_ON;
             else if (strcmp(name, "detail")   == 0) s_screen = SCREEN_DETAIL;
             else if (strcmp(name, "wifi")     == 0) s_screen = SCREEN_WIFI;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, detail, wifi\n", name);
+                                "settings, settings-adaptive-on, detail, wifi\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
@@ -502,7 +521,8 @@ int main(int argc, char **argv)
                     "Aufruf: %s [--screen NAME | --wifi-setup]\n"
                     "        [--screenshot DATEI.bmp [--screenshot-after MS]]\n"
                     "  --screen            oeffnet den Screen nach dem Laden der Daten:\n"
-                    "                      main (Vorgabe), search, settings, detail, wifi\n"
+                    "                      main (Vorgabe), search, settings,\n"
+                    "                      settings-adaptive-on, detail, wifi\n"
                     "  --wifi-setup        WLAN-Setup im Erstboot-Zustand: offline, ohne\n"
                     "                      Wetterdaten. Nicht dasselbe wie --screen wifi.\n"
                     "  --screenshot        schreibt den Frame als BMP und beendet sich\n"

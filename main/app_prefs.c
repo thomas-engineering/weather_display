@@ -3,6 +3,7 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include <string.h>
 
 static const char *TAG = "prefs";
@@ -109,12 +110,33 @@ void app_prefs_save_brightness(int percent) {
     nvs_close(h);
 }
 
-void app_prefs_save_brightness_adaptive(bool enabled) {
-    s_prefs.brightness_adaptive = enabled;
+static esp_timer_handle_t s_adaptive_save_timer;
+static bool s_adaptive_pending_value;
 
+static void adaptive_save_timer_cb(void *arg) {
+    (void)arg;
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_u8(h, "bright_auto", enabled ? 1 : 0);
+    nvs_set_u8(h, "bright_auto", s_adaptive_pending_value ? 1 : 0);
     nvs_commit(h);
     nvs_close(h);
+}
+
+void app_prefs_save_brightness_adaptive(bool enabled) {
+    s_prefs.brightness_adaptive = enabled;
+    s_adaptive_pending_value = enabled;
+
+    if (!s_adaptive_save_timer) {
+        const esp_timer_create_args_t args = {
+            .callback = adaptive_save_timer_cb,
+            .name = "adaptive_save",
+        };
+        if (esp_timer_create(&args, &s_adaptive_save_timer) != ESP_OK) return;
+    }
+    /* Coalesce rapid toggles (e.g. the slider auto-disabling adaptive mode
+     * right as the switch was also just flipped) into a single write of
+     * whatever the latest value is, instead of committing NVS once per
+     * event. */
+    if (esp_timer_is_active(s_adaptive_save_timer)) esp_timer_stop(s_adaptive_save_timer);
+    esp_timer_start_once(s_adaptive_save_timer, 50 * 1000 /* 50ms, in us */);
 }

@@ -23,6 +23,12 @@ void app_prefs_load(app_prefs_t *out);
 void app_prefs_save_city(const char *name, const char *country, float lat, float lon);
 void app_prefs_save_settings(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf);
 void app_prefs_save_brightness(int percent);
+
+/* Persists asynchronously on the esp_timer task, not the caller's — this is
+ * called from the LVGL task the instant the adaptive switch flips (and from
+ * the brightness slider's drag-start, which auto-disables adaptive mode), and
+ * an nvs_commit() there would be a synchronous flash write blocking the
+ * touch gesture that triggered it. */
 void app_prefs_save_brightness_adaptive(bool enabled);
 
 /* Live copy, kept in sync by the save_* calls above. */

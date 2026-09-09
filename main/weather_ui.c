@@ -1091,8 +1091,19 @@ void weather_ui_set_brightness_adaptive(bool on) {
 void weather_ui_set_brightness_adaptive_available(bool available) {
     ui.brightness_adaptive_available = available;
     if (!ui.brightness_adaptive_sw) return;
-    if (available) lv_obj_remove_state(ui.brightness_adaptive_sw, LV_STATE_DISABLED);
-    else lv_obj_add_state(ui.brightness_adaptive_sw, LV_STATE_DISABLED);
+    if (available) {
+        lv_obj_remove_state(ui.brightness_adaptive_sw, LV_STATE_DISABLED);
+    } else {
+        /* FIX: this only grayed the switch out, it never actually cleared
+         * LV_STATE_CHECKED — contradicting this function's own "forces it
+         * visually off" doc comment. It happened to look right anyway
+         * because every caller today follows this with
+         * weather_ui_set_brightness_adaptive(false), but a future caller
+         * relying on the documented guarantee alone would get a dimmed
+         * switch stuck showing checked. */
+        lv_obj_add_state(ui.brightness_adaptive_sw, LV_STATE_DISABLED);
+        lv_obj_remove_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
+    }
 }
 
 void weather_ui_set_current(const weather_current_t *cur) { ui.cur = *cur; ui.has_data = true; render_current(); }

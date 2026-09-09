@@ -58,6 +58,12 @@ static void on_ambient_brightness(int percent) {
     if (bsp_display_lock(100)) {
         weather_ui_set_brightness(percent);
         bsp_display_unlock();
+    } else {
+        /* The backlight itself is already correct (bsp_display_brightness_set()
+         * above doesn't need the lock) — only the settings slider's displayed
+         * value missed this update. Self-corrects on the next sample a few
+         * seconds later, which calls this same function again. */
+        ESP_LOGW(TAG, "display lock timed out, brightness slider will lag one sample behind");
     }
 }
 
@@ -122,8 +128,12 @@ void app_main(void) {
      * state instead of flipping right after boot. Safe with no camera fitted
      * — see app_light.h. Needs the BSP's shared I2C bus, already up as part of
      * bsp_display_start_with_config() (touch bring-up brings it up too). */
-    bool have_light_sensor = app_light_init(bsp_i2c_get_handle());
+    /* Callback registered before init: app_light_init() creates the sampling
+     * task, so this ordering guarantees the callback exists before that task
+     * could ever fire it — no dependence on the sample interval being long
+     * enough to win the race. */
     app_light_set_callback(on_ambient_brightness);
+    bool have_light_sensor = app_light_init(bsp_i2c_get_handle());
 
     ESP_ERROR_CHECK(bsp_display_lock(-1) ? ESP_OK : ESP_ERR_TIMEOUT);
     weather_ui_create(lv_screen_active());

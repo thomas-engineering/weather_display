@@ -38,7 +38,20 @@ typedef void (*app_light_brightness_cb_t)(int percent);
 void app_light_set_callback(app_light_brightness_cb_t cb);
 
 /* Enables/disables periodic sampling. A no-op (and stays reported as off) if
- * app_light_available() is false — callers don't need to check both. */
+ * app_light_available() is false — callers don't need to check both.
+ *
+ * The camera only actually streams while adaptive mode is on: enabling this
+ * opens the CSI device and starts capturing, disabling it tears the stream
+ * and its buffers back down. Toggling is cheap enough to call from the UI
+ * event that flips the switch — the actual work happens on app_light's own
+ * task, not the caller's. */
 void app_light_set_adaptive(bool enabled);
+
+/* Stops sampling and releases the camera entirely (stream, buffers, the
+ * esp_video subsystem, the sampling task). Not called anywhere today — this
+ * app never intentionally shuts the camera off for good — but provided for a
+ * future power-down path. Never call this from app_light's own sampling
+ * task. */
+void app_light_deinit(void);
 
 #endif
