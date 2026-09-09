@@ -214,3 +214,34 @@ including the SDIO reset polarity.
 The boot log carries one benign error: `major version mismatch — OTA coprocessor
 from host` (host esp-hosted 3.0.7 vs the C6's 2.6.7 firmware). Everything works;
 updating the co-processor firmware would silence it.
+
+## Licenses
+
+This project's own code (`main/`, `components/`, `sim/`, `host_test/`,
+`scripts/`) is licensed under the **Apache License 2.0** — see `LICENSE`.
+
+It builds on ESP-IDF and a number of components pulled in through the IDF
+Component Manager (`main/idf_component.yml`), each under its own license:
+
+| Component | License |
+|---|---|
+| ESP-IDF (framework) | Apache-2.0 |
+| FreeRTOS-Kernel (bundled in ESP-IDF) | MIT |
+| mbedTLS (bundled in ESP-IDF) | Apache-2.0 OR GPL-2.0-or-later (dual) |
+| lwIP (bundled in ESP-IDF) | BSD-3-Clause-style |
+| Unity (bundled in ESP-IDF, used by `host_test/`) | MIT |
+| `waveshare/esp32_p4_wifi6_touch_lcd_7b` (board BSP) | Apache-2.0 |
+| `lvgl/lvgl` | MIT |
+| `espressif/esp_wifi_remote` | Apache-2.0 |
+| `espressif/esp_hosted` | Apache-2.0, with `common/eh_common` and `common/eh_tlv` dual-licensed GPL-2.0-only OR Apache-2.0 (electable), and a bundled BSD-3-Clause `protobuf-c` |
+| `espressif/cjson` | MIT |
+| `espressif/esp_video` | Espressif MIT |
+| `espressif/esp_cam_sensor` | Apache-2.0 |
+| `espressif/esp_ipa` | Espressif MIT |
+| `espressif/esp_sccb_intf`, `esp_lvgl_adapter`, `esp_lcd_touch`, `esp_lcd_touch_gt911`, `esp_lcd_ek79007`, `esp_lv_fs`, `esp_lv_decoder`, `esp_mmap_assets`, `button`, `knob`, `cmake_utilities`, `eppp_link`, `esp_serial_slave_link`, `esp_codec_dev`, `wifi_remote_over_eppp` | Apache-2.0 |
+| `espressif/esp_new_jpeg` | Espressif MIT |
+| `espressif/freetype`, `libpng`, `zlib`, `usb`, `usb_host_uvc` | Present in the resolved dependency tree (transitive, optional decoder paths) but not required by this project's `main/CMakeLists.txt` and not compiled into the firmware |
+
+The **Inter** typeface used to generate `main/fonts/inter_*.c`
+(`tools/gen_fonts.sh`) is licensed under the **SIL Open Font License 1.1**.
+Fallback glyphs come from LVGL's built-in Montserrat font (MIT).
