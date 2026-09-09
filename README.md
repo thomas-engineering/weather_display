@@ -215,6 +215,13 @@ The boot log carries one benign error: `major version mismatch — OTA coprocess
 from host` (host esp-hosted 3.0.7 vs the C6's 2.6.7 firmware). Everything works;
 updating the co-processor firmware would silence it.
 
+The GT911 touch controller's interrupt line is only routed to a test point on
+the PCB (net `INT_TP`: FPC connector J3 pin 4 and test point TP1 — no
+microcontroller pin), confirmed from the schematic in
+`docs/hardware/ESP32-P4-WIFI6-Touch-LCD-7B-schematic.pdf`. That's why touch
+runs in polling mode (`BSP_LCD_TOUCH_INT` is `GPIO_NUM_NC` in the vendor BSP) —
+interrupt-driven touch isn't possible on this board without a hardware rework.
+
 ## Licenses
 
 This project's own code (`main/`, `components/`, `sim/`, `host_test/`,
