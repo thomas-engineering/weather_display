@@ -73,3 +73,10 @@ CONFIG_WEATHER_USE_INTER_FONTS=y
 CONFIG_ESP_VIDEO_ENABLE_MIPI_CSI_VIDEO_DEVICE=y
 CONFIG_ESP_VIDEO_ENABLE_ISP_VIDEO_DEVICE=y
 CONFIG_CAMERA_OV5647=y
+
+# Already IDF's own default (y) - spelled out here because app_weather.c's
+# http_get() now calls mbedtls_strerror() to decode the raw hex codes esp-tls
+# logs on TLS handshake failure (e.g. "-0x008D"), seen repeatedly during the
+# touch-latency hardware experiments. Without this, mbedtls_strerror() is a
+# stub that always writes an empty string.
+CONFIG_MBEDTLS_ERROR_STRINGS=y

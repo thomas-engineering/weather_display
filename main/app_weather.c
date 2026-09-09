@@ -14,6 +14,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "cJSON.h"
+#include "mbedtls/error.h"
 
 #include <string.h>
 #include <stdlib.h>
@@ -77,7 +78,23 @@ static char *http_get(const char *url) {
     char *body = NULL;
     esp_err_t err = esp_http_client_open(c, 0);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "open failed: %s", esp_err_to_name(err));
+        int tls_err = 0, tls_flags = 0;
+        esp_http_client_get_and_clear_last_tls_error(c, &tls_err, &tls_flags);
+        if (tls_err != 0) {
+            /* esp-tls itself only logs the raw hex code (e.g. "-0x008D"); decode it
+             * here so an intermittent TLS handshake failure is diagnosable from the
+             * log alone. Needs CONFIG_MBEDTLS_ERROR_STRINGS=y (on by default).
+             * esp-tls stores the *positive* magnitude (see esp_tls_mbedtls.c:
+             * ESP_INT_EVENT_TRACKER_CAPTURE(..., -ret) where ret is mbedtls's own
+             * negative return code) - mbedtls_strerror() wants that negative code
+             * back, so negate tls_err again here. */
+            char tls_msg[128];
+            mbedtls_strerror(-tls_err, tls_msg, sizeof(tls_msg));
+            ESP_LOGE(TAG, "open failed: %s (tls -0x%04x: %s, verify flags 0x%x)",
+                     esp_err_to_name(err), tls_err, tls_msg, tls_flags);
+        } else {
+            ESP_LOGE(TAG, "open failed: %s", esp_err_to_name(err));
+        }
         goto done;
     }
     int64_t clen = esp_http_client_fetch_headers(c);
