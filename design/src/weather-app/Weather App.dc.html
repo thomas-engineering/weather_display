@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne/styles.css">
+  <script src="_ds/nocturne/_ds_bundle.js"></script>
+  <style>
+    body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)}
+    a{color:var(--color-accent)} a:hover{color:var(--color-accent-300)}
+    @keyframes sheetUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+    @keyframes sheetDown{from{transform:translateY(0)}to{transform:translateY(100%)}}
+    .wx-sheet-up{animation:sheetUp 0.22s ease-out}
+    .wx-sheet-down{animation:sheetDown 0.22s ease-in forwards}
+    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    .wx-scroll::-webkit-scrollbar{height:6px}
+    .wx-scroll::-webkit-scrollbar-thumb{background:var(--color-neutral-700);border-radius:3px}
+    .wx-scroll::-webkit-scrollbar-track{background:transparent}
+  </style>
+</helmet>
+<div lang="{{ htmlLang }}" style="width:1024px;height:600px;position:relative;overflow:hidden;background:radial-gradient(120% 140% at 20% -10%, var(--color-accent-900), var(--color-bg) 55%);display:flex;flex-direction:column;font-family:var(--font-body);hyphens:auto">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--space-6) var(--space-6) var(--space-3)">
+    <button data-lv="button.ghost" onClick="{{ openSearch }}" style="display:flex;align-items:center;gap:8px;background:transparent;border:none;color:var(--color-text);cursor:pointer;padding:12px 14px;min-height:44px;border-radius:var(--radius-md);font-family:var(--font-heading)">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"></path></svg>
+      <span data-lv="label.title" style="font-size:17px;font-weight:500">{{ locationLabel }}</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="opacity:0.6"><path d="M7 10l5 5 5-5z"></path></svg>
+    </button>
+    <div style="display:flex;align-items:center;gap:var(--space-4)">
+      <div style="display:flex;align-items:center;gap:10px">
+        <sc-if value="{{ isDataStale }}">
+          <span data-lv="tag.outline" class="tag tag-outline" title="{{ t.dataOutdated }}">{{ t.dataOutdated }}</span>
+        </sc-if>
+        <span data-lv="label.caption" style="display:flex;align-items:center;gap:6px;font-size:12px;color:color-mix(in srgb, var(--color-text) 65%, transparent)">
+          <span data-lv="icon.status-dot" style="width:8px;height:8px;border-radius:50%;background:{{ netDotColor }}"></span>
+          {{ netStatusLabel }}
+        </span>
+      </div>
+      <div style="text-align:right">
+        <div data-lv="label.title" style="font-size:30px;font-weight:500;font-family:var(--font-heading);line-height:1.1">{{ nowTimeStr }}</div>
+        <div data-lv="label.caption" style="font-size:18px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ nowDateStr }}</div>
+      </div>
+      <button data-lv="button.icon" onClick="{{ refresh }}" title="Refresh" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.74 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"></path></svg>
+      </button>
+      <button data-lv="button.icon" onClick="{{ openSettings }}" title="Settings" style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.14 7.14 0 0 0 .06-.94 7.14 7.14 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94L2.83 14.5a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.32.6.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.24.1.46 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"></path></svg>
+      </button>
+    </div>
+  </div>
+
+  <sc-if value="{{ hasError }}">
+    <div style="margin:0 var(--space-6);padding:var(--space-3) var(--space-4);background:var(--color-accent-900);border:1px solid var(--color-accent-700);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:space-between;gap:var(--space-4)">
+      <span data-lv="label.body" style="font-size:13px">{{ errorMsg }}</span>
+      <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ refresh }}" style="min-height:44px;padding:10px 18px;font-size:15px">{{ t.retry }}</button>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ true }}">
+    <div data-lv="label.body" style="flex:1;display:flex;align-items:center;justify-content:center;color:color-mix(in srgb, var(--color-text) 55%, transparent);font-size:14px">{{ t.loading }}</div>
+  </sc-if>
+
+  <sc-if value="{{ showContent }}">
+  <div style="flex:1;display:flex;flex-direction:column;gap:14px;padding:8px 24px 20px;min-height:0;overflow:hidden">
+
+    <div class="card elev-md" style="flex:none;height:250px;display:flex;flex-direction:column;gap:12px;padding:16px 24px">
+      <div style="flex:none;display:flex;flex-direction:row;align-items:center;gap:16px">
+        <div style="flex:none;display:flex;align-items:center;justify-content:center;width:64px;height:64px">
+          <dc-import name="WeatherIcon" code="{{ current.weatherCode }}" size="64" hint-size="64px,64px"></dc-import>
+        </div>
+        <div style="flex:none;width:150px">
+          <span data-lv="tag.accent" class="tag tag-accent">{{ current.label }}</span>
+          <div data-lv="label.display" style="font-family:var(--font-heading);font-weight:500;font-size:46px;line-height:1;margin-top:6px">{{ current.tempDisplay }}</div>
+        </div>
+        <p data-lv="label.body" style="flex:1;min-width:0;font-size:14px;line-height:1.45;color:color-mix(in srgb, var(--color-text) 70%, transparent);margin:0;padding-right:16px">{{ current.realFeelText }}</p>
+        <div style="flex:none;display:grid;grid-template-columns:128px 96px 96px 96px;gap:8px">
+          <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 12px;overflow:hidden">
+            <div data-lv="label.caption" style="font-size:11px;line-height:1.3;letter-spacing:0.03em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);overflow-wrap:break-word;hyphens:auto">{{ t.humidity }}</div>
+            <div data-lv="label.value" style="font-size:16px;line-height:1.3;font-weight:500;font-family:var(--font-heading)">{{ current.humidityCat }}</div>
+            <div data-lv="label.caption" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ current.humidityPct }}%</div>
+          </div>
+          <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 8px;overflow:hidden">
+            <div data-lv="label.caption" style="font-size:11px;line-height:1.3;letter-spacing:0.03em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);overflow-wrap:break-word;hyphens:auto">{{ t.feelsLike }}</div>
+            <div data-lv="label.value" style="font-size:16px;line-height:1.3;font-weight:500;font-family:var(--font-heading);overflow-wrap:break-word">{{ current.apparentDisplay }}</div>
+          </div>
+          <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 8px;overflow:hidden">
+            <div data-lv="label.caption" style="font-size:11px;line-height:1.3;letter-spacing:0.03em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);overflow-wrap:break-word;hyphens:auto">{{ t.wind }}</div>
+            <div data-lv="label.value" style="font-size:16px;line-height:1.3;font-weight:500;font-family:var(--font-heading);overflow-wrap:break-word">{{ current.windDisplay }}</div>
+          </div>
+          <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 8px;overflow:hidden">
+            <div data-lv="label.caption" style="font-size:11px;line-height:1.3;letter-spacing:0.03em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);overflow-wrap:break-word;hyphens:auto">{{ t.precip }}</div>
+            <div data-lv="label.value" style="font-size:16px;line-height:1.3;font-weight:500;font-family:var(--font-heading)">{{ current.precipProb }}%</div>
+          </div>
+        </div>
+      </div>
+
+      <sc-if value="{{ current.chart }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;min-height:0;display:flex;align-items:center;gap:10px;border-top:1px solid var(--color-divider);padding-top:10px">
+          <div style="display:flex;flex-direction:column;gap:4px;flex:none">
+            <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.temperature }}</span></div>
+            <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--color-accent-700)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.precip }}</span></div>
+          </div>
+          <div style="position:relative;flex:1;height:100%">
+            <svg viewBox="0 0 {{ current.chart.W }} {{ current.chart.H }}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible">
+              <line x1="{{ current.chart.axisX0 }}" y1="{{ current.chart.axisTop }}" x2="{{ current.chart.axisX0 }}" y2="{{ current.chart.axisBottom }}" stroke="var(--color-divider)" stroke-width="1"></line>
+              <line x1="{{ current.chart.axisX1 }}" y1="{{ current.chart.axisTop }}" x2="{{ current.chart.axisX1 }}" y2="{{ current.chart.axisBottom }}" stroke="var(--color-divider)" stroke-width="1"></line>
+              <sc-for list="{{ current.chart.bars }}" as="bar" hint-placeholder-count="24">
+                <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.w }}" height="{{ bar.h }}" rx="1.5" fill="var(--color-accent-700)"></rect>
+              </sc-for>
+              <polyline points="{{ current.chart.linePoints }}" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+            </svg>
+            <sc-for list="{{ current.chart.tempTicks }}" as="tick" hint-placeholder-count="3">
+              <div data-lv="label.caption" style="position:absolute;left:0;top:{{ tick.topPct }}%;transform:translateY(-50%);font-size:9px;color:var(--color-accent)">{{ tick.text }}</div>
+            </sc-for>
+            <sc-for list="{{ current.chart.precipTicks }}" as="tick" hint-placeholder-count="3">
+              <div data-lv="label.caption" style="position:absolute;right:0;top:{{ tick.topPct }}%;transform:translateY(-50%);font-size:9px;color:var(--color-accent-700)">{{ tick.text }}</div>
+            </sc-for>
+            <sc-for list="{{ current.chart.xLabels }}" as="lbl" hint-placeholder-count="8">
+              <div data-lv="label.caption" style="position:absolute;left:{{ lbl.leftPct }}%;bottom:0;transform:translateX(-50%);font-size:9px;color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ lbl.text }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="flex:1;display:flex;flex-direction:column;gap:10px;min-height:0">
+      <h6 data-lv="label.section" style="margin:0 0 0 2px;color:color-mix(in srgb, var(--color-text) 60%, transparent);flex:none">{{ t.forecast }}</h6>
+      <div class="wx-scroll" style="flex:1;min-height:0;display:flex;gap:12px;overflow-x:auto;overflow-y:hidden">
+        <sc-for list="{{ days }}" as="day" hint-placeholder-count="7">
+          <button data-lv="list.item" onClick="{{ day.open }}" style="flex:1;min-width:120px;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);cursor:pointer;color:var(--color-text)" class="card elev-sm">
+            <div data-lv="label.title" style="font-size:13px;font-weight:500;font-family:var(--font-heading)">{{ day.dayLabel }}</div>
+            <div data-lv="label.caption" style="font-size:11px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ day.dateLabel }}</div>
+            <dc-import name="WeatherIcon" code="{{ day.weatherCode }}" size="36" hint-size="36px,36px"></dc-import>
+            <div style="display:flex;gap:6px;align-items:baseline;font-family:var(--font-heading)">
+              <span data-lv="label.value" style="font-size:16px;font-weight:500">{{ day.hiDisplay }}</span>
+              <span data-lv="label.caption" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 50%, transparent)">{{ day.loDisplay }}</span>
+            </div>
+            <span data-lv="tag.outline" class="tag tag-outline" style="font-size:10px">{{ day.precipProb }}%</span>
+          </button>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ searchOpen }}">
+    <div style="position:absolute;inset:0;background:color-mix(in srgb, var(--color-bg) 92%, transparent);backdrop-filter:blur(6px);display:flex;flex-direction:column;padding:var(--space-6);animation:fadeIn 0.15s ease-out">
+      <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-4)">
+        <input data-lv="input.search" class="input" readOnly="{{ true }}" placeholder="{{ t.searchPlaceholder }}" value="{{ searchQuery }}" style="font-size:16px;padding:10px 14px;caret-color:transparent"></input>
+        <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ closeSearch }}" style="min-height:44px;padding:10px 18px;font-size:15px">{{ t.cancel }}</button>
+      </div>
+      <sc-if value="{{ searching }}">
+        <div data-lv="label.body" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);font-size:13px;padding:var(--space-2)">{{ t.searching }}</div>
+      </sc-if>
+      <sc-if value="{{ noResults }}">
+        <div data-lv="label.body" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);font-size:13px;padding:var(--space-2)">{{ t.noCities }}</div>
+      </sc-if>
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--space-2);overflow-y:auto">
+        <sc-for list="{{ searchResults }}" as="result" hint-placeholder-count="0">
+          <button data-lv="list.item" onClick="{{ result.select }}" style="text-align:left;display:flex;flex-direction:column;gap:2px;padding:var(--space-3) var(--space-4);background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
+            <span data-lv="label.title" style="font-size:14px;font-weight:500;font-family:var(--font-heading)">{{ result.name }}</span>
+            <span data-lv="label.caption" style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ result.sub }}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="flex:none;display:flex;flex-direction:column;gap:6px;padding-top:12px">
+        <sc-for list="{{ kbRows }}" as="row" hint-placeholder-count="3">
+          <div style="display:flex;gap:6px;justify-content:center">
+            <sc-for list="{{ row }}" as="key" hint-placeholder-count="10">
+              <button data-lv="button.key" onClick="{{ key.press }}" style="flex:1;max-width:60px;height:42px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);font-size:15px;font-weight:500;font-family:var(--font-heading);cursor:pointer">{{ key.label }}</button>
+            </sc-for>
+          </div>
+        </sc-for>
+        <div style="display:flex;gap:6px;justify-content:center">
+          <button data-lv="button.key" onClick="{{ kbBackspace }}" style="flex:none;width:88px;height:42px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);font-size:15px;cursor:pointer">⌫</button>
+          <button data-lv="button.key" onClick="{{ kbSpace }}" style="flex:1;max-width:320px;height:42px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);font-size:13px;cursor:pointer">{{ t.space }}</button>
+          <button data-lv="button.primary" onClick="{{ closeSearch }}" style="flex:none;width:88px;height:42px;background:var(--color-accent-800);border:1px solid var(--color-accent-700);border-radius:var(--radius-md);color:var(--color-accent-100);font-size:13px;font-weight:500;font-family:var(--font-heading);cursor:pointer">{{ t.done }}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ settingsOpen }}">
+    <div class="dialog-backdrop" style="position:absolute">
+      <div class="dialog">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div data-lv="label.title" class="dialog-title">{{ t.settings }}</div>
+          <button data-lv="button.icon" class="btn btn-ghost" onClick="{{ closeSettings }}" style="width:44px;height:44px">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
+          </button>
+        </div>
+        <div class="field">
+          <label data-lv="label.caption">{{ t.language }}</label>
+          <div data-lv="segmented" class="seg">
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangDe }}" onChange="{{ setLangDe }}"></input>Deutsch</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangEn }}" onChange="{{ setLangEn }}"></input>English</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangEs }}" onChange="{{ setLangEs }}"></input>Español</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangFr }}" onChange="{{ setLangFr }}"></input>Français</label>
+          </div>
+        </div>
+        <div class="field">
+          <label data-lv="label.caption">{{ t.temperature }}</label>
+          <div data-lv="segmented" class="seg">
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempC }}" onChange="{{ setTempC }}"></input>°C</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempF }}" onChange="{{ setTempF }}"></input>°F</label>
+          </div>
+        </div>
+        <div class="field">
+          <label data-lv="label.caption">{{ t.windSpeed }}</label>
+          <div data-lv="segmented" class="seg">
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindKmh }}" onChange="{{ setWindKmh }}"></input>km/h</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindMph }}" onChange="{{ setWindMph }}"></input>mph</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindMs }}" onChange="{{ setWindMs }}"></input>m/s</label>
+          </div>
+        </div>
+        <div class="field">
+          <label data-lv="label.caption">{{ t.timeFormat }}</label>
+          <div data-lv="segmented" class="seg">
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime24 }}" onChange="{{ setTime24 }}"></input>{{ t.h24 }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime12 }}" onChange="{{ setTime12 }}"></input>{{ t.h12 }}</label>
+          </div>
+        </div>
+        <div class="field">
+          <label data-lv="label.caption">{{ t.brightness }}</label>
+          <div style="padding:14px 0">
+            <input data-lv="input.range" type="range" min="10" max="100" step="1" value="{{ brightness }}" onInput="{{ setBrightness }}" style="display:block;width:100%;margin:0;accent-color:var(--color-accent)"></input>
+          </div>
+          <div data-lv="switch.option" style="display:inline-flex;align-items:center;gap:var(--space-2);margin-top:var(--space-1);cursor:pointer" onClick="{{ toggleBrightnessAdaptive }}" role="switch" aria-checked="{{ brightnessAdaptive }}">
+            <span style="{{ switchTrackStyle }}"><span style="{{ switchThumbStyle }}"></span></span>
+            <span data-lv="label.body" style="font-size:13px">{{ t.brightnessAdaptive }}</span>
+          </div>
+        </div>
+        <div class="field">
+          <label data-lv="label.caption">{{ t.network }}</label>
+          <button data-lv="button.secondary" class="btn btn-secondary btn-block" onClick="{{ openWifi }}" style="min-height:44px;padding:10px 18px;font-size:15px">{{ t.configureNetwork }}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ wifiOpen }}">
+    <div class="dialog-backdrop" style="position:absolute">
+      <div class="dialog" style="width:460px;max-height:520px;display:flex;flex-direction:column">
+
+        <sc-if value="{{ wifiShowingList }}">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div data-lv="label.title" class="dialog-title">{{ t.wifiTitle }}</div>
+            <button data-lv="button.icon" class="btn btn-icon btn-ghost" onClick="{{ closeWifi }}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
+            </button>
+          </div>
+          <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ scanWifi }}" disabled="{{ wifiScanning }}">{{ t.scan }}</button>
+          <sc-if value="{{ wifiScanning }}">
+            <div data-lv="label.body" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 55%, transparent);padding:var(--space-2) 0">{{ t.scanning }}</div>
+          </sc-if>
+          <sc-if value="{{ wifiNoNetworks }}">
+            <div data-lv="label.body" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 55%, transparent);padding:var(--space-2) 0">{{ t.noNetworks }}</div>
+          </sc-if>
+          <div style="display:flex;flex-direction:column;gap:var(--space-2);overflow-y:auto;margin-top:var(--space-2)">
+            <sc-for list="{{ wifiNetworks }}" as="net" hint-placeholder-count="0">
+              <button data-lv="list.item" onClick="{{ net.select }}" style="text-align:left;display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);padding:var(--space-3) var(--space-4);background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
+                <span data-lv="label.title" style="font-size:14px;font-weight:500;font-family:var(--font-heading)">{{ net.ssid }}</span>
+                <span style="display:flex;align-items:center;gap:8px">
+                  <span data-lv="icon.signal" style="display:flex;align-items:flex-end;gap:2px;height:12px">
+                    <sc-for list="{{ net.bars }}" as="bar" hint-placeholder-count="3">
+                      <span style="width:3px;height:{{ bar.key }}px;transform:scale(1,1.5);background:{{ bar.color }}"></span>
+                    </sc-for>
+                  </span>
+                  <span data-lv="tag.outline" class="tag tag-outline" style="font-size:10px">{{ net.secLabel }}</span>
+                </span>
+              </button>
+            </sc-for>
+          </div>
+          <button data-lv="button.ghost" class="btn btn-ghost" onClick="{{ openManualSsidEntry }}" style="margin-top:var(--space-2)">{{ t.enterManually }}</button>
+          <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ forgetSavedNetwork }}" style="margin-top:var(--space-2)">{{ t.forgetSavedNetwork }}</button>
+        </sc-if>
+
+        <sc-if value="{{ wifiShowingManual }}">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div data-lv="label.title" class="dialog-title">{{ t.enterSsid }}</div>
+            <button data-lv="button.icon" class="btn btn-icon btn-ghost" onClick="{{ closeWifi }}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
+            </button>
+          </div>
+          <input data-lv="input.text" class="input" readOnly="{{ true }}" placeholder="{{ t.enterSsid }}" value="{{ wifiManualSsid }}" style="font-size:16px;padding:10px 14px;caret-color:transparent"></input>
+          <div style="display:flex;flex-direction:column;gap:6px;padding-top:6px">
+            <sc-for list="{{ manualKbRows }}" as="row" hint-placeholder-count="4">
+              <div style="display:flex;gap:5px;justify-content:center">
+                <sc-for list="{{ row }}" as="key" hint-placeholder-count="10">
+                  <button data-lv="button.key" onClick="{{ key.press }}" style="flex:1;max-width:38px;height:36px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);font-size:13px;font-weight:500;font-family:var(--font-heading);cursor:pointer">{{ key.label }}</button>
+                </sc-for>
+              </div>
+            </sc-for>
+            <div style="display:flex;gap:8px;justify-content:space-between;padding-top:4px">
+              <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ cancelManualSsidEntry }}">{{ t.cancel2 }}</button>
+              <button data-lv="button.key" onClick="{{ manualSsidKbBackspace }}" style="width:64px;height:36px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);font-size:14px;cursor:pointer">⌫</button>
+              <button data-lv="button.primary" class="btn btn-primary" onClick="{{ confirmManualSsid }}" disabled="{{ wifiManualSsidEmpty }}">{{ t.next }}</button>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ wifiShowingDetail }}">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div data-lv="label.title" class="dialog-title">{{ wifiSelectedSsid }}</div>
+            <button data-lv="button.icon" class="btn btn-icon btn-ghost" onClick="{{ closeWifi }}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
+            </button>
+          </div>
+          <p data-lv="label.body" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 70%, transparent);margin:0">{{ t.enterPassword }} {{ wifiSelectedSsid }}</p>
+          <div style="display:flex;align-items:center;gap:var(--space-2)">
+            <input data-lv="input.password" class="input" readOnly="{{ true }}" value="{{ wifiPasswordDisplay }}" style="flex:1;font-size:16px;padding:10px 14px;caret-color:transparent"></input>
+            <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ toggleWifiShowPassword }}">{{ wifiShowHideLabel }}</button>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:6px;padding-top:6px">
+            <sc-for list="{{ wifiKbRows }}" as="row" hint-placeholder-count="4">
+              <div style="display:flex;gap:5px;justify-content:center">
+                <sc-for list="{{ row }}" as="key" hint-placeholder-count="10">
+                  <button data-lv="button.key" onClick="{{ key.press }}" style="flex:1;max-width:38px;height:36px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);font-size:13px;font-weight:500;font-family:var(--font-heading);cursor:pointer">{{ key.label }}</button>
+                </sc-for>
+              </div>
+            </sc-for>
+            <div style="display:flex;gap:8px;justify-content:space-between;padding-top:4px">
+              <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ backToWifiList }}">{{ t.back }}</button>
+              <button data-lv="button.key" onClick="{{ wifiKbBackspace }}" style="width:64px;height:36px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);font-size:14px;cursor:pointer">⌫</button>
+              <button data-lv="button.primary" class="btn btn-primary" onClick="{{ wifiConnect }}" disabled="{{ wifiConnectDisabled }}">
+                <sc-if value="{{ wifiConnecting }}">{{ t.connecting }}</sc-if>
+                <sc-if value="{{ wifiConnected }}">{{ t.connected }}</sc-if>
+                <sc-if value="{{ wifiIdle }}" hint-placeholder-val="{{ true }}">{{ t.connect }}</sc-if>
+              </button>
+            </div>
+          </div>
+        </sc-if>
+
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasSelectedDay }}">
+    <div style="position:absolute;inset:0;background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);display:flex;align-items:flex-end" onClick="{{ closeDay }}">
+      <div class="{{ sheetClass }}" style="width:100%;max-height:78%;background:var(--color-surface);border-radius:var(--radius-lg) var(--radius-lg) 0 0;box-shadow:var(--shadow-lg);padding:var(--space-6);display:flex;flex-direction:column;gap:var(--space-4);cursor:pointer" onClick="{{ closeDay }}">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div data-lv="label.title" style="font-size:22px;font-weight:500;font-family:var(--font-heading)">{{ selectedDay.dayLabel }}</div>
+            <div data-lv="label.caption" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ selectedDay.dateLabel }}</div>
+          </div>
+          <button data-lv="button.icon" class="btn btn-icon btn-ghost" onClick="{{ closeDay }}">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
+          </button>
+        </div>
+        <div style="display:flex;align-items:center;gap:var(--space-6)">
+          <dc-import name="WeatherIcon" code="{{ selectedDay.weatherCode }}" size="72" hint-size="72px,72px"></dc-import>
+          <div>
+            <div data-lv="label.display" style="font-family:var(--font-heading);font-size:40px;font-weight:500;line-height:1">{{ selectedDay.hiDisplay }} <span style="font-size:22px;color:color-mix(in srgb, var(--color-text) 50%, transparent)">/ {{ selectedDay.loDisplay }}</span></div>
+            <div data-lv="label.body" style="font-size:14px;color:color-mix(in srgb, var(--color-text) 70%, transparent);margin-top:4px">{{ selectedDay.label }}</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-3)">
+          <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:var(--space-3)">
+            <div data-lv="label.caption" style="font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.feelsLike }}</div>
+            <div data-lv="label.value" style="font-size:15px;font-weight:500;font-family:var(--font-heading)">{{ selectedDay.apparentHiDisplay }} / {{ selectedDay.apparentLoDisplay }}</div>
+          </div>
+          <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:var(--space-3)">
+            <div data-lv="label.caption" style="font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.precip }}</div>
+            <div data-lv="label.value" style="font-size:15px;font-weight:500;font-family:var(--font-heading)">{{ selectedDay.precipProb }}%</div>
+          </div>
+          <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:var(--space-3)">
+            <div data-lv="label.caption" style="font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.wind }}</div>
+            <div data-lv="label.value" style="font-size:15px;font-weight:500;font-family:var(--font-heading)">{{ selectedDay.windDisplay }}</div>
+          </div>
+        </div>
+
+        <sc-if value="{{ selectedDay.chart }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:none;height:130px;display:flex;align-items:center;gap:10px;border-top:1px solid var(--color-divider);padding-top:10px">
+            <div style="display:flex;flex-direction:column;gap:4px;flex:none">
+              <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.temperature }}</span></div>
+              <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--color-accent-700)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.precip }}</span></div>
+            </div>
+            <div style="position:relative;flex:1;height:100%">
+              <svg viewBox="0 0 {{ selectedDay.chart.W }} {{ selectedDay.chart.H }}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible">
+                <line x1="{{ selectedDay.chart.axisX0 }}" y1="{{ selectedDay.chart.axisTop }}" x2="{{ selectedDay.chart.axisX0 }}" y2="{{ selectedDay.chart.axisBottom }}" stroke="var(--color-divider)" stroke-width="1"></line>
+                <line x1="{{ selectedDay.chart.axisX1 }}" y1="{{ selectedDay.chart.axisTop }}" x2="{{ selectedDay.chart.axisX1 }}" y2="{{ selectedDay.chart.axisBottom }}" stroke="var(--color-divider)" stroke-width="1"></line>
+                <sc-for list="{{ selectedDay.chart.bars }}" as="bar" hint-placeholder-count="24">
+                  <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.w }}" height="{{ bar.h }}" rx="1.5" fill="var(--color-accent-700)"></rect>
+                </sc-for>
+                <polyline points="{{ selectedDay.chart.linePoints }}" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+              </svg>
+              <sc-for list="{{ selectedDay.chart.tempTicks }}" as="tick" hint-placeholder-count="3">
+                <div data-lv="label.caption" style="position:absolute;left:0;top:{{ tick.topPct }}%;transform:translateY(-50%);font-size:9px;color:var(--color-accent)">{{ tick.text }}</div>
+              </sc-for>
+              <sc-for list="{{ selectedDay.chart.precipTicks }}" as="tick" hint-placeholder-count="3">
+                <div data-lv="label.caption" style="position:absolute;right:0;top:{{ tick.topPct }}%;transform:translateY(-50%);font-size:9px;color:var(--color-accent-700)">{{ tick.text }}</div>
+              </sc-for>
+              <sc-for list="{{ selectedDay.chart.xLabels }}" as="lbl" hint-placeholder-count="8">
+                <div data-lv="label.caption" style="position:absolute;left:{{ lbl.leftPct }}%;bottom:0;transform:translateX(-50%);font-size:9px;color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ lbl.text }}</div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1024, &quot;height&quot;: 600}}">
+class Component extends DCLogic {
+  state = {
+    location: { name: 'Trier', country: 'Germany', lat: 49.7499, lon: 6.6371 },
+    units: { temp: 'c', wind: 'kmh', time: '24' },
+    weather: null,
+    timezone: 'Europe/Berlin',
+    loading: true,
+    error: null,
+    now: new Date(),
+    searchOpen: false,
+    searchQuery: '',
+    searchResults: [],
+    searching: false,
+    settingsOpen: false,
+    brightness: 80,
+    brightnessAdaptive: false,
+    selectedDayIndex: null,
+    sheetClosing: false,
+    language: 'en',
+    wifiOpen: false,
+    wifiScanning: false,
+    wifiNetworks: [],
+    wifiSelectedSsid: null,
+    wifiPassword: '',
+    wifiShowPassword: false,
+    wifiStatus: null,
+    wifiManualMode: false,
+    wifiManualSsid: '',
+    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+    lastFetchSuccessAt: null,
+  };
+
+  STALE_MS = 60 * 60 * 1000;
+
+  LOCALE = { en: 'en-US', de: 'de-DE', es: 'es-ES', fr: 'fr-FR' };
+
+  getStrings(lang) {
+    const T = {
+      en: {
+        cancel: 'Cancel', retry: 'Retry', searchPlaceholder: 'Search for a city…',
+        noCities: 'No cities found.', searching: 'Searching…', settings: 'Settings',
+        temperature: 'Temperature', windSpeed: 'Wind speed', timeFormat: 'Time format',
+        language: 'Language', h24: '24-hour', h12: '12-hour', humidity: 'Humidity',
+        feelsLike: 'Feels like', wind: 'Wind', precip: 'Precip.', forecast: '7-Day Forecast',
+        loading: 'Loading weather…', today: 'Today', tomorrow: 'Tomorrow', error: 'Could not load weather',
+        space: 'Space', done: 'Done',
+        brightness: 'Brightness', brightnessAdaptive: 'Adapt to ambient light',
+        network: 'Network', configureNetwork: 'Configure network', wifiTitle: 'Wi-Fi networks',
+        scan: 'Scan', scanning: 'Scanning…', noNetworks: 'No networks found.', secured: 'Secured', open: 'Open',
+        forgetSavedNetwork: 'Forget saved network',
+        enterPassword: 'Enter password for', connect: 'Connect', back: 'Back',
+        connecting: 'Connecting…', connected: 'Connected', show: 'Show', hide: 'Hide',
+        enterManually: 'Enter network name manually', enterSsid: 'Network name (SSID)', next: 'Next', cancel2: 'Cancel',
+        online: 'Online', offline: 'Offline', dataOutdated: 'Data may be outdated',
+        cond: { 0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast', 45: 'Fog', 48: 'Icy fog', 51: 'Light drizzle', 53: 'Drizzle', 55: 'Dense drizzle', 56: 'Freezing drizzle', 57: 'Freezing drizzle', 61: 'Slight rain', 63: 'Rain', 65: 'Heavy rain', 66: 'Freezing rain', 67: 'Heavy freezing rain', 71: 'Slight snow', 73: 'Snow', 75: 'Heavy snow', 77: 'Snow grains', 80: 'Slight showers', 81: 'Showers', 82: 'Violent showers', 85: 'Snow showers', 86: 'Heavy snow showers', 95: 'Thunderstorm', 96: 'Thunderstorm w/ hail', 99: 'Severe thunderstorm' },
+        rf: { same: 'Feels about the same as the air temperature.', cooler: 'Feels noticeably cooler than the air temperature, likely due to wind.', warmer: 'Feels warmer than the air temperature, likely due to humidity.', rain: ' Rain is likely — plan accordingly.', breezy: ' Winds are breezy.' },
+        humidityCat: { dry: 'Dry', comfortable: 'Comfortable', humid: 'Humid', veryHumid: 'Very Humid' },
+      },
+      de: {
+        cancel: 'Abbrechen', retry: 'Erneut versuchen', searchPlaceholder: 'Stadt suchen…',
+        noCities: 'Keine Städte gefunden.', searching: 'Suche…', settings: 'Einstellungen',
+        temperature: 'Temperatur', windSpeed: 'Windgeschwindigkeit', timeFormat: 'Zeitformat',
+        language: 'Sprache', h24: '24-Stunden', h12: '12-Stunden', humidity: 'Luftfeuchtigkeit',
+        feelsLike: 'Gefühlt', wind: 'Wind', precip: 'Niederschlag', forecast: '7-Tage-Vorhersage',
+        loading: 'Wetter wird geladen…', today: 'Heute', tomorrow: 'Morgen', error: 'Wetter konnte nicht geladen werden',
+        space: 'Leerzeichen', done: 'Fertig',
+        brightness: 'Helligkeit', brightnessAdaptive: 'An Umgebungslicht anpassen',
+        network: 'Netzwerk', configureNetwork: 'Netzwerk konfigurieren', wifiTitle: 'WLAN-Netzwerke',
+        scan: 'Suchen', scanning: 'Suche läuft…', noNetworks: 'Keine Netzwerke gefunden.', secured: 'Gesichert', open: 'Offen',
+        forgetSavedNetwork: 'Gespeichertes Netzwerk vergessen',
+        enterPassword: 'Passwort eingeben für', connect: 'Verbinden', back: 'Zurück',
+        connecting: 'Verbinde…', connected: 'Verbunden', show: 'Anzeigen', hide: 'Verbergen',
+        enterManually: 'Netzwerkname manuell eingeben', enterSsid: 'Netzwerkname (SSID)', next: 'Weiter', cancel2: 'Abbrechen',
+        online: 'Online', offline: 'Offline', dataOutdated: 'Daten könnten veraltet sein',
+        cond: { 0: 'Klarer Himmel', 1: 'Überwiegend klar', 2: 'Teilweise bewölkt', 3: 'Bedeckt', 45: 'Nebel', 48: 'Gefrierender Nebel', 51: 'Leichter Nieselregen', 53: 'Nieselregen', 55: 'Starker Nieselregen', 56: 'Gefrierender Nieselregen', 57: 'Gefrierender Nieselregen', 61: 'Leichter Regen', 63: 'Regen', 65: 'Starker Regen', 66: 'Gefrierender Regen', 67: 'Starker gefrierender Regen', 71: 'Leichter Schneefall', 73: 'Schneefall', 75: 'Starker Schneefall', 77: 'Schneegriesel', 80: 'Leichte Schauer', 81: 'Schauer', 82: 'Heftige Schauer', 85: 'Schneeschauer', 86: 'Starke Schneeschauer', 95: 'Gewitter', 96: 'Gewitter mit Hagel', 99: 'Schweres Gewitter mit Hagel' },
+        rf: { same: 'Fühlt sich etwa wie die Lufttemperatur an.', cooler: 'Fühlt sich durch den Wind deutlich kühler an.', warmer: 'Fühlt sich durch die Luftfeuchtigkeit wärmer an.', rain: ' Regen ist wahrscheinlich — plane entsprechend.', breezy: ' Es ist windig.' },
+        humidityCat: { dry: 'Trocken', comfortable: 'Angenehm', humid: 'Feucht', veryHumid: 'Sehr feucht' },
+      },
+      es: {
+        cancel: 'Cancelar', retry: 'Reintentar', searchPlaceholder: 'Buscar una ciudad…',
+        noCities: 'No se encontraron ciudades.', searching: 'Buscando…', settings: 'Ajustes',
+        temperature: 'Temperatura', windSpeed: 'Velocidad del viento', timeFormat: 'Formato de hora',
+        language: 'Idioma', h24: '24 horas', h12: '12 horas', humidity: 'Humedad',
+        feelsLike: 'Sensación', wind: 'Viento', precip: 'Precip.', forecast: 'Pronóstico de 7 días',
+        loading: 'Cargando el clima…', today: 'Hoy', tomorrow: 'Mañana', error: 'No se pudo cargar el clima',
+        space: 'Espacio', done: 'Listo',
+        brightness: 'Brillo', brightnessAdaptive: 'Adaptar a la luz ambiental',
+        network: 'Red', configureNetwork: 'Configurar red', wifiTitle: 'Redes Wi-Fi',
+        scan: 'Buscar', scanning: 'Buscando…', noNetworks: 'No se encontraron redes.', secured: 'Protegida', open: 'Abierta',
+        forgetSavedNetwork: 'Olvidar red guardada',
+        enterPassword: 'Ingresa la contraseña para', connect: 'Conectar', back: 'Atrás',
+        connecting: 'Conectando…', connected: 'Conectado', show: 'Mostrar', hide: 'Ocultar',
+        enterManually: 'Ingresar nombre de red manualmente', enterSsid: 'Nombre de red (SSID)', next: 'Siguiente', cancel2: 'Cancelar',
+        online: 'En línea', offline: 'Sin conexión', dataOutdated: 'Los datos podrían estar desactualizados',
+        cond: { 0: 'Cielo despejado', 1: 'Mayormente despejado', 2: 'Parcialmente nublado', 3: 'Nublado', 45: 'Niebla', 48: 'Niebla helada', 51: 'Llovizna ligera', 53: 'Llovizna', 55: 'Llovizna densa', 56: 'Llovizna helada', 57: 'Llovizna helada', 61: 'Lluvia ligera', 63: 'Lluvia', 65: 'Lluvia intensa', 66: 'Lluvia helada', 67: 'Lluvia helada intensa', 71: 'Nieve ligera', 73: 'Nieve', 75: 'Nieve intensa', 77: 'Granos de nieve', 80: 'Chubascos ligeros', 81: 'Chubascos', 82: 'Chubascos violentos', 85: 'Chubascos de nieve', 86: 'Chubascos de nieve intensos', 95: 'Tormenta', 96: 'Tormenta con granizo', 99: 'Tormenta severa con granizo' },
+        rf: { same: 'Se siente similar a la temperatura del aire.', cooler: 'Se siente notablemente más frío por el viento.', warmer: 'Se siente más cálido por la humedad.', rain: ' Es probable que llueva — actúa en consecuencia.', breezy: ' Hay viento.' },
+        humidityCat: { dry: 'Seco', comfortable: 'Agradable', humid: 'Húmedo', veryHumid: 'Muy húmedo' },
+      },
+      fr: {
+        cancel: 'Annuler', retry: 'Réessayer', searchPlaceholder: 'Rechercher une ville…',
+        noCities: 'Aucune ville trouvée.', searching: 'Recherche…', settings: 'Paramètres',
+        temperature: 'Température', windSpeed: 'Vitesse du vent', timeFormat: 'Format de l\u2019heure',
+        language: 'Langue', h24: '24 heures', h12: '12 heures', humidity: 'Humidité',
+        feelsLike: 'Ressenti', wind: 'Vent', precip: 'Précip.', forecast: 'Prévisions sur 7 jours',
+        loading: 'Chargement de la météo…', today: 'Aujourd\u2019hui', tomorrow: 'Demain', error: 'Impossible de charger la météo',
+        space: 'Espace', done: 'Terminé',
+        brightness: 'Luminosité', brightnessAdaptive: 'Adapter à la lumière ambiante',
+        network: 'Réseau', configureNetwork: 'Configurer le réseau', wifiTitle: 'Réseaux Wi-Fi',
+        scan: 'Rechercher', scanning: 'Recherche…', noNetworks: 'Aucun réseau trouvé.', secured: 'Sécurisé', open: 'Ouvert',
+        forgetSavedNetwork: 'Oublier le réseau enregistré',
+        enterPassword: 'Entrez le mot de passe pour', connect: 'Connecter', back: 'Retour',
+        connecting: 'Connexion…', connected: 'Connecté', show: 'Afficher', hide: 'Masquer',
+        enterManually: 'Saisir le nom du réseau manuellement', enterSsid: 'Nom du réseau (SSID)', next: 'Suivant', cancel2: 'Annuler',
+        online: 'En ligne', offline: 'Hors ligne', dataOutdated: 'Les données sont peut-être obsolètes',
+        cond: { 0: 'Ciel dégagé', 1: 'Plutôt dégagé', 2: 'Partiellement nuageux', 3: 'Couvert', 45: 'Brouillard', 48: 'Brouillard givrant', 51: 'Bruine légère', 53: 'Bruine', 55: 'Bruine dense', 56: 'Bruine verglaçante', 57: 'Bruine verglaçante', 61: 'Pluie légère', 63: 'Pluie', 65: 'Forte pluie', 66: 'Pluie verglaçante', 67: 'Forte pluie verglaçante', 71: 'Neige légère', 73: 'Neige', 75: 'Forte neige', 77: 'Grains de neige', 80: 'Averses légères', 81: 'Averses', 82: 'Averses violentes', 85: 'Averses de neige', 86: 'Fortes averses de neige', 95: 'Orage', 96: 'Orage avec grêle', 99: 'Orage violent avec grêle' },
+        rf: { same: 'Ressenti proche de la température de l\u2019air.', cooler: 'Ressenti nettement plus frais à cause du vent.', warmer: 'Ressenti plus chaud à cause de l\u2019humidité.', rain: ' La pluie est probable — prévoyez en conséquence.', breezy: ' Il y a du vent.' },
+        humidityCat: { dry: 'Sec', comfortable: 'Confortable', humid: 'Humide', veryHumid: 'Très humide' },
+      },
+    };
+    return T[lang] || T.en;
+  }
+
+  componentDidMount() {
+    this.fetchWeather();
+    this.clockTimer = setInterval(() => this.setState({ now: new Date() }), 15000);
+    this.onOnline = () => this.setState({ isOnline: true });
+    this.onOffline = () => this.setState({ isOnline: false });
+    window.addEventListener('online', this.onOnline);
+    window.addEventListener('offline', this.onOffline);
+  }
+  componentWillUnmount() {
+    clearInterval(this.clockTimer);
+    clearTimeout(this.searchDebounce);
+    clearTimeout(this.sheetTimer);
+    clearTimeout(this.wifiScanTimer);
+    clearTimeout(this.wifiConnectTimer);
+    window.removeEventListener('online', this.onOnline);
+    window.removeEventListener('offline', this.onOffline);
+  }
+
+  openSearch = () => this.setState({ searchOpen: true });
+  closeSearch = () => this.setState({ searchOpen: false, searchQuery: '', searchResults: [] });
+  openSettings = () => this.setState({ settingsOpen: true });
+  setBrightness = (e) => this.setState({ brightness: Number(e.target.value) });
+  toggleBrightnessAdaptive = () => this.setState((s) => ({ brightnessAdaptive: !s.brightnessAdaptive }));
+  closeSettings = () => this.setState({ settingsOpen: false });
+  closeDay = () => {
+    this.setState({ sheetClosing: true });
+    clearTimeout(this.sheetTimer);
+    this.sheetTimer = setTimeout(() => this.setState({ selectedDayIndex: null, sheetClosing: false }), 220);
+  };
+  stopClick = (e) => e.stopPropagation();
+  refresh = () => this.fetchWeather();
+  onSearchInput = (e) => this.searchCities(e.target.value);
+  kbAppend = (ch) => this.searchCities((this.state.searchQuery || '') + ch);
+  kbBackspace = () => this.searchCities((this.state.searchQuery || '').slice(0, -1));
+  kbSpace = () => this.kbAppend(' ');
+  setTempC = () => this.setUnit('temp', 'c');
+  setTempF = () => this.setUnit('temp', 'f');
+  setWindKmh = () => this.setUnit('wind', 'kmh');
+  setWindMph = () => this.setUnit('wind', 'mph');
+  setWindMs = () => this.setUnit('wind', 'ms');
+  setTime24 = () => this.setUnit('time', '24');
+  setTime12 = () => this.setUnit('time', '12');
+  setLangEn = () => this.setState({ language: 'en' });
+  setLangDe = () => this.setState({ language: 'de' });
+  setLangEs = () => this.setState({ language: 'es' });
+  setLangFr = () => this.setState({ language: 'fr' });
+
+  openWifi = () => {
+    this.setState({ wifiOpen: true, settingsOpen: false });
+    this.scanWifi();
+  };
+  closeWifi = () => {
+    clearTimeout(this.wifiScanTimer);
+    this.setState({ wifiOpen: false, wifiSelectedSsid: null, wifiPassword: '', wifiShowPassword: false, wifiStatus: null, wifiManualMode: false, wifiManualSsid: '' });
+  };
+  openManualSsidEntry = () => this.setState({ wifiManualMode: true, wifiManualSsid: '' });
+  forgetSavedNetwork = () => {};
+  cancelManualSsidEntry = () => this.setState({ wifiManualMode: false, wifiManualSsid: '' });
+  manualSsidKbAppend = (ch) => this.setState((s) => ({ wifiManualSsid: (s.wifiManualSsid || '') + ch }));
+  manualSsidKbBackspace = () => this.setState((s) => ({ wifiManualSsid: (s.wifiManualSsid || '').slice(0, -1) }));
+  confirmManualSsid = () => this.setState((s) => ({
+    wifiManualMode: false, wifiSelectedSsid: s.wifiManualSsid, wifiPassword: '', wifiStatus: null,
+  }));
+  scanWifi = () => {
+    this.setState({ wifiScanning: true, wifiNetworks: [] });
+    clearTimeout(this.wifiScanTimer);
+    this.wifiScanTimer = setTimeout(() => {
+      this.setState({
+        wifiScanning: false,
+        wifiNetworks: [
+          { ssid: 'Home-5G', strength: 3, secured: true },
+          { ssid: 'Home-2.4G', strength: 3, secured: true },
+          { ssid: 'FRITZ!Box 7590', strength: 2, secured: true },
+          { ssid: 'Cafe Free WiFi', strength: 1, secured: false },
+          { ssid: 'Nachbar_WLAN', strength: 1, secured: true },
+        ],
+      });
+    }, 1400);
+  };
+  selectWifiNetwork = (net) => this.setState({ wifiSelectedSsid: net.ssid, wifiPassword: '', wifiStatus: null });
+  backToWifiList = () => this.setState({ wifiSelectedSsid: null, wifiPassword: '', wifiShowPassword: false, wifiStatus: null });
+  toggleWifiShowPassword = () => this.setState((s) => ({ wifiShowPassword: !s.wifiShowPassword }));
+  wifiKbAppend = (ch) => this.setState((s) => ({ wifiPassword: (s.wifiPassword || '') + ch }));
+  wifiKbBackspace = () => this.setState((s) => ({ wifiPassword: (s.wifiPassword || '').slice(0, -1) }));
+  wifiConnect = () => {
+    this.setState({ wifiStatus: 'connecting' });
+    clearTimeout(this.wifiConnectTimer);
+    this.wifiConnectTimer = setTimeout(() => this.setState({ wifiStatus: 'connected' }), 1200);
+  };
+
+  setUnit(kind, val) {
+    this.setState((s) => ({ units: { ...s.units, [kind]: val } }));
+  }
+
+  async fetchWeather() {
+    this.setState({ loading: true, error: null });
+    const { lat, lon } = this.state.location;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,wind_speed_10m,weather_code&hourly=temperature_2m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max&timezone=auto&forecast_days=7`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Weather service unavailable');
+      const data = await res.json();
+      this.setState({ weather: data, timezone: data.timezone || this.state.timezone, loading: false, lastFetchSuccessAt: Date.now() });
+    } catch (e) {
+      this.setState({ error: e.message || 'Could not load weather', loading: false });
+    }
+  }
+
+  searchCities(query) {
+    this.setState({ searchQuery: query });
+    clearTimeout(this.searchDebounce);
+    if (!query || query.trim().length < 2) {
+      this.setState({ searchResults: [], searching: false });
+      return;
+    }
+    this.setState({ searching: true });
+    this.searchDebounce = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=6&language=en&format=json`);
+        const data = await res.json();
+        this.setState({ searchResults: data.results || [], searching: false });
+      } catch (e) {
+        this.setState({ searchResults: [], searching: false });
+      }
+    }, 400);
+  }
+
+  selectLocation(r) {
+    this.setState({
+      location: { name: r.name, country: r.country || '', lat: r.latitude, lon: r.longitude },
+      searchOpen: false, searchQuery: '', searchResults: [],
+    }, () => this.fetchWeather());
+  }
+
+  weatherMeta(code, strings) {
+    return strings.cond[code] || strings.cond[3];
+  }
+
+  humidityCategory(pct, strings) {
+    if (pct == null) return '';
+    const c = strings.humidityCat;
+    if (pct < 30) return c.dry;
+    if (pct < 60) return c.comfortable;
+    if (pct < 80) return c.humid;
+    return c.veryHumid;
+  }
+
+  convertTemp(c, unit) {
+    return unit === 'f' ? c * 9 / 5 + 32 : c;
+  }
+  tempStr(c, unit) {
+    return `${Math.round(this.convertTemp(c, unit))}°${unit.toUpperCase()}`;
+  }
+  convertWind(kmh, unit) {
+    if (unit === 'mph') return kmh * 0.621371;
+    if (unit === 'ms') return kmh / 3.6;
+    return kmh;
+  }
+  windLabel(unit) {
+    return unit === 'mph' ? 'mph' : unit === 'ms' ? 'm/s' : 'km/h';
+  }
+  windStr(kmh, unit) {
+    return `${Math.round(this.convertWind(kmh, unit))} ${this.windLabel(unit)}`;
+  }
+
+  fmtTime(date, tz, format, locale) {
+    try {
+      return new Intl.DateTimeFormat(locale, { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: format === '12' }).format(date);
+    } catch (e) { return ''; }
+  }
+  fmtDate(date, tz, locale) {
+    try {
+      return new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(date);
+    } catch (e) { return ''; }
+  }
+  dayLabel(dateStr, idx, strings, locale) {
+    if (idx === 0) return strings.today;
+    if (idx === 1) return strings.tomorrow;
+    const d = new Date(dateStr + 'T00:00:00');
+    return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(d);
+  }
+  dayDateLabel(dateStr, locale) {
+    const d = new Date(dateStr + 'T00:00:00');
+    return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(d);
+  }
+  realFeelText(apparent, actual, windKmh, precipProb, strings) {
+    const diff = apparent - actual;
+    let base;
+    if (diff <= -3) base = strings.rf.cooler;
+    else if (diff >= 3) base = strings.rf.warmer;
+    else base = strings.rf.same;
+    if (precipProb >= 50) base += strings.rf.rain;
+    else if (windKmh >= 30) base += strings.rf.breezy;
+    return base;
+  }
+
+  buildDayChart(weather, dayIndex, tempUnit, timeFmt, locale) {
+    const h = weather.hourly;
+    if (!h || !h.time || !h.time.length) return null;
+    const start = dayIndex * 24;
+    const n = Math.min(24, h.time.length - start);
+    if (n <= 0) return null;
+    const sliceTime = h.time.slice(start, start + n);
+    const temps = h.temperature_2m.slice(start, start + n).map((c) => this.convertTemp(c, tempUnit));
+    const precs = h.precipitation.slice(start, start + n);
+    const h_ = { time: sliceTime };
+    const W = 480, H = 108, PAD_L = 26, PAD_R = 30, PAD_T = 6, PAD_B = 18;
+    const chartW = W - PAD_L - PAD_R, chartH = H - PAD_T - PAD_B;
+    const tMin = Math.min(...temps), tMax = Math.max(...temps);
+    const tRange = (tMax - tMin) || 1;
+    const pMax = Math.max(1, ...precs);
+    const stepX = chartW / (n - 1 || 1);
+    const linePoints = temps.map((t, i) => {
+      const x = PAD_L + i * stepX;
+      const y = PAD_T + chartH - ((t - tMin) / tRange) * chartH;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const barSlot = chartW / n;
+    const barW = barSlot * 0.55;
+    const bars = precs.map((p, i) => {
+      const bh = (p / pMax) * (chartH * 0.85);
+      const x = PAD_L + i * barSlot + (barSlot - barW) / 2;
+      const y = PAD_T + chartH - bh;
+      return { key: i, x: +x.toFixed(1), y: +y.toFixed(1), w: +barW.toFixed(1), h: +Math.max(bh, 0).toFixed(1) };
+    });
+    const xLabels = [];
+    for (let i = 0; i < n; i += 3) {
+      const hour = parseInt(h_.time[i].slice(11, 13), 10);
+      let label;
+      if (timeFmt === '12') {
+        const h12 = hour % 12 === 0 ? 12 : hour % 12;
+        label = `${h12}${hour < 12 ? 'am' : 'pm'}`;
+      } else {
+        label = `${String(hour).padStart(2, '0')}h`;
+      }
+      xLabels.push({ key: i, x: +(PAD_L + i * stepX).toFixed(1), text: label });
+    }
+    const tempTicks = [0, 0.5, 1].map((f) => {
+      const val = tMin + f * tRange;
+      return { key: f, topPct: +(((PAD_T + chartH - f * chartH) / H) * 100).toFixed(2), text: `${Math.round(val)}°` };
+    });
+    const precipTicks = [0, 0.5, 1].map((f) => {
+      const val = f * pMax;
+      return { key: f, topPct: +(((PAD_T + chartH - f * (chartH * 0.85)) / H) * 100).toFixed(2), text: `${val.toFixed(val < 1 ? 1 : 0)}mm` };
+    });
+    xLabels.forEach((l) => { l.leftPct = +((l.x / W) * 100).toFixed(2); });
+    return { W, H, linePoints, bars, xLabels, tempTicks, precipTicks, axisX0: PAD_L, axisX1: W - PAD_R, axisTop: PAD_T, axisBottom: PAD_T + chartH };
+  }
+
+  renderVals() {
+    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt } = this.state;
+    const isDataStale = !!lastFetchSuccessAt && (now.getTime() - lastFetchSuccessAt) > this.STALE_MS;
+    const strings = this.getStrings(language);
+    const locale = this.LOCALE[language] || 'en-US';
+    const locationLabel = `${location.name}${location.country ? ', ' + location.country : ''}`;
+    const nowTimeStr = this.fmtTime(now, timezone, units.time, locale);
+    const nowDateStr = this.fmtDate(now, timezone, locale);
+
+    let current = null, days = [], selectedDay = null;
+    if (weather) {
+      const c = weather.current;
+      current = {
+        weatherCode: c.weather_code,
+        label: this.weatherMeta(c.weather_code, strings),
+        tempDisplay: this.tempStr(c.temperature_2m, units.temp),
+        humidityPct: Math.round(c.relative_humidity_2m),
+        humidityCat: this.humidityCategory(c.relative_humidity_2m, strings),
+        apparentDisplay: this.tempStr(c.apparent_temperature, units.temp),
+        windDisplay: this.windStr(c.wind_speed_10m, units.wind),
+        precipProb: Math.round(c.precipitation_probability ?? 0),
+        realFeelText: this.realFeelText(c.apparent_temperature, c.temperature_2m, c.wind_speed_10m, c.precipitation_probability ?? 0, strings),
+      };
+      current.chart = this.buildDayChart(weather, 0, units.temp, units.time, locale);
+      const d = weather.daily;
+      days = d.time.map((dateStr, i) => ({
+        key: dateStr,
+        dayLabel: this.dayLabel(dateStr, i, strings, locale),
+        dateLabel: this.dayDateLabel(dateStr, locale),
+        weatherCode: d.weather_code[i],
+        hiDisplay: this.tempStr(d.temperature_2m_max[i], units.temp),
+        loDisplay: this.tempStr(d.temperature_2m_min[i], units.temp),
+        precipProb: Math.round(d.precipitation_probability_max?.[i] ?? 0),
+        open: () => this.setState({ selectedDayIndex: i }),
+      }));
+      if (selectedDayIndex != null && d.time[selectedDayIndex]) {
+        const i = selectedDayIndex;
+        selectedDay = {
+          dayLabel: this.dayLabel(d.time[i], i, strings, locale),
+          dateLabel: this.dayDateLabel(d.time[i], locale),
+          weatherCode: d.weather_code[i],
+          label: this.weatherMeta(d.weather_code[i], strings),
+          hiDisplay: this.tempStr(d.temperature_2m_max[i], units.temp),
+          loDisplay: this.tempStr(d.temperature_2m_min[i], units.temp),
+          apparentHiDisplay: this.tempStr(d.apparent_temperature_max[i], units.temp),
+          apparentLoDisplay: this.tempStr(d.apparent_temperature_min[i], units.temp),
+          precipProb: Math.round(d.precipitation_probability_max?.[i] ?? 0),
+          windDisplay: this.windStr(d.wind_speed_10m_max[i], units.wind),
+          chart: this.buildDayChart(weather, i, units.temp, units.time, locale),
+        };
+      }
+    }
+
+    return {
+      locationLabel, nowTimeStr, nowDateStr, t: strings, htmlLang: language,
+      isOnline, isDataStale,
+      netStatusLabel: isOnline ? strings.online : strings.offline,
+      netDotColor: isOnline ? 'var(--color-accent)' : 'var(--color-neutral-500)',
+      isLoading: loading && !weather,
+      hasError: !!error,
+      errorMsg: error ? strings.error : '',
+      showContent: !!weather && !(loading && !weather),
+      current, days, selectedDay,
+      hasSelectedDay: selectedDay != null,
+      sheetClass: sheetClosing ? 'wx-sheet-down' : 'wx-sheet-up',
+      openSearch: this.openSearch, closeSearch: this.closeSearch,
+      openSettings: this.openSettings, closeSettings: this.closeSettings,
+      closeDay: this.closeDay, stopClick: this.stopClick, refresh: this.refresh,
+      searchOpen, searchQuery, searching,
+      kbRows: [
+        ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+        ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+        ['Z', 'X', 'C', 'V', 'B', 'N', 'M', 'Ä', 'Ö', 'Ü'],
+      ].map((row) => row.map((k) => ({ label: k, press: () => this.kbAppend(k.toLowerCase()) }))),
+      kbBackspace: this.kbBackspace, kbSpace: this.kbSpace,
+      noResults: !searching && searchQuery.trim().length >= 2 && searchResults.length === 0,
+      onSearchInput: this.onSearchInput,
+      searchResults: searchResults.map((r) => ({
+        name: r.name,
+        sub: [r.admin1, r.country].filter(Boolean).join(', '),
+        select: () => this.selectLocation(r),
+      })),
+      settingsOpen, brightness, brightnessAdaptive,
+      setBrightness: this.setBrightness, toggleBrightnessAdaptive: this.toggleBrightnessAdaptive,
+      switchTrackStyle: `position:relative;display:inline-block;width:36px;height:20px;border-radius:10px;flex-shrink:0;transition:background-color .15s ease,border-color .15s ease;background:${brightnessAdaptive ? 'var(--color-accent-700)' : 'var(--color-neutral-800)'};border:1px solid ${brightnessAdaptive ? 'var(--color-accent)' : 'var(--color-neutral-600)'}`,
+      switchThumbStyle: `position:absolute;top:1px;left:${brightnessAdaptive ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${brightnessAdaptive ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
+      isTempC: units.temp === 'c', isTempF: units.temp === 'f',
+      isWindKmh: units.wind === 'kmh', isWindMph: units.wind === 'mph', isWindMs: units.wind === 'ms',
+      isTime24: units.time === '24', isTime12: units.time === '12',
+      isLangEn: language === 'en', isLangDe: language === 'de', isLangEs: language === 'es', isLangFr: language === 'fr',
+      setTempC: this.setTempC, setTempF: this.setTempF,
+      setWindKmh: this.setWindKmh, setWindMph: this.setWindMph, setWindMs: this.setWindMs,
+      setTime24: this.setTime24, setTime12: this.setTime12,
+      setLangEn: this.setLangEn, setLangDe: this.setLangDe, setLangEs: this.setLangEs, setLangFr: this.setLangFr,
+      openWifi: this.openWifi, closeWifi: this.closeWifi, scanWifi: this.scanWifi,
+      wifiOpen, wifiScanning,
+      wifiNoNetworks: !wifiScanning && wifiNetworks.length === 0,
+      wifiNetworks: wifiNetworks.map((n) => ({
+        ssid: n.ssid,
+        secLabel: n.secured ? strings.secured : strings.open,
+        bars: [1, 2, 3].map((b) => ({ key: b, color: b <= n.strength ? 'var(--color-accent)' : 'var(--color-divider)' })),
+        select: () => this.selectWifiNetwork(n),
+      })),
+      wifiShowingList: wifiOpen && !wifiSelectedSsid && !wifiManualMode,
+      wifiShowingManual: wifiOpen && wifiManualMode,
+      wifiShowingDetail: wifiOpen && !!wifiSelectedSsid && !wifiManualMode,
+      openManualSsidEntry: this.openManualSsidEntry, cancelManualSsidEntry: this.cancelManualSsidEntry,
+      forgetSavedNetwork: this.forgetSavedNetwork,
+      manualSsidKbBackspace: this.manualSsidKbBackspace, confirmManualSsid: this.confirmManualSsid,
+      wifiManualSsid, wifiManualSsidEmpty: !wifiManualSsid,
+      manualKbRows: [
+        ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+        ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+        ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+        ['Z', 'X', 'C', 'V', 'B', 'N', 'M'],
+      ].map((row) => row.map((k) => ({ label: k, press: () => this.manualSsidKbAppend(/[0-9]/.test(k) ? k : k.toLowerCase()) }))),
+      wifiSelectedSsid,
+      backToWifiList: this.backToWifiList,
+      wifiPasswordDisplay: wifiShowPassword ? wifiPassword : '•'.repeat(wifiPassword.length),
+      wifiShowPassword, toggleWifiShowPassword: this.toggleWifiShowPassword,
+      wifiShowHideLabel: wifiShowPassword ? strings.hide : strings.show,
+      wifiKbRows: [
+        ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+        ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+        ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+        ['Z', 'X', 'C', 'V', 'B', 'N', 'M'],
+      ].map((row) => row.map((k) => ({ label: k, press: () => this.wifiKbAppend(/[0-9]/.test(k) ? k : k.toLowerCase()) }))),
+      wifiKbBackspace: this.wifiKbBackspace,
+      wifiConnect: this.wifiConnect,
+      wifiConnecting: wifiStatus === 'connecting',
+      wifiConnected: wifiStatus === 'connected',
+      wifiIdle: !wifiStatus,
+      wifiConnectDisabled: wifiStatus === 'connecting' || wifiPassword.length === 0,
+    };
+  }
+}
+</script>
+</body>
+</html>

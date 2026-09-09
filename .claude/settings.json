@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./scripts/host-test.sh:*)",
+      "Bash(./scripts/emu-test.sh:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": [
+      "Bash(idf.py monitor:*)",
+      "Bash(idf.py flash:*)",
+      "Bash(idf.py set-target:*)",
+      "Bash(idf.py fullclean:*)",
+      "Bash(esp-emu:*)",
+      "Bash(esptool.py:*)",
+      "Bash(./scripts/hw-flash.sh:*)"
+    ]
+  }
+}

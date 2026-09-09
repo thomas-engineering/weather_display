@@ -1,0 +1,17 @@
+# Zusaetzliche Defaults fuer den Emulator-Build (build-emu/).
+# Wird zusammen mit sdkconfig.defaults geladen und ueberschreibt es.
+# NICHT fuer echte Hardware verwenden.
+
+# esp-emu zielt auf ESP32-P4 ROM-Revision 0.
+CONFIG_ESP32P4_REV_MIN_0=y
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y
+
+# Konsole auf UART0, damit der Emulator die Ausgabe sieht.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# Schnellerer Boot im Test, weniger Rauschen im Log.
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+
+# Optional: Kconfig-Schalter fuer den Selbsttest in main/selftest.c.
+# Lege dazu in main/Kconfig.projbuild eine Option APP_SELFTEST an.
+# CONFIG_APP_SELFTEST=y

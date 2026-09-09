@@ -1,0 +1,17 @@
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+dependencies.lock
+build/
+build-emu/
+host_test/build-linux/
+.logs/
+sim/build-sim/
+shots/
+shots-design/
+design/vendor/
+design/src/weather-app/_host.html
+.cache/
+.vscode/settings.json
+tmp/

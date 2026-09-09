@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<sc-if value="{{ isClear }}" hint-placeholder-val="{{ true }}">
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <g fill="currentColor">
+      <circle cx="32" cy="32" r="13"></circle>
+      <rect x="29" y="2" width="6" height="11" rx="3"></rect>
+      <rect x="29" y="2" width="6" height="11" rx="3" transform="rotate(45 32 32)"></rect>
+      <rect x="29" y="2" width="6" height="11" rx="3" transform="rotate(90 32 32)"></rect>
+      <rect x="29" y="2" width="6" height="11" rx="3" transform="rotate(135 32 32)"></rect>
+      <rect x="29" y="2" width="6" height="11" rx="3" transform="rotate(180 32 32)"></rect>
+      <rect x="29" y="2" width="6" height="11" rx="3" transform="rotate(225 32 32)"></rect>
+      <rect x="29" y="2" width="6" height="11" rx="3" transform="rotate(270 32 32)"></rect>
+      <rect x="29" y="2" width="6" height="11" rx="3" transform="rotate(315 32 32)"></rect>
+    </g>
+  </svg>
+</sc-if>
+<sc-if value="{{ isPartly }}">
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="22" cy="21" r="10" fill="currentColor" opacity="0.8"></circle>
+    <path d="M18 46 C9 46 4 40 4 33 C4 26 10 21 17 22 C19 15 27 11 35 13 C42 15 46 21 45 27 C53 27 58 32 58 38 C58 43 53 46 47 46 Z" fill="currentColor"></path>
+  </svg>
+</sc-if>
+<sc-if value="{{ isCloud }}">
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M17 46 C8 46 3 39 3 32 C3 25 9 19 17 20 C19 11 29 6 38 9 C46 12 51 19 49 26 C57 26 61 32 61 38 C61 43 56 46 50 46 Z" fill="currentColor"></path>
+  </svg>
+</sc-if>
+<sc-if value="{{ isFog }}">
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M15 33 C7 33 3 27 3 21 C3 15 9 10 16 11 C18 4 27 0 35 2 C42 4 46 10 45 16 C52 16 56 21 56 26 C56 30 52 33 47 33 Z" fill="currentColor" opacity="0.85"></path>
+    <rect x="6" y="42" width="52" height="6" rx="3" fill="currentColor" opacity="0.55"></rect>
+    <rect x="6" y="53" width="38" height="6" rx="3" fill="currentColor" opacity="0.35"></rect>
+  </svg>
+</sc-if>
+<sc-if value="{{ isRain }}">
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M17 38 C8 38 3 32 3 25 C3 18 9 13 17 14 C19 6 29 1 38 4 C46 7 51 13 49 20 C57 20 61 26 61 32 C61 36 56 38 50 38 Z" fill="currentColor"></path>
+    <rect x="15" y="45" width="5" height="14" rx="2.5" fill="currentColor"></rect>
+    <rect x="30" y="48" width="5" height="14" rx="2.5" fill="currentColor"></rect>
+    <rect x="45" y="45" width="5" height="14" rx="2.5" fill="currentColor"></rect>
+  </svg>
+</sc-if>
+<sc-if value="{{ isSnow }}">
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M17 38 C8 38 3 32 3 25 C3 18 9 13 17 14 C19 6 29 1 38 4 C46 7 51 13 49 20 C57 20 61 26 61 32 C61 36 56 38 50 38 Z" fill="currentColor"></path>
+    <g fill="currentColor">
+      <rect x="14" y="45" width="10" height="3" rx="1.5" transform="rotate(0 19 53)"></rect>
+      <rect x="14" y="45" width="10" height="3" rx="1.5" transform="rotate(60 19 46.5)"></rect>
+      <rect x="14" y="45" width="10" height="3" rx="1.5" transform="rotate(120 19 46.5)"></rect>
+      <rect x="42" y="45" width="10" height="3" rx="1.5" transform="rotate(0 47 53)"></rect>
+      <rect x="42" y="45" width="10" height="3" rx="1.5" transform="rotate(60 47 46.5)"></rect>
+      <rect x="42" y="45" width="10" height="3" rx="1.5" transform="rotate(120 47 46.5)"></rect>
+    </g>
+  </svg>
+</sc-if>
+<sc-if value="{{ isStorm }}">
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M17 34 C8 34 3 28 3 21 C3 14 9 9 17 10 C19 3 29 -2 38 1 C46 4 51 10 49 16 C57 16 61 22 61 28 C61 32 56 34 50 34 Z" fill="currentColor"></path>
+    <path d="M34 40 L22 52 L30 52 L26 63 L44 47 L35 47 Z" fill="currentColor"></path>
+  </svg>
+</sc-if>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;code&quot;: {&quot;editor&quot;: null, &quot;default&quot;: 0, &quot;tsType&quot;: &quot;number&quot;}, &quot;size&quot;: {&quot;editor&quot;: null, &quot;default&quot;: 40, &quot;tsType&quot;: &quot;number&quot;}}">
+class Component extends DCLogic {
+  getCategory(code) {
+    if (code === 0) return 'clear';
+    if (code === 1 || code === 2) return 'partly';
+    if (code === 3) return 'cloud';
+    if (code === 45 || code === 48) return 'fog';
+    if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return 'rain';
+    if ([71, 73, 75, 77, 85, 86].includes(code)) return 'snow';
+    if ([95, 96, 99].includes(code)) return 'storm';
+    return 'cloud';
+  }
+  renderVals() {
+    const code = this.props.code ?? 0;
+    const size = this.props.size ?? 40;
+    const cat = this.getCategory(code);
+    return {
+      size,
+      isClear: cat === 'clear',
+      isPartly: cat === 'partly',
+      isCloud: cat === 'cloud',
+      isFog: cat === 'fog',
+      isRain: cat === 'rain',
+      isSnow: cat === 'snow',
+      isStorm: cat === 'storm',
+    };
+  }
+}
+</script>
+</body>
+</html>

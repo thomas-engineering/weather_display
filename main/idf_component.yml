@@ -1,0 +1,28 @@
+## IDF Component Manager Manifest File
+dependencies:
+  waveshare/esp32_p4_wifi6_touch_lcd_7b:
+    # 3.0.1 is the current stable BSP and supplies esp_lvgl_adapter transitively.
+    version: "==3.0.1"
+
+  lvgl/lvgl:
+    # The BSP-managed esp_lvgl_adapter ~0.6 line relies on LVGL APIs added after 9.2.
+    version: "==9.5.0"
+    public: true
+
+  # ESP32-P4 has no radio: Wi-Fi is forwarded to the on-board ESP32-C6 over SDIO.
+  #
+  # These are NOT the pins in the Waveshare examples (esp_wifi_remote ==1.2.5 with
+  # esp_hosted 1.4.*). That pair double-starts the STA netif on ESP-IDF 6.0.2 and
+  # panics in lwip with "netif already added" before app_main gets anywhere. The
+  # 3.0/1.6 pair is what actually runs on this board under IDF 6.
+  espressif/esp_wifi_remote:
+    version: "1.6.*"
+  espressif/esp_hosted:
+    version: "3.0.*"
+
+  # cJSON left IDF core in v6 and now comes from the component registry.
+  espressif/cjson:
+    version: "^1.7.18"
+
+  idf:
+    version: ">=5.4.0"

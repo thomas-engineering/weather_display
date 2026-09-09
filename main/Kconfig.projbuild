@@ -1,0 +1,67 @@
+menu "Weather Display Configuration"
+
+    config WEATHER_USE_INTER_FONTS
+        bool "Use generated Inter fonts instead of built-in Montserrat"
+        default y
+        help
+            Inter is the typeface the Nocturne design system specifies, and the
+            generated faces in main/fonts/ carry the full Latin-1 supplement.
+            Turn this off only if you drop main/fonts/ — the built-in Montserrat
+            faces are ASCII-only, so German, Spanish and French text will show
+            blanks where accented characters belong.
+
+    config WEATHER_TOUCH_DEBUG
+        bool "Log raw touch coordinates to the console"
+        default n
+        help
+            Prints every touch point the LVGL input device reports. Use this to work
+            out the correct rotation / mirror flags for a panel whose taps land in
+            the wrong place, then turn it back off.
+
+    config WEATHER_WIFI_SSID
+        string "Fallback WiFi SSID"
+        default ""
+        help
+            Optional. Credentials entered on the device's own Wi-Fi setup screen are
+            stored in NVS and always win. This is only used on a device whose NVS has
+            no stored network yet — leave it empty to always provision on-screen.
+
+    config WEATHER_WIFI_PASSWORD
+        string "Fallback WiFi Password"
+        default ""
+        help
+            Passphrase for the fallback SSID above.
+
+    config WEATHER_WIFI_MAX_RETRY
+        int "Maximum connection retries"
+        default 8
+
+    config WEATHER_REFRESH_MINUTES
+        int "Forecast refresh interval (minutes)"
+        default 15
+        range 5 240
+        help
+            Open-Meteo's free tier is generous but not unlimited; 15 minutes is well
+            within it and matches how often the data actually changes.
+
+    config WEATHER_DEFAULT_CITY_NAME
+        string "Default city name"
+        default "Trier"
+
+    config WEATHER_DEFAULT_CITY_COUNTRY
+        string "Default city country"
+        default "Germany"
+
+    config WEATHER_DEFAULT_LAT_MILLIDEG
+        int "Default latitude (millidegrees)"
+        default 49757
+        help
+            Latitude x 1000, since Kconfig has no float type. Trier = 49.757 -> 49757.
+
+    config WEATHER_DEFAULT_LON_MILLIDEG
+        int "Default longitude (millidegrees)"
+        default 6641
+        help
+            Longitude x 1000. Trier = 6.641 -> 6641.
+
+endmenu
