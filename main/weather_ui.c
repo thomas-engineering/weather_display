@@ -93,6 +93,7 @@ typedef struct {
     wx_wind_unit_t wind_unit;
     wx_time_fmt_t time_fmt;
     int brightness; /* 10-100, mirrors the slider; also its value before it exists */
+    bool brightness_adaptive; /* mirrors the switch's checked state; also its value before it exists */
     bool brightness_adaptive_available; /* false: no camera found, switch stays disabled */
 
     weather_ui_search_cb_t on_search;
@@ -1026,6 +1027,7 @@ static void on_brightness_slider(lv_event_t *e) {
      * itself — the two controls would otherwise fight over the backlight. */
     if (ui.brightness_adaptive_sw && lv_obj_has_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED)) {
         lv_obj_remove_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
+        ui.brightness_adaptive = false;
         if (ui.on_brightness_adaptive) ui.on_brightness_adaptive(false);
     }
 }
@@ -1033,6 +1035,7 @@ static void on_brightness_slider(lv_event_t *e) {
 static void on_brightness_adaptive_sw(lv_event_t *e) {
     LV_UNUSED(e);
     bool on = lv_obj_has_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
+    ui.brightness_adaptive = on;
     if (ui.on_brightness_adaptive) ui.on_brightness_adaptive(on);
 }
 
@@ -1083,6 +1086,7 @@ void weather_ui_set_brightness(int percent) {
 }
 
 void weather_ui_set_brightness_adaptive(bool on) {
+    ui.brightness_adaptive = on;
     if (!ui.brightness_adaptive_sw) return;
     if (on) lv_obj_add_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
     else lv_obj_remove_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
@@ -1090,6 +1094,7 @@ void weather_ui_set_brightness_adaptive(bool on) {
 
 void weather_ui_set_brightness_adaptive_available(bool available) {
     ui.brightness_adaptive_available = available;
+    if (!available) ui.brightness_adaptive = false;
     if (!ui.brightness_adaptive_sw) return;
     if (available) {
         lv_obj_remove_state(ui.brightness_adaptive_sw, LV_STATE_DISABLED);
@@ -1265,6 +1270,12 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_set_style_opa(ui.brightness_adaptive_sw, LV_OPA_40, LV_STATE_DISABLED);
     lv_obj_add_event_cb(ui.brightness_adaptive_sw, on_brightness_adaptive_sw, LV_EVENT_VALUE_CHANGED, NULL);
     if (!ui.brightness_adaptive_available) lv_obj_add_state(ui.brightness_adaptive_sw, LV_STATE_DISABLED);
+    /* FIX: settings_rebuild() (language/unit changes) tears down and recreates
+     * this whole panel, and a freshly created switch always starts unchecked
+     * — without this, changing the language silently turned adaptive
+     * brightness back off, same as the brightness slider's value would reset
+     * to 100 without the lv_slider_set_value() call below. */
+    if (ui.brightness_adaptive) lv_obj_add_state(ui.brightness_adaptive_sw, LV_STATE_CHECKED);
 
     lv_obj_t *adaptive_lbl = lv_label_create(adaptive_row);
     lv_label_set_text(adaptive_lbl, weather_strings[ui.lang].brightness_adaptive);
