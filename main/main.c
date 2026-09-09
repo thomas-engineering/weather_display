@@ -11,6 +11,7 @@
 
 #include "esp_err.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 
 #include "weather_ui.h"
@@ -95,6 +96,54 @@ static void touch_probe_cb(lv_timer_t *t) {
 }
 #endif
 
+/* Diagnostic for the reported "laggy/missed taps" issue: this timer runs on
+ * the LVGL task, the same task that polls the touch controller (touch runs in
+ * polling mode — see the README's "GT911" note — since the panel's INT line
+ * isn't wired to any GPIO). If the LVGL task itself gets delayed (lock
+ * contention, the camera task's I2C traffic, CPU competition), touch reads
+ * are delayed by exactly the same amount, which is what a human perceives as
+ * a laggy or dropped tap. This has no known-good-vs-bad threshold of its own —
+ * it just makes stalls visible in the log instead of only in a finger. Left
+ * on permanently rather than behind CONFIG_WEATHER_TOUCH_DEBUG: the cost is
+ * one integer subtraction every 20ms plus an ESP_LOGW on the rare tick that's
+ * actually late. */
+static void lvgl_stall_probe_cb(lv_timer_t *t) {
+    LV_UNUSED(t);
+    static int64_t last_us;
+    int64_t now_us = esp_timer_get_time();
+    if (last_us != 0) {
+        int64_t gap_ms = (now_us - last_us) / 1000;
+        /* Nominal period is 20ms; only flag gaps that would actually be
+         * noticeable as lag, not routine jitter. */
+        if (gap_ms > 60) {
+            ESP_LOGW(TAG, "lvgl_stall: task was blocked for %lldms (expected ~20ms) "
+                          "-- touch reads were delayed by the same amount",
+                     (long long)gap_ms);
+        }
+    }
+    last_us = now_us;
+}
+
+/* Investigated using ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE + a hardware panel
+ * mirror (esp_lcd_panel_mirror()) instead of software ROTATE_180, to dodge a
+ * buffer-switch-release stall that cost up to ~260ms per tap under
+ * TRIPLE_PARTIAL (ESP-IDF v6.0.2's DPI panel driver doesn't expose the
+ * on_frame_buf_complete callback that mode needs, only the coarser
+ * on_refresh_done). NONE mode alone measurably fixed the stall (confirmed on
+ * hardware: 61-80ms, all explained by genuine render/flush cost), but NONE
+ * mode refuses any adapter-side rotation, and hardware panel mirroring turned
+ * out not to be a substitute on this panel: all four mirror_x/mirror_y
+ * combinations were tested on hardware and none produced an upright image
+ * (three gave an identical upside-down result, one gave visible garbage).
+ * This EK79007 panel runs in MIPI DSI video mode (continuous DPI pixel
+ * streaming) rather than command mode, and MADCTL-style mirroring is a
+ * GRAM-addressing concept that doesn't apply to panels with no internal
+ * framebuffer to re-address — consistent with mirror_x appearing to do
+ * nothing observable across the tests. Back to the known-working
+ * ROTATE_180 + TRIPLE_PARTIAL below; the occasional large stall is an
+ * accepted limitation until esp_lvgl_adapter or ESP-IDF exposes proper
+ * buffer-release timing for MIPI DSI. */
+
 void app_main(void) {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -107,7 +156,12 @@ void app_main(void) {
     app_prefs_load(&prefs);
 
     /* Panel + touch. Rotation and touch mirroring match the vendor's own LVGL
-     * example for this board (09_lvgl_demo_v9). */
+     * example for this board (09_lvgl_demo_v9). TRIPLE_PARTIAL is the known
+     * tradeoff here: it occasionally stalls the LVGL/touch task for up to
+     * ~260ms (ESP-IDF v6.0.2's DPI panel driver lacks the on_frame_buf_complete
+     * callback this mode wants for buffer-switch release), but it's the mode
+     * that actually renders this panel upright — see the comment above
+     * app_main() for what was tried and ruled out. */
     bsp_display_cfg_t cfg = {
         .lv_adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG(),
         .rotation = ESP_LV_ADAPTER_ROTATE_180,
@@ -164,6 +218,7 @@ void app_main(void) {
     lv_timer_create(touch_probe_cb, 30, NULL);
     ESP_LOGW(TAG, "touch debug on: tap the four corners and watch the log");
 #endif
+    lv_timer_create(lvgl_stall_probe_cb, 20, NULL);
     bsp_display_unlock();
 
     app_wifi_init();
