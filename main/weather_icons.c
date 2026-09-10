@@ -129,6 +129,13 @@ lv_obj_t *weather_icon_create(lv_obj_t *parent, weather_icon_t icon, int32_t siz
 }
 
 void weather_icon_set_type(lv_obj_t *icon_obj, weather_icon_t icon, int32_t size, lv_color_t color) {
+    /* FIX: build_icon() positions every ray/cloud blob as a fraction of `size`,
+     * but the container itself keeps whatever size weather_icon_create() gave
+     * it unless resized here too. weather_ui.c's current-weather icon is
+     * created at 64 and updated at 72 on every refresh — with no resize, the
+     * rays drawn for a 72px layout got clipped by the still-64px container on
+     * their far (bottom/right) edges, cutting off the sun icon's rays. */
+    lv_obj_set_size(icon_obj, size, size);
     lv_obj_clean(icon_obj);
     build_icon(icon_obj, icon, size, color);
 }
