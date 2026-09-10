@@ -14,7 +14,12 @@
  * (Weather App.dc.html), just in fixed pixels instead of a fixed 480x108/150
  * SVG viewBox, since LVGL draws at the panel's actual size. */
 #define PAD_L 22
-#define PAD_R 26
+/* FIX: the design's PAD_R=30 is a fraction of its 480-unit SVG viewBox, scaled
+ * down to whatever the panel actually renders at — its physical margin ends
+ * up well under FONT_10's width. Drawn at fixed LVGL pixels, 26 wasn't enough
+ * for precip labels like "0.5mm"/"12mm", which overlapped the right axis
+ * line; wide enough for the longest realistic label plus a visible gap. */
+#define PAD_R 40
 #define PAD_T 8
 #define PAD_B 14
 
@@ -148,6 +153,9 @@ void weather_chart_set_data(lv_obj_t *chart, const weather_hourly_t *h, bool fah
     lv_obj_set_pos(axis_l, PAD_L, PAD_T);
     lv_obj_set_style_bg_color(axis_l, C_DIVIDER, 0);
     lv_obj_set_style_bg_opa(axis_l, LV_OPA_COVER, 0);
+    /* FIX: see the CLICKABLE comment on the precip bars below — same pitfall. */
+    lv_obj_remove_flag(axis_l, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(axis_l, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *axis_r = lv_obj_create(c->plot);
     lv_obj_remove_style_all(axis_r);
@@ -155,6 +163,8 @@ void weather_chart_set_data(lv_obj_t *chart, const weather_hourly_t *h, bool fah
     lv_obj_set_pos(axis_r, PAD_L + chart_w, PAD_T);
     lv_obj_set_style_bg_color(axis_r, C_DIVIDER, 0);
     lv_obj_set_style_bg_opa(axis_r, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(axis_r, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(axis_r, LV_OBJ_FLAG_SCROLLABLE);
 
     float tmin = h->temp_c[0], tmax = h->temp_c[0];
     for (int i = 1; i < n; i++) {
@@ -166,7 +176,12 @@ void weather_chart_set_data(lv_obj_t *chart, const weather_hourly_t *h, bool fah
 
     float pmax = 0.0f;
     for (int i = 0; i < n; i++) if (h->precip_mm[i] > pmax) pmax = h->precip_mm[i];
-    if (pmax < 0.2f) pmax = 0.2f;
+    /* FIX: matches the design's `Math.max(1, ...precs)` (buildDayChart() in
+     * Weather App.dc.html). A 0.2mm floor here made a 0.1mm trace fill ~42%
+     * of the bar height ((0.1/0.2)*85%) instead of the design's ~8.5%
+     * ((0.1/1)*85%) — every low-precipitation day rendered with visually
+     * oversized bars. */
+    if (pmax < 1.0f) pmax = 1.0f;
 
     /* Precipitation bars, drawn first so the temperature line sits on top —
      * same stacking as the design's <rect> bars followed by its <polyline>. */
@@ -190,6 +205,13 @@ void weather_chart_set_data(lv_obj_t *chart, const weather_hourly_t *h, bool fah
         lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(bar, 2, 0);
         lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+        /* FIX: lv_obj_create() defaults to CLICKABLE (same pitfall as the
+         * weather-icon dots — see weather_icons.c's dot()). The bars are
+         * rebuilt from scratch on every weather_chart_set_data() call, so a
+         * tap on one landed on this decorative, unhandled-click object
+         * instead of falling through to the day-detail sheet's own
+         * close-on-tap handler: the panel just sat there. */
+        lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
     }
 
     /* Temperature line. */

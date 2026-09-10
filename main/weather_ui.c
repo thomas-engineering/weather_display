@@ -761,17 +761,27 @@ static void build_detail_panel(lv_obj_t *parent) {
     lv_obj_set_style_text_color(ui.detail_cond_lbl, C_TEXT_MUTED, 0);
     lv_obj_set_style_text_font(ui.detail_cond_lbl, FONT_14, 0);
 
-    ui.detail_chart = weather_chart_create(ui.detail_panel, LV_PCT(100), 150);
-
+    /* FIX: the design puts this 3-column stat grid (grid-template-columns:
+     * repeat(3,1fr), evenly spaced across the full width) above the chart,
+     * which then spans the full width at the bottom of the sheet — the export
+     * had them swapped, with the chart above a row of fixed-width stat boxes. */
     lv_obj_t *stats = lv_obj_create(ui.detail_panel);
     lv_obj_remove_style_all(stats);
     lv_obj_set_size(stats, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(stats, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(stats, 12, 0);
     lv_obj_remove_flag(stats, LV_OBJ_FLAG_SCROLLABLE);
-    stat_box_create(stats, weather_strings[ui.lang].feels_like, &ui.detail_feel_lbl, &ui.detail_feel_cap, NULL, 104, 10, false);
-    stat_box_create(stats, weather_strings[ui.lang].precip, &ui.detail_precip_lbl, &ui.detail_precip_cap, NULL, 104, 10, false);
-    stat_box_create(stats, weather_strings[ui.lang].wind, &ui.detail_wind_lbl, &ui.detail_wind_cap, NULL, 104, 10, false);
+    /* FIX: base width is a min-width here (same idiom as the forecast strip's
+     * cards below) — equal base + equal flex_grow gives three equal columns,
+     * same as the design's repeat(3,1fr). */
+    lv_obj_t *feel_box = stat_box_create(stats, weather_strings[ui.lang].feels_like, &ui.detail_feel_lbl, &ui.detail_feel_cap, NULL, 90, 10, false);
+    lv_obj_t *precip_box = stat_box_create(stats, weather_strings[ui.lang].precip, &ui.detail_precip_lbl, &ui.detail_precip_cap, NULL, 90, 10, false);
+    lv_obj_t *wind_box = stat_box_create(stats, weather_strings[ui.lang].wind, &ui.detail_wind_lbl, &ui.detail_wind_cap, NULL, 90, 10, false);
+    lv_obj_set_flex_grow(feel_box, 1);
+    lv_obj_set_flex_grow(precip_box, 1);
+    lv_obj_set_flex_grow(wind_box, 1);
+
+    ui.detail_chart = weather_chart_create(ui.detail_panel, LV_PCT(100), 150);
 
     add_event_bubble_recursive(ui.detail_panel);
 }
