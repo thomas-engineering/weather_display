@@ -4,25 +4,32 @@
 #include "ui_fonts.h"
 
 /* Nocturne tokens, same values as styles.css (LVGL has no CSS variables). */
-#define C_SURFACE     lv_color_hex(0x232532)
 #define C_TEXT_MUTED  lv_color_hex(0x9397AB)
 #define C_ACCENT      lv_color_hex(0x9184D9)
-#define C_ACCENT_600  lv_color_hex(0x796CBF)
-#define C_NEUTRAL_800 lv_color_hex(0x3F424D)
+#define C_ACCENT_700  lv_color_hex(0x5D5294)
+#define C_DIVIDER     lv_color_hex(0x3A3D4A)
 
-#define TEMP_PANEL_GROW 3
-#define PRECIP_PANEL_H  26
-#define AXIS_H          12
-#define BAR_MAX_W       24
-#define BAR_GAP          2   /* the surface gap that separates touching bars */
-#define LINE_W           2
-#define DOT_R            5   /* >= 8px diameter marker */
+/* Pixel padding around the plot, reserved for the two axes' tick labels and
+ * the x-axis hour labels — mirrors the design's buildDayChart() PAD_L/R/T/B
+ * (Weather App.dc.html), just in fixed pixels instead of a fixed 480x108/150
+ * SVG viewBox, since LVGL draws at the panel's actual size. */
+#define PAD_L 22
+#define PAD_R 26
+#define PAD_T 8
+#define PAD_B 14
+
+#define LEGEND_GAP    6   /* between the two legend rows */
+#define LEGEND_MARK   8   /* legend dot/square side, matches the design's 8x8 */
+#define LINE_W        2
+#define BAR_GAP_FRAC  0.4f /* bar takes 60% of its slot, 40% gap — design's barW = barSlot*0.55, close enough at FONT_10 scale */
+#define BAR_MAX_W     20
+#define PRECIP_HEIGHT_FRAC 0.85f /* bars/the precip axis only use the top 85% of the plot height, same as the design */
 
 typedef struct {
-    lv_obj_t *temp_panel, *precip_row, *axis_row;
+    lv_obj_t *legend_temp_lbl, *legend_precip_lbl;
+    lv_obj_t *plot;
     lv_obj_t *line;
     lv_point_precise_t *pts;      /* lv_line does not copy its points */
-    lv_obj_t *hi_lbl, *lo_lbl, *end_dot;
 } chart_t;
 
 static void chart_free_cb(lv_event_t *e) {
@@ -32,11 +39,37 @@ static void chart_free_cb(lv_event_t *e) {
     lv_free(c);
 }
 
+static lv_obj_t *legend_row_create(lv_obj_t *parent, lv_color_t mark_color, bool round_mark) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 5, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *mark = lv_obj_create(row);
+    lv_obj_remove_style_all(mark);
+    lv_obj_set_size(mark, LEGEND_MARK, LEGEND_MARK);
+    lv_obj_set_style_radius(mark, round_mark ? LV_RADIUS_CIRCLE : 2, 0);
+    lv_obj_set_style_bg_color(mark, mark_color, 0);
+    lv_obj_set_style_bg_opa(mark, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(mark, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *lbl = lv_label_create(row);
+    lv_obj_set_style_text_color(lbl, C_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(lbl, FONT_10, 0);
+    lv_label_set_text(lbl, "");
+    return lbl;
+}
+
 lv_obj_t *weather_chart_create(lv_obj_t *parent, int32_t w, int32_t h) {
     lv_obj_t *root = lv_obj_create(parent);
     lv_obj_remove_style_all(root);
     lv_obj_set_size(root, w, h);
-    lv_obj_set_flex_flow(root, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_flow(root, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(root, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(root, 10, 0);
     lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
     chart_t *c = lv_malloc(sizeof(chart_t));
@@ -46,60 +79,28 @@ lv_obj_t *weather_chart_create(lv_obj_t *parent, int32_t w, int32_t h) {
     lv_obj_set_user_data(root, c);
     lv_obj_add_event_cb(root, chart_free_cb, LV_EVENT_DELETE, NULL);
 
-    /* Temperature panel — one series, one scale. */
-    c->temp_panel = lv_obj_create(root);
-    lv_obj_remove_style_all(c->temp_panel);
-    lv_obj_set_width(c->temp_panel, LV_PCT(100));
-    lv_obj_set_flex_grow(c->temp_panel, TEMP_PANEL_GROW);
-    lv_obj_remove_flag(c->temp_panel, LV_OBJ_FLAG_SCROLLABLE);
+    /* Legend, to the left of the plot: a temperature dot and a precipitation
+     * square, each followed by its caption — matches the design's two-row
+     * legend column left of the SVG (Weather App.dc.html, current.chart /
+     * selectedDay.chart block). */
+    lv_obj_t *legend_col = lv_obj_create(root);
+    lv_obj_remove_style_all(legend_col);
+    lv_obj_set_size(legend_col, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(legend_col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(legend_col, LEGEND_GAP, 0);
+    lv_obj_remove_flag(legend_col, LV_OBJ_FLAG_SCROLLABLE);
+    c->legend_temp_lbl = legend_row_create(legend_col, C_ACCENT, true);
+    c->legend_precip_lbl = legend_row_create(legend_col, C_ACCENT_700, false);
 
-    /* Baseline: hairline, solid, one step off the surface — recessive by design. */
-    lv_obj_t *rule = lv_obj_create(c->temp_panel);
-    lv_obj_remove_style_all(rule);
-    lv_obj_set_size(rule, LV_PCT(100), 1);
-    lv_obj_align(rule, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_color(rule, C_NEUTRAL_800, 0);
-    lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
-
-    c->line = lv_line_create(c->temp_panel);
-    lv_obj_set_style_line_color(c->line, C_ACCENT, 0);
-    lv_obj_set_style_line_width(c->line, LINE_W, 0);
-    lv_obj_set_style_line_rounded(c->line, true, 0);
-
-    /* End marker with a surface ring so it stays legible over the line. */
-    c->end_dot = lv_obj_create(c->temp_panel);
-    lv_obj_remove_style_all(c->end_dot);
-    lv_obj_set_size(c->end_dot, DOT_R * 2, DOT_R * 2);
-    lv_obj_set_style_radius(c->end_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(c->end_dot, C_ACCENT, 0);
-    lv_obj_set_style_bg_opa(c->end_dot, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(c->end_dot, C_SURFACE, 0);
-    lv_obj_set_style_border_width(c->end_dot, 2, 0);
-    lv_obj_add_flag(c->end_dot, LV_OBJ_FLAG_HIDDEN);
-
-    /* Only the two extremes get a direct label; the rest is the reader's to hover
-     * or read off the day cards. A number on all 24 points would go unread. */
-    c->hi_lbl = lv_label_create(c->temp_panel);
-    lv_obj_set_style_text_color(c->hi_lbl, C_TEXT_MUTED, 0);
-    lv_obj_set_style_text_font(c->hi_lbl, FONT_10, 0);
-    lv_label_set_text(c->hi_lbl, "");
-    c->lo_lbl = lv_label_create(c->temp_panel);
-    lv_obj_set_style_text_color(c->lo_lbl, C_TEXT_MUTED, 0);
-    lv_obj_set_style_text_font(c->lo_lbl, FONT_10, 0);
-    lv_label_set_text(c->lo_lbl, "");
-
-    /* Precipitation panel — its own scale, its own frame. */
-    /* No flex on either of these: their children are placed at the same x as the
-     * line's points, so the temperature and precipitation panels stay in register. */
-    c->precip_row = lv_obj_create(root);
-    lv_obj_remove_style_all(c->precip_row);
-    lv_obj_set_size(c->precip_row, LV_PCT(100), PRECIP_PANEL_H);
-    lv_obj_remove_flag(c->precip_row, LV_OBJ_FLAG_SCROLLABLE);
-
-    c->axis_row = lv_obj_create(root);
-    lv_obj_remove_style_all(c->axis_row);
-    lv_obj_set_size(c->axis_row, LV_PCT(100), AXIS_H);
-    lv_obj_remove_flag(c->axis_row, LV_OBJ_FLAG_SCROLLABLE);
+    /* The plot itself: free-form (no flex), every child absolutely
+     * positioned — axis lines, temperature line, precipitation bars, and
+     * both axes' tick labels all rebuilt together in weather_chart_set_data()
+     * since their positions all depend on that call's min/max. */
+    c->plot = lv_obj_create(root);
+    lv_obj_remove_style_all(c->plot);
+    lv_obj_set_height(c->plot, LV_PCT(100));
+    lv_obj_set_flex_grow(c->plot, 1);
+    lv_obj_remove_flag(c->plot, LV_OBJ_FLAG_SCROLLABLE);
 
     return root;
 }
@@ -108,120 +109,145 @@ static int32_t disp_temp(float c_deg, bool f) {
     return (int32_t)lroundf(f ? c_deg * 9.0f / 5.0f + 32.0f : c_deg);
 }
 
-void weather_chart_set_data(lv_obj_t *chart, const weather_hourly_t *h, bool fahrenheit) {
+/* Right-axis (precipitation) tick text: one decimal below 1mm, whole mm
+ * above — same rule as the design's buildDayChart() tempTicks/precipTicks. */
+static void fmt_precip_tick(char *buf, size_t cap, float mm) {
+    if (mm < 1.0f) snprintf(buf, cap, "%.1fmm", (double)mm);
+    else           snprintf(buf, cap, "%.0fmm", (double)mm);
+}
+
+void weather_chart_set_data(lv_obj_t *chart, const weather_hourly_t *h, bool fahrenheit,
+                             const char *temp_label, const char *precip_label) {
     chart_t *c = lv_obj_get_user_data(chart);
     if (!c || !c->pts) return;
 
-    lv_obj_clean(c->precip_row);
-    lv_obj_clean(c->axis_row);
+    lv_label_set_text(c->legend_temp_lbl, temp_label ? temp_label : "");
+    lv_label_set_text(c->legend_precip_lbl, precip_label ? precip_label : "");
+
+    lv_obj_clean(c->plot);
+    c->line = NULL;
 
     int n = (h && h->count > 0) ? h->count : 0;
     if (n > WEATHER_UI_CHART_POINTS) n = WEATHER_UI_CHART_POINTS;
-    if (n < 2) {
-        lv_obj_add_flag(c->line, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(c->end_dot, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(c->hi_lbl, "");
-        lv_label_set_text(c->lo_lbl, "");
-        return;
-    }
-    lv_obj_remove_flag(c->line, LV_OBJ_FLAG_HIDDEN);
+    if (n < 2) return;
 
-    /* The panels are laid out by flex, so their size is only known after a refresh. */
     lv_obj_update_layout(chart);
-    int32_t w = lv_obj_get_width(c->temp_panel);
-    int32_t ph = lv_obj_get_height(c->temp_panel);
-    if (w <= 0 || ph <= 0) return;
+    int32_t w = lv_obj_get_width(c->plot);
+    int32_t full_h = lv_obj_get_height(c->plot);
+    if (w <= 0 || full_h <= 0) return;
 
-    const int32_t pad_top = 12, pad_bot = 4;   /* room for the hi label and the baseline */
-    int32_t plot_h = ph - pad_top - pad_bot;
-    if (plot_h < 8) plot_h = 8;
+    int32_t chart_w = w - PAD_L - PAD_R;
+    int32_t chart_h = full_h - PAD_T - PAD_B;
+    if (chart_w < 4 || chart_h < 4) return;
+
+    /* Axis lines, left and right edges of the plot proper — the tick labels
+     * live in the PAD_L/PAD_R margins outside them. */
+    lv_obj_t *axis_l = lv_obj_create(c->plot);
+    lv_obj_remove_style_all(axis_l);
+    lv_obj_set_size(axis_l, 1, chart_h);
+    lv_obj_set_pos(axis_l, PAD_L, PAD_T);
+    lv_obj_set_style_bg_color(axis_l, C_DIVIDER, 0);
+    lv_obj_set_style_bg_opa(axis_l, LV_OPA_COVER, 0);
+
+    lv_obj_t *axis_r = lv_obj_create(c->plot);
+    lv_obj_remove_style_all(axis_r);
+    lv_obj_set_size(axis_r, 1, chart_h);
+    lv_obj_set_pos(axis_r, PAD_L + chart_w, PAD_T);
+    lv_obj_set_style_bg_color(axis_r, C_DIVIDER, 0);
+    lv_obj_set_style_bg_opa(axis_r, LV_OPA_COVER, 0);
 
     float tmin = h->temp_c[0], tmax = h->temp_c[0];
-    int imin = 0, imax = 0;
     for (int i = 1; i < n; i++) {
-        if (h->temp_c[i] < tmin) { tmin = h->temp_c[i]; imin = i; }
-        if (h->temp_c[i] > tmax) { tmax = h->temp_c[i]; imax = i; }
+        if (h->temp_c[i] < tmin) tmin = h->temp_c[i];
+        if (h->temp_c[i] > tmax) tmax = h->temp_c[i];
     }
-    float range = tmax - tmin;
-    if (range < 0.5f) range = 0.5f;   /* a flat day must not become a divide-by-zero */
+    float trange = tmax - tmin;
+    if (trange < 0.5f) trange = 0.5f;   /* a flat day must not become a divide-by-zero */
 
-    float step = (n > 1) ? (float)(w - DOT_R * 2) / (float)(n - 1) : 0.0f;
-    for (int i = 0; i < n; i++) {
-        c->pts[i].x = (lv_value_precise_t)(DOT_R + i * step);
-        c->pts[i].y = (lv_value_precise_t)(pad_top + plot_h - ((h->temp_c[i] - tmin) / range) * plot_h);
-    }
-    lv_line_set_points(c->line, c->pts, n);
-
-    lv_obj_remove_flag(c->end_dot, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_pos(c->end_dot, (int32_t)c->pts[n - 1].x - DOT_R, (int32_t)c->pts[n - 1].y - DOT_R);
-
-    char buf[16];
-    snprintf(buf, sizeof buf, "%d\xC2\xB0", (int)disp_temp(tmax, fahrenheit));
-    lv_label_set_text(c->hi_lbl, buf);
-    snprintf(buf, sizeof buf, "%d\xC2\xB0", (int)disp_temp(tmin, fahrenheit));
-    lv_label_set_text(c->lo_lbl, buf);
-    /* Park each label beside its own extreme, clamped so it can't run off either edge. */
-    lv_obj_update_layout(c->hi_lbl);
-    int32_t hw = lv_obj_get_width(c->hi_lbl), lw = lv_obj_get_width(c->lo_lbl);
-    int32_t hx = (int32_t)c->pts[imax].x - hw / 2;
-    int32_t lx = (int32_t)c->pts[imin].x - lw / 2;
-    if (hx < 0) hx = 0;
-    if (hx > w - hw) hx = w - hw;
-    if (lx < 0) lx = 0;
-    if (lx > w - lw) lx = w - lw;
-    lv_obj_set_pos(c->hi_lbl, hx, (int32_t)c->pts[imax].y - 14);
-    lv_obj_set_pos(c->lo_lbl, lx, (int32_t)c->pts[imin].y + 2);
-
-    /* Precipitation bars: one scale, grown from a single baseline. */
     float pmax = 0.0f;
     for (int i = 0; i < n; i++) if (h->precip_mm[i] > pmax) pmax = h->precip_mm[i];
     if (pmax < 0.2f) pmax = 0.2f;
 
-    /* One bar per slot, capped, with a 2px surface gap to its neighbour. */
-    int32_t bar_w = (int32_t)step - BAR_GAP;
+    /* Precipitation bars, drawn first so the temperature line sits on top —
+     * same stacking as the design's <rect> bars followed by its <polyline>. */
+    float step = (float)chart_w / (float)(n - 1);
+    float bar_slot = (float)chart_w / (float)n;
+    int32_t bar_w = (int32_t)(bar_slot * (1.0f - BAR_GAP_FRAC));
     if (bar_w > BAR_MAX_W) bar_w = BAR_MAX_W;
     if (bar_w < 1) bar_w = 1;
 
-    /* The points sit DOT_R in from either edge, so anything wider than 2*DOT_R
-     * centred on the first or last point hangs over the panel and gets clipped.
-     * Same clamp the two temperature labels get above. */
-    int32_t precip_w = lv_obj_get_width(c->precip_row);
-
     for (int i = 0; i < n; i++) {
-        int32_t bh = (int32_t)((h->precip_mm[i] / pmax) * (PRECIP_PANEL_H - 2));
+        int32_t bh = (int32_t)((h->precip_mm[i] / pmax) * (chart_h * PRECIP_HEIGHT_FRAC));
         if (h->precip_mm[i] > 0.0f && bh < 2) bh = 2;   /* a real trace must stay visible */
         if (bh <= 0) continue;
 
-        int32_t bx = (int32_t)c->pts[i].x - bar_w / 2;
-        if (bx < 0) bx = 0;
-        if (bx > precip_w - bar_w) bx = precip_w - bar_w;
-
-        lv_obj_t *bar = lv_obj_create(c->precip_row);
+        int32_t bx = PAD_L + (int32_t)(i * bar_slot + (bar_slot - bar_w) / 2.0f);
+        lv_obj_t *bar = lv_obj_create(c->plot);
         lv_obj_remove_style_all(bar);
         lv_obj_set_size(bar, bar_w, bh);
-        lv_obj_set_pos(bar, bx, PRECIP_PANEL_H - bh);
-        lv_obj_set_style_bg_color(bar, C_ACCENT_600, 0);
+        lv_obj_set_pos(bar, bx, PAD_T + chart_h - bh);
+        lv_obj_set_style_bg_color(bar, C_ACCENT_700, 0);
         lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-        lv_obj_set_style_radius(bar, 4, 0);
+        lv_obj_set_style_radius(bar, 2, 0);
         lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
     }
 
-    /* Hour ticks every 6 h — enough to orient, few enough to stay quiet. */
-    int32_t axis_w = lv_obj_get_width(c->axis_row);
+    /* Temperature line. */
     for (int i = 0; i < n; i++) {
-        if (h->hour[i] % 6 != 0) continue;
-        lv_obj_t *t = lv_label_create(c->axis_row);
+        c->pts[i].x = (lv_value_precise_t)(PAD_L + i * step);
+        c->pts[i].y = (lv_value_precise_t)(PAD_T + chart_h - ((h->temp_c[i] - tmin) / trange) * chart_h);
+    }
+    c->line = lv_line_create(c->plot);
+    lv_obj_set_style_line_color(c->line, C_ACCENT, 0);
+    lv_obj_set_style_line_width(c->line, LINE_W, 0);
+    lv_obj_set_style_line_rounded(c->line, true, 0);
+    lv_line_set_points(c->line, c->pts, n);
+
+    /* Left axis: temperature, 3 ticks (max/mid/min) — same f=[0,0.5,1] scheme
+     * as the design, just written directly since LVGL positions in pixels. */
+    for (int k = 0; k < 3; k++) {
+        float f = (float)k / 2.0f;
+        float val = tmin + f * trange;
+        int32_t y = PAD_T + (int32_t)(chart_h - f * chart_h);
+        char buf[8];
+        snprintf(buf, sizeof buf, "%d\xC2\xB0", (int)disp_temp(val, fahrenheit));
+        lv_obj_t *t = lv_label_create(c->plot);
+        lv_label_set_text(t, buf);
+        lv_obj_set_style_text_color(t, C_ACCENT, 0);
+        lv_obj_set_style_text_font(t, FONT_10, 0);
+        lv_obj_update_layout(t);
+        lv_obj_set_pos(t, 0, y - lv_obj_get_height(t) / 2);
+    }
+
+    /* Right axis: precipitation, same 3-tick scheme, scaled to the same 85%
+     * height the bars use so a tick's y actually lines up with that value's
+     * bar height. */
+    for (int k = 0; k < 3; k++) {
+        float f = (float)k / 2.0f;
+        float val = f * pmax;
+        int32_t y = PAD_T + (int32_t)(chart_h - f * (chart_h * PRECIP_HEIGHT_FRAC));
+        char buf[16];
+        fmt_precip_tick(buf, sizeof buf, val);
+        lv_obj_t *t = lv_label_create(c->plot);
+        lv_label_set_text(t, buf);
+        lv_obj_set_style_text_color(t, C_ACCENT_700, 0);
+        lv_obj_set_style_text_font(t, FONT_10, 0);
+        lv_obj_update_layout(t);
+        lv_obj_set_pos(t, w - lv_obj_get_width(t), y - lv_obj_get_height(t) / 2);
+    }
+
+    /* X-axis: hour labels every 3 points (up to 8 for a full 24h day),
+     * matching the design's `for (i = 0; i < n; i += 3)`. */
+    for (int i = 0; i < n; i += 3) {
+        lv_obj_t *t = lv_label_create(c->plot);
         lv_label_set_text_fmt(t, "%02d", h->hour[i]);
         lv_obj_set_style_text_color(t, C_TEXT_MUTED, 0);
         lv_obj_set_style_text_font(t, FONT_10, 0);
-        /* Measure rather than assume a half-width: a fixed 8px offset left the 00
-         * tick at x = -3, where the panel edge ate its first digit, and mis-centred
-         * every other tick by the difference. */
         lv_obj_update_layout(t);
         int32_t tw = lv_obj_get_width(t);
-        int32_t tx = (int32_t)c->pts[i].x - tw / 2;
+        int32_t tx = PAD_L + (int32_t)(i * step) - tw / 2;
         if (tx < 0) tx = 0;
-        if (tx > axis_w - tw) tx = axis_w - tw;
-        lv_obj_set_pos(t, tx, 0);
+        if (tx > w - tw) tx = w - tw;
+        lv_obj_set_pos(t, tx, full_h - lv_obj_get_height(t));
     }
 }

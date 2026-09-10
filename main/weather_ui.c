@@ -818,7 +818,8 @@ static void day_card_click_cb(lv_event_t *e) {
      * measuring the chart before this point yields a zero-sized, blank plot. */
     lv_obj_update_layout(ui.detail_panel);
     weather_chart_set_data(ui.detail_chart, ui.hourly_day_valid[i] ? &ui.hourly_days[i] : NULL,
-                           ui.temp_unit == WX_UNIT_F);
+                           ui.temp_unit == WX_UNIT_F,
+                           weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip);
 }
 
 /* ---- search overlay (native on-screen keyboard, no physical keys needed) - */
@@ -1045,7 +1046,8 @@ static void notify_settings_changed(void) {
     render_days();
     if (ui.today_chart)
         weather_chart_set_data(ui.today_chart, ui.hourly_today_valid ? &ui.hourly_today : NULL,
-                               ui.temp_unit == WX_UNIT_F);
+                               ui.temp_unit == WX_UNIT_F,
+                               weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip);
     if (ui.on_settings_changed) ui.on_settings_changed(ui.lang, ui.temp_unit, ui.wind_unit, ui.time_fmt);
 }
 
@@ -2017,7 +2019,8 @@ void weather_ui_set_hourly(const weather_hourly_t *today, const weather_hourly_t
     }
     if (ui.today_chart)
         weather_chart_set_data(ui.today_chart, ui.hourly_today_valid ? &ui.hourly_today : NULL,
-                               ui.temp_unit == WX_UNIT_F);
+                               ui.temp_unit == WX_UNIT_F,
+                               weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip);
 }
 
 void weather_ui_set_network_status(wx_net_status_t status) {
