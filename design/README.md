@@ -70,6 +70,12 @@ icon (LVGL's symbol font has none either), so it's composed from a small
 circle + "i" label instead of a font glyph — same approach as
 `weather_icons.c`'s hand-drawn condition icons.
 
+**Confirmed on hardware** (2026-09-10): info button responds to taps, dialog
+opens on top of Settings, and the stacked-backdrop transparency (two
+`LV_OPA_50` overlays: Device information's own backdrop over the dimmed
+Settings dialog beneath it) renders correctly — Settings shows through faintly
+as intended, not as a solid opaque panel.
+
 Also caught a bug in the port itself while wiring the new button: LVGL's
 `lv_obj_create()` defaults to `LV_OBJ_FLAG_CLICKABLE`, and the info button's
 purely decorative inner circle inherited it, intercepting every tap before it
