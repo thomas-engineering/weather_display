@@ -8,7 +8,11 @@
  *
  * Die Rolle, die auf dem Geraet main.c + app_weather.c spielen, uebernimmt hier
  * dieses File: Es setzt Fixture-Daten, beantwortet die UI-Callbacks und haelt die
- * Einstellungen. Es wird kein Netz angefasst und nichts persistiert.
+ * Einstellungen. Es wird kein Netz angefasst und nichts persistiert — ausser mit
+ * --live: dann holt es echte Open-Meteo-Daten per curl-Subprozess (siehe unten)
+ * und parst sie mit components/app_logic/weather_forecast_parse.c — derselben
+ * Antwortform, die main/app_weather.c's do_refresh() auf dem Geraet abfragt
+ * und (noch separat, nicht ueber dieses Modul) selbst parst.
  *
  * Wichtig fuer die Treue zum Geraet: die UI-Callbacks laufen im LVGL-Kontext und
  * duerfen dort nicht sofort zurueckschreiben. Auf dem P4 posten sie in die Queue
@@ -31,6 +35,7 @@
 #include "lvgl.h"
 
 #include "app_format.h"
+#include "weather_forecast_parse.h"
 #include "weather_i18n.h"
 #include "weather_ui.h"
 
@@ -52,6 +57,12 @@ static wx_time_fmt_t  s_time_fmt  = WX_TIME_24;
 
 static char s_city[64]    = "Trier";
 static char s_country[64] = "Germany";
+
+/* ---- --live: real Open-Meteo data instead of the fixtures below ---------- */
+/* Same defaults as CONFIG_WEATHER_DEFAULT_LAT/LON_MILLIDEG (main/Kconfig.projbuild). */
+static bool  s_live = false;
+static float s_live_lat = 49.757f;
+static float s_live_lon = 6.641f;
 
 /* ---- Fixtures ----------------------------------------------------------- */
 
@@ -165,22 +176,169 @@ static void publish_weather(void)
     weather_ui_set_device_info(&dev_info);
 }
 
+/* ---- --live: real Open-Meteo fetch --------------------------------------- */
+
+/* Shells out to the `curl` CLI rather than linking libcurl: the dev machine
+ * this runs on has the binary but not the -dev headers, and the simulator is
+ * a dev-only tool, so a subprocess is the pragmatic choice here. Returns a
+ * NUL-terminated heap buffer (caller frees), or NULL on any failure. */
+static char *http_get_live(const char *url) {
+    char cmd[768];
+    snprintf(cmd, sizeof(cmd), "curl -fsS --max-time 10 '%s'", url);
+
+    FILE *p = popen(cmd, "r");
+    if (p == NULL) return NULL;
+
+    size_t cap = 8192, len = 0;
+    char *body = malloc(cap);
+    if (body == NULL) { pclose(p); return NULL; }
+
+    for (;;) {
+        if (len + 1 >= cap) {
+            size_t ncap = cap * 2;
+            char *nb = realloc(body, ncap);
+            if (nb == NULL) { free(body); pclose(p); return NULL; }
+            body = nb; cap = ncap;
+        }
+        size_t r = fread(body + len, 1, cap - len - 1, p);
+        if (r == 0) break;
+        len += r;
+    }
+    body[len] = '\0';
+
+    int status = pclose(p);
+    if (status != 0 || len == 0) { free(body); return NULL; }
+    return body;
+}
+
+/* Fetches the real forecast for (s_live_lat, s_live_lon) and pushes it into
+ * the UI, exactly the fields app_weather.c's do_refresh()/push_forecast_to_ui()
+ * request and map on the device. Returns false (UI left untouched) if the
+ * fetch or parse failed, so the caller can fall back to the fixtures. */
+static bool publish_weather_live(void) {
+    char url[512];
+    snprintf(url, sizeof(url),
+             "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
+             "&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
+             "precipitation_probability,wind_speed_10m,weather_code"
+             "&hourly=temperature_2m,precipitation"
+             "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
+             "apparent_temperature_max,apparent_temperature_min,"
+             "precipitation_probability_max,wind_speed_10m_max"
+             "&timezone=auto&forecast_days=%d",
+             (double)s_live_lat, (double)s_live_lon, WFP_DAYS);
+
+    char *body = http_get_live(url);
+    if (body == NULL) {
+        fprintf(stderr, "--live: Abruf von Open-Meteo fehlgeschlagen (kein Netz? curl installiert?)\n");
+        return false;
+    }
+
+    wfp_forecast_t f;
+    bool ok = weather_forecast_parse(body, &f);
+    free(body);
+    if (!ok) {
+        fprintf(stderr, "--live: Antwort von Open-Meteo liess sich nicht parsen.\n");
+        return false;
+    }
+
+    const time_t now_utc = time(NULL);
+    const time_t local = now_utc + f.utc_offset_sec;
+    struct tm lt;
+    gmtime_r(&local, &lt);
+
+    weather_current_t cur = {0};
+    snprintf(cur.location_name, sizeof(cur.location_name), "%s", s_city);
+    snprintf(cur.location_country, sizeof(cur.location_country), "%s", s_country);
+    fmt_time(cur.time_str, sizeof(cur.time_str), &lt, s_time_fmt);
+    fmt_date(cur.date_str, sizeof(cur.date_str), &lt, s_lang);
+    cur.weather_code = f.weather_code;
+    cur.temp_c = f.temp_c;
+    cur.feels_like_c = f.feels_like_c;
+    cur.humidity_pct = f.humidity_pct;
+    cur.wind_kmh = f.wind_kmh;
+    cur.precip_pct = f.precip_pct;
+    fmt_real_feel(cur.real_feel_text, sizeof(cur.real_feel_text),
+                  cur.feels_like_c, cur.temp_c, cur.wind_kmh, cur.precip_pct, s_lang);
+
+    weather_day_t days[WEATHER_UI_DAYS] = {0};
+    weather_hourly_t hourly[WEATHER_UI_DAYS];
+    const weather_hourly_t *hourly_ptr[WEATHER_UI_DAYS];
+
+    for (int i = 0; i < WEATHER_UI_DAYS; i++) {
+        if (i >= f.day_count) { snprintf(days[i].day_label, sizeof(days[i].day_label), "--"); continue; }
+
+        struct tm dt;
+        if (parse_iso_date(f.days[i].iso_date, &dt)) {
+            fmt_day_label(days[i].day_label, sizeof(days[i].day_label), &dt, i, s_lang);
+            fmt_day_date(days[i].date_label, sizeof(days[i].date_label), &dt, s_lang);
+        }
+        days[i].weather_code = f.days[i].weather_code;
+        days[i].temp_max_c = f.days[i].temp_max_c;
+        days[i].temp_min_c = f.days[i].temp_min_c;
+        days[i].feels_max_c = f.days[i].feels_max_c;
+        days[i].feels_min_c = f.days[i].feels_min_c;
+        days[i].wind_max_kmh = f.days[i].wind_max_kmh;
+        days[i].precip_pct = f.days[i].precip_pct;
+
+        hourly[i].count = f.hourly[i].count;
+        for (int h = 0; h < f.hourly[i].count; h++) {
+            hourly[i].hour[h] = f.hourly[i].hour[h];
+            hourly[i].temp_c[h] = f.hourly[i].temp_c[h];
+            hourly[i].precip_mm[h] = f.hourly[i].precip_mm[h];
+        }
+        hourly_ptr[i] = f.hourly[i].valid ? &hourly[i] : NULL;
+    }
+
+    weather_ui_set_current(&cur);
+    weather_ui_set_days(days);
+    weather_ui_set_hourly(hourly_ptr[0], hourly_ptr);
+    weather_ui_set_loading(false);
+    weather_ui_set_error(NULL);
+    weather_ui_set_network_status(WX_NET_ONLINE);
+    weather_ui_set_data_stale(false);
+
+    weather_device_info_t dev_info = {
+        .device_name = "Weather Display",
+        .hardware_version = "ESP32-P4 Rev 1.3",
+        .firmware_version = "1.0.0-sim-live",
+        .online = true,
+        .ip = "192.168.1.42",
+        .dns = "1.1.1.1",
+        .gateway = "192.168.1.1",
+        .note = "Created by M. Thomas using Claude Design and Claude Code.",
+    };
+    weather_ui_set_device_info(&dev_info);
+    return true;
+}
+
+/* Entry point for every place that would otherwise call publish_weather():
+ * in --live mode, fetch the real forecast and fall back to the fixtures
+ * (with a console warning) if that fails, so the UI never sits there blank. */
+static void publish_weather_or_live(void) {
+    if (s_live && publish_weather_live()) return;
+    if (s_live) fprintf(stderr, "--live: falle auf Fixture-Daten zurueck.\n");
+    publish_weather();
+}
+
 /* ---- Fake-Geocoding ----------------------------------------------------- */
 
-typedef struct { const char *name, *sub; } sim_city_t;
+typedef struct { const char *name, *sub; float lat, lon; } sim_city_t;
 
+/* Coordinates only matter in --live mode (real fetch per selected city); the
+ * fixture path below never reads them. */
 static const sim_city_t k_cities[] = {
-    { "Trier",     "Rheinland-Pfalz, Germany" },
-    { "Trieste",   "Friuli Venezia Giulia, Italy" },
-    { "Nürnberg",  "Bavaria, Germany" },
-    { "Zürich",    "Switzerland" },
-    { "Berlin",    "Germany" },
-    { "Hamburg",   "Germany" },
-    { "Paris",     "Ile-de-France, France" },
-    { "Madrid",    "Community of Madrid, Spain" },
-    { "London",    "England, United Kingdom" },
-    { "New York",  "New York, United States" },
-    { "Tokyo",     "Japan" },
+    { "Trier",     "Rheinland-Pfalz, Germany",       49.7555f,   6.6386f },
+    { "Trieste",   "Friuli Venezia Giulia, Italy",   45.6495f,  13.7768f },
+    { "Nürnberg",  "Bavaria, Germany",               49.4521f,  11.0767f },
+    { "Zürich",    "Switzerland",                    47.3769f,   8.5417f },
+    { "Berlin",    "Germany",                        52.5200f,  13.4050f },
+    { "Hamburg",   "Germany",                        53.5511f,   9.9937f },
+    { "Paris",     "Ile-de-France, France",          48.8566f,   2.3522f },
+    { "Madrid",    "Community of Madrid, Spain",     40.4168f,  -3.7038f },
+    { "London",    "England, United Kingdom",        51.5074f,  -0.1278f },
+    { "New York",  "New York, United States",        40.7128f, -74.0060f },
+    { "Tokyo",     "Japan",                          35.6762f, 139.6503f },
 };
 #define SIM_CITY_COUNT ((int)(sizeof(k_cities) / sizeof(k_cities[0])))
 
@@ -246,18 +404,18 @@ static void deferred_cb(lv_timer_t *timer)
         break;
     }
     case ACT_CITY_SELECTED:
-        publish_weather();
+        publish_weather_or_live();
         break;
 
     case ACT_REFRESH_DONE:
-        publish_weather();
+        publish_weather_or_live();
         break;
 
     /* Distinct from ACT_REFRESH_DONE (used for the silent initial load): only
      * a user-triggered refresh shows the toast, matching real firmware's
      * is_manual distinction in app_weather.c's do_refresh(). */
     case ACT_MANUAL_REFRESH_DONE:
-        publish_weather();
+        publish_weather_or_live();
         weather_ui_show_refresh_toast(true);
         break;
 
@@ -305,6 +463,8 @@ static void on_select_city(int idx)
      * letzten Komma an ist genau das der Rest. */
     const char *comma = strrchr(c->sub, ',');
     snprintf(s_country, sizeof(s_country), "%s", comma ? comma + 2 : c->sub);
+    s_live_lat = c->lat;
+    s_live_lon = c->lon;
     weather_ui_set_loading(true);
     defer(ACT_CITY_SELECTED, SIM_LATENCY_MS);
 }
@@ -323,7 +483,7 @@ static void on_settings_changed(weather_lang_t lang, wx_temp_unit_t t, wx_wind_u
     s_time_fmt = tf;
     /* Einheiten rechnet weather_ui.c selbst um; Datum, Wochentag und der
      * "Real feel"-Satz kommen vorformatiert von hier und muessen neu. */
-    publish_weather();
+    publish_weather_or_live();
 }
 
 static void on_wifi_scan(void)
@@ -599,6 +759,8 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--wifi-setup") == 0) {
             open_wifi_setup = true;
+        } else if (strcmp(argv[i], "--live") == 0) {
+            s_live = true;
         } else if (strcmp(argv[i], "--screen") == 0 && i + 1 < argc) {
             const char *name = argv[++i];
             if      (strcmp(name, "main")     == 0) s_screen = SCREEN_MAIN;
@@ -622,7 +784,7 @@ int main(int argc, char **argv)
         } else {
             const bool asked = strcmp(argv[i], "--help") == 0;
             fprintf(asked ? stdout : stderr,
-                    "Aufruf: %s [--screen NAME | --wifi-setup]\n"
+                    "Aufruf: %s [--screen NAME | --wifi-setup] [--live]\n"
                     "        [--screenshot DATEI.bmp [--screenshot-after MS]]\n"
                     "  --screen            oeffnet den Screen nach dem Laden der Daten:\n"
                     "                      main (Vorgabe), search, settings,\n"
@@ -633,6 +795,11 @@ int main(int argc, char **argv)
                     "                      wieder aus, der Standard-Wert (3000) verpasst ihn.\n"
                     "  --wifi-setup        WLAN-Setup im Erstboot-Zustand: offline, ohne\n"
                     "                      Wetterdaten. Nicht dasselbe wie --screen wifi.\n"
+                    "  --live              echte Open-Meteo-Daten statt der Fixtures holen\n"
+                    "                      (braucht Netz und `curl`; Start-Koordinaten wie\n"
+                    "                      CONFIG_WEATHER_DEFAULT_LAT/LON_MILLIDEG, Trier).\n"
+                    "                      Stadtwechsel und Refresh fragen dann ebenfalls live ab;\n"
+                    "                      schlaegt der Abruf fehl, fallen die Fixtures wieder ein.\n"
                     "  --screenshot        schreibt den Frame als BMP und beendet sich\n"
                     "  --screenshot-after  Wartezeit davor in ms (Vorgabe 3000, damit\n"
                     "                      Daten, Scan und Einblendanimationen durch sind)\n",

@@ -41,6 +41,13 @@ target_link_libraries(lvgl PUBLIC PkgConfig::SDL2)
 # tools/gen_fonts.sh hier nicht auch noch eingetragen werden muss.
 file(GLOB WEATHER_FONT_SRCS "main.c" "${APP_DIR}/fonts/*.c")
 
+# --- app_logic (hardwarefrei) + cJSON ---------------------------------------
+# weather_forecast_parse.c ist dieselbe Open-Meteo-Parselogik, die --live hier
+# braucht; cJSON ist der vom Hauptprojekt per Component Manager geholte
+# Quellcode (managed_components/), kein zweiter Checkout.
+set(APP_LOGIC_DIR "${REPO_ROOT}/components/app_logic")
+set(CJSON_DIR "${REPO_ROOT}/managed_components/espressif__cjson/cJSON")
+
 add_executable(weather_sim
     main.c
     "${APP_DIR}/weather_ui.c"
@@ -48,10 +55,14 @@ add_executable(weather_sim
     "${APP_DIR}/weather_icons.c"
     "${APP_DIR}/weather_i18n.c"
     "${APP_DIR}/app_format.c"
+    "${APP_LOGIC_DIR}/weather_forecast_parse.c"
+    "${CJSON_DIR}/cJSON.c"
     ${WEATHER_FONT_SRCS}
 )
 
 # sim/ zuerst: von hier kommt der sdkconfig.h-Ersatz.
-target_include_directories(weather_sim PRIVATE "${CMAKE_CURRENT_LIST_DIR}" "${APP_DIR}")
+target_include_directories(weather_sim PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}" "${APP_DIR}" "${APP_LOGIC_DIR}/include" "${CJSON_DIR}"
+)
 target_compile_options(weather_sim PRIVATE -Wall -Wextra)
 target_link_libraries(weather_sim PRIVATE lvgl m)
