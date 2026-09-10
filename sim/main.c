@@ -370,12 +370,47 @@ typedef enum {
     SCREEN_SETTINGS,
     SCREEN_SETTINGS_ADAPTIVE_ON,
     SCREEN_DEVICE_INFO,
+    SCREEN_FORECAST_ICON_TAP,
     SCREEN_REFRESH_TOAST,
     SCREEN_DETAIL,
     SCREEN_WIFI,
 } sim_screen_t;
 
 static sim_screen_t s_screen = SCREEN_MAIN;
+static lv_display_t *s_disp;
+
+/* lv_sdl_window.c calls this internally to feed its own SDL event pump into
+ * the mouse indev; it's a plain (non-static) C function but has no public
+ * prototype in lv_sdl_mouse.h, since user code isn't expected to drive it
+ * directly. Declared here for the same reason lv_sdl_window.c does. */
+extern void lv_sdl_mouse_handler(SDL_Event *event);
+
+/* Synthesizes a real point-based tap (SDL_MOUSEBUTTONDOWN + UP through
+ * lv_sdl_mouse_handler(), the same public entry point real mouse/window
+ * events go through) instead of click_owner_of()'s walk-to-clickable-ancestor
+ * shortcut. Needed for bugs that are specifically about hit-testing at a
+ * coordinate — click_owner_of() bypasses LVGL's indev press/release pipeline
+ * entirely, so it can't reproduce them. */
+static void synth_tap(int x, int y) {
+    SDL_Window *win = lv_sdl_window_get_window(s_disp);
+    Uint32 win_id = SDL_GetWindowID(win);
+
+    SDL_Event down = {0};
+    down.type = SDL_MOUSEBUTTONDOWN;
+    down.button.windowID = win_id;
+    down.button.button = SDL_BUTTON_LEFT;
+    down.button.x = x;
+    down.button.y = y;
+    lv_sdl_mouse_handler(&down);
+
+    SDL_Event up = {0};
+    up.type = SDL_MOUSEBUTTONUP;
+    up.button.windowID = win_id;
+    up.button.button = SDL_BUTTON_LEFT;
+    up.button.x = x;
+    up.button.y = y;
+    lv_sdl_mouse_handler(&up);
+}
 
 static lv_obj_t *find_label(lv_obj_t *parent, const char *text)
 {
@@ -447,6 +482,23 @@ static void open_screen(void)
     case SCREEN_SETTINGS: {
         lv_obj_t *gear = find_label(root, LV_SYMBOL_SETTINGS);
         if (gear == NULL || !click_owner_of(gear)) warn_missing("Zahnrad im Header");
+        break;
+    }
+
+    case SCREEN_FORECAST_ICON_TAP: {
+        /* Reported bug: tapping the weather ICON inside a forecast tile does
+         * nothing, even though tapping elsewhere on the same tile opens the
+         * day detail sheet. Found via the object tree, not fixed pixels
+         * (see the comment above open_screen()) - the "Today" card's icon is
+         * its 3rd child (day_name_lbl, day_date_lbl, icon, ...). */
+        lv_obj_t *today = find_label(root, weather_strings[s_lang].today);
+        if (today == NULL) { warn_missing("Tageskarte \"heute\""); break; }
+        lv_obj_t *card = lv_obj_get_parent(today);
+        lv_obj_t *icon = lv_obj_get_child(card, 2);
+        if (icon == NULL) { warn_missing("Icon in der Tageskarte \"heute\""); break; }
+        lv_area_t a;
+        lv_obj_get_coords(icon, &a);
+        synth_tap((a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2);
         break;
     }
 
@@ -554,12 +606,13 @@ int main(int argc, char **argv)
             else if (strcmp(name, "settings") == 0) s_screen = SCREEN_SETTINGS;
             else if (strcmp(name, "settings-adaptive-on") == 0) s_screen = SCREEN_SETTINGS_ADAPTIVE_ON;
             else if (strcmp(name, "device-info") == 0) s_screen = SCREEN_DEVICE_INFO;
+            else if (strcmp(name, "forecast-icon-tap") == 0) s_screen = SCREEN_FORECAST_ICON_TAP;
             else if (strcmp(name, "refresh-toast") == 0) s_screen = SCREEN_REFRESH_TOAST;
             else if (strcmp(name, "detail")   == 0) s_screen = SCREEN_DETAIL;
             else if (strcmp(name, "wifi")     == 0) s_screen = SCREEN_WIFI;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, device-info, refresh-toast, detail, wifi\n", name);
+                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
@@ -573,7 +626,8 @@ int main(int argc, char **argv)
                     "        [--screenshot DATEI.bmp [--screenshot-after MS]]\n"
                     "  --screen            oeffnet den Screen nach dem Laden der Daten:\n"
                     "                      main (Vorgabe), search, settings,\n"
-                    "                      settings-adaptive-on, device-info, refresh-toast, detail, wifi\n"
+                    "                      settings-adaptive-on, device-info, forecast-icon-tap,\n"
+                    "                      refresh-toast, detail, wifi\n"
                     "                      refresh-toast braucht ein kurzes --screenshot-after\n"
                     "                      (z.B. 2000) — der Toast blendet sich nach 1s\n"
                     "                      wieder aus, der Standard-Wert (3000) verpasst ihn.\n"
@@ -599,6 +653,7 @@ int main(int argc, char **argv)
         return 1;
     }
     lv_sdl_window_set_title(disp, "weather_display — Simulator (1024x600)");
+    s_disp = disp;
 
     lv_sdl_mouse_create();
     lv_sdl_mousewheel_create();

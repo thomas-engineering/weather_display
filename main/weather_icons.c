@@ -29,6 +29,14 @@ static lv_obj_t *dot(lv_obj_t *parent, int32_t w, int32_t h, int32_t x, int32_t 
     lv_obj_set_style_bg_opa(o, opa, 0);
     lv_obj_set_style_radius(o, radius, 0);
     lv_obj_set_style_border_width(o, 0, 0);
+    /* FIX: lv_obj_create() defaults to CLICKABLE. These shapes are purely
+     * decorative, but left clickable they silently swallow taps meant for
+     * whatever real widget sits behind the icon (e.g. a forecast tile's day
+     * card) instead of falling through to it — and since weather_icon_set_type()
+     * tears down and rebuilds every dot on each data refresh, a bubble-event
+     * flag added once at UI-build time doesn't survive either. Not clickable
+     * is the correct, rebuild-proof fix. */
+    lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
     return o;
 }
@@ -115,6 +123,7 @@ lv_obj_t *weather_icon_create(lv_obj_t *parent, weather_icon_t icon, int32_t siz
     lv_obj_set_style_border_width(cont, 0, 0);
     lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_remove_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(cont, LV_OBJ_FLAG_CLICKABLE);   /* FIX: see the comment in dot() */
     build_icon(cont, icon, size, color);
     return cont;
 }
