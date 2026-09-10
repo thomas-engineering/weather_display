@@ -10,6 +10,8 @@ idf_component_register(
         "app_prefs.c"
         "app_format.c"
         "app_light.c"
+        "storage_backend_nvs.c"
+        "save_debounce.c"
         "weather_ui.c"
         "weather_chart.c"
         "weather_icons.c"

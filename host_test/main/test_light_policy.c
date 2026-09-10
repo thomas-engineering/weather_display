@@ -110,8 +110,10 @@ static void test_reset_macht_naechstes_sample_wieder_unbedingt(void) {
     TEST_ASSERT_TRUE(reported);
 }
 
-int main(void) {
-    UNITY_BEGIN();
+/* Called from test_main.c's single main() — the host_test project builds one
+ * executable for every component under test, so only one file may define
+ * main()/setUp()/tearDown(). */
+void test_light_policy_run(void) {
     RUN_TEST(test_erstes_sample_wird_immer_gemeldet);
     RUN_TEST(test_clamping_am_unteren_ende);
     RUN_TEST(test_clamping_am_oberen_ende);
@@ -119,5 +121,4 @@ int main(void) {
     RUN_TEST(test_kleine_aenderung_wird_unterdrueckt);
     RUN_TEST(test_grosse_aenderung_wird_gemeldet);
     RUN_TEST(test_reset_macht_naechstes_sample_wieder_unbedingt);
-    return UNITY_END();
 }

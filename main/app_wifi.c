@@ -10,12 +10,25 @@
 #include "esp_netif_sntp.h"
 #include "esp_log.h"
 #include "nvs.h"
+#include "storage_record.h"
+#include "storage_backend_nvs.h"
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
 
 static const char *TAG = "wifi";
 static const char *NS = "wifi";
+#define RECORD_KEY "cred"
+#define RECORD_VERSION 1
+
+/* On-disk layout of the "cred" record — one blob instead of separate "ssid"
+ * and "pass" keys, so a power loss mid-save can't pair a new SSID with the
+ * previous network's password (see main/app_prefs.c's prefs_payload_t for
+ * the same reasoning in more detail). */
+typedef struct __attribute__((packed)) {
+    char ssid[33];
+    char pass[65];
+} wifi_cred_payload_t;
 
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
@@ -55,30 +68,42 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
     }
 }
 
+static void save_credentials(const char *ssid, const char *pass) {
+    wifi_cred_payload_t c = {0};
+    snprintf(c.ssid, sizeof c.ssid, "%s", ssid ? ssid : "");
+    snprintf(c.pass, sizeof c.pass, "%s", pass ? pass : "");
+    storage_record_save(&storage_backend_nvs, NS, RECORD_KEY, RECORD_VERSION, &c, sizeof c);
+}
+
+/* One-time upgrade path from this project's first NVS layout, which kept
+ * "ssid" and "pass" as separate scalar keys — see the matching comment in
+ * app_prefs.c's migrate_from_legacy_keys() for why the legacy keys are read
+ * once and left in place rather than erased. */
+static void migrate_from_legacy_keys(void) {
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return;
+    size_t n = sizeof s_ssid;
+    if (nvs_get_str(h, "ssid", s_ssid, &n) != ESP_OK) s_ssid[0] = '\0';
+    n = sizeof s_pass;
+    if (nvs_get_str(h, "pass", s_pass, &n) != ESP_OK) s_pass[0] = '\0';
+    nvs_close(h);
+    if (s_ssid[0]) save_credentials(s_ssid, s_pass);
+}
+
 static void load_credentials(void) {
     s_ssid[0] = s_pass[0] = '\0';
-    nvs_handle_t h;
-    if (nvs_open(NS, NVS_READONLY, &h) == ESP_OK) {
-        size_t n = sizeof s_ssid;
-        if (nvs_get_str(h, "ssid", s_ssid, &n) != ESP_OK) s_ssid[0] = '\0';
-        n = sizeof s_pass;
-        if (nvs_get_str(h, "pass", s_pass, &n) != ESP_OK) s_pass[0] = '\0';
-        nvs_close(h);
+    wifi_cred_payload_t c;
+    if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, RECORD_VERSION, &c, sizeof c)) {
+        memcpy(s_ssid, c.ssid, sizeof c.ssid);
+        memcpy(s_pass, c.pass, sizeof c.pass);
+    } else {
+        migrate_from_legacy_keys();
     }
     if (!s_ssid[0]) {
         /* Kconfig fallback, for a device flashed with a network already known. */
         snprintf(s_ssid, sizeof s_ssid, "%s", CONFIG_WEATHER_WIFI_SSID);
         snprintf(s_pass, sizeof s_pass, "%s", CONFIG_WEATHER_WIFI_PASSWORD);
     }
-}
-
-static void save_credentials(const char *ssid, const char *pass) {
-    nvs_handle_t h;
-    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_str(h, "ssid", ssid);
-    nvs_set_str(h, "pass", pass);
-    nvs_commit(h);
-    nvs_close(h);
 }
 
 /* ESP_OK or "already done" are both fine — the BSP may have initialised these. */
@@ -177,6 +202,11 @@ bool app_wifi_connect_with(const char *ssid, const char *password) {
 }
 
 void app_wifi_forget(void) {
+    storage_backend_nvs.erase(storage_backend_nvs.ctx, NS, RECORD_KEY);
+    /* Also erase the pre-storage-record legacy keys: load_credentials()'s
+     * migration path reads them whenever the "cred" record is absent, so
+     * leaving them in place here would resurrect a forgotten network on the
+     * next boot. */
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) == ESP_OK) {
         nvs_erase_key(h, "ssid");
