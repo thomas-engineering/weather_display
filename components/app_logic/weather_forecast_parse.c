@@ -19,6 +19,14 @@ static float jarr(const cJSON *o, const char *k, int i, float dflt) {
     return cJSON_IsNumber(v) ? (float)v->valuedouble : dflt;
 }
 
+/* Reads element `i` of a string array, or NULL if absent/not a string. */
+static const char *jarr_str(const cJSON *o, const char *k, int i) {
+    const cJSON *a = cJSON_GetObjectItemCaseSensitive(o, k);
+    if (!cJSON_IsArray(a)) return NULL;
+    const cJSON *v = cJSON_GetArrayItem(a, i);
+    return cJSON_IsString(v) && v->valuestring ? v->valuestring : NULL;
+}
+
 bool weather_forecast_parse(const char *json, wfp_forecast_t *out) {
     if (!json || !out) return false;
 
@@ -58,6 +66,14 @@ bool weather_forecast_parse(const char *json, wfp_forecast_t *out) {
         r.days[i].precip_pct   = (int)jarr(daily, "precipitation_probability_max", i, 0);
         r.days[i].wind_max_kmh = jarr(daily, "wind_speed_10m_max", i, 0);
     }
+
+    /* "Today" only (index 0) — see the struct field comments. */
+    const char *sunrise = jarr_str(daily, "sunrise", 0);
+    const char *sunset  = jarr_str(daily, "sunset", 0);
+    snprintf(r.sunrise_iso, sizeof r.sunrise_iso, "%s", sunrise ? sunrise : "");
+    snprintf(r.sunset_iso, sizeof r.sunset_iso, "%s", sunset ? sunset : "");
+    r.uv_valid = cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(daily, "uv_index_max")) && n > 0;
+    r.uv_index_max = jarr(daily, "uv_index_max", 0, 0);
 
     /* Hourly arrives as one flat 7x24 series; slice it per day. */
     const cJSON *hourly = cJSON_GetObjectItemCaseSensitive(root, "hourly");

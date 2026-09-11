@@ -106,6 +106,41 @@ static void test_slices_hourly_per_day_including_partial_last_day(void) {
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 8.0f, f.hourly[1].temp_c[0]);
 }
 
+static void test_missing_sunrise_sunset_uv_leaves_uv_invalid(void) {
+    /* k_fixture predates the 2026-09-12 sync's sunrise/sunset/uv_index_max
+     * fields — parsing an older/smaller response must still succeed, just
+     * with uv_valid left false and the ISO strings empty, not fail outright. */
+    wfp_forecast_t f;
+    TEST_ASSERT_TRUE(weather_forecast_parse(k_fixture, &f));
+    TEST_ASSERT_FALSE(f.uv_valid);
+    TEST_ASSERT_EQUAL_STRING("", f.sunrise_iso);
+    TEST_ASSERT_EQUAL_STRING("", f.sunset_iso);
+}
+
+static const char *k_fixture_with_sun_uv =
+    "{"
+    "\"utc_offset_seconds\":3600,"
+    "\"current\":{\"temperature_2m\":15.7,\"weather_code\":0},"
+    "\"daily\":{"
+        "\"time\":[\"2026-09-08\",\"2026-09-09\"],"
+        "\"weather_code\":[0,61],"
+        "\"temperature_2m_max\":[20.0,16.0],"
+        "\"temperature_2m_min\":[10.0,8.0],"
+        "\"sunrise\":[\"2026-09-08T06:47\",\"2026-09-09T06:48\"],"
+        "\"sunset\":[\"2026-09-08T19:32\",\"2026-09-09T19:30\"],"
+        "\"uv_index_max\":[5.4,3.1]"
+    "}"
+    "}";
+
+static void test_parses_sunrise_sunset_uv_for_today_only(void) {
+    wfp_forecast_t f;
+    TEST_ASSERT_TRUE(weather_forecast_parse(k_fixture_with_sun_uv, &f));
+    TEST_ASSERT_TRUE(f.uv_valid);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 5.4f, f.uv_index_max);
+    TEST_ASSERT_EQUAL_STRING("2026-09-08T06:47", f.sunrise_iso);
+    TEST_ASSERT_EQUAL_STRING("2026-09-08T19:32", f.sunset_iso);
+}
+
 static void test_rejects_malformed_json(void) {
     wfp_forecast_t f;
     TEST_ASSERT_FALSE(weather_forecast_parse("not json", &f));
@@ -125,6 +160,8 @@ void test_weather_forecast_parse_run(void) {
     RUN_TEST(test_parses_current_conditions);
     RUN_TEST(test_parses_daily_series);
     RUN_TEST(test_slices_hourly_per_day_including_partial_last_day);
+    RUN_TEST(test_missing_sunrise_sunset_uv_leaves_uv_invalid);
+    RUN_TEST(test_parses_sunrise_sunset_uv_for_today_only);
     RUN_TEST(test_rejects_malformed_json);
     RUN_TEST(test_rejects_json_missing_current_or_daily);
 }

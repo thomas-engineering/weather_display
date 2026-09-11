@@ -35,6 +35,7 @@
 #include "lvgl.h"
 
 #include "app_format.h"
+#include "cJSON.h"
 #include "weather_forecast_parse.h"
 #include "weather_i18n.h"
 #include "weather_ui.h"
@@ -254,7 +255,8 @@ static bool publish_weather_live(void) {
              "&hourly=temperature_2m,precipitation"
              "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
              "apparent_temperature_max,apparent_temperature_min,"
-             "precipitation_probability_max,wind_speed_10m_max"
+             "precipitation_probability_max,wind_speed_10m_max,"
+             "sunrise,sunset,uv_index_max"
              "&timezone=auto&forecast_days=%d",
              (double)s_live_lat, (double)s_live_lon, WFP_DAYS);
 
@@ -290,12 +292,37 @@ static bool publish_weather_live(void) {
     cur.precip_pct = f.precip_pct;
     fmt_real_feel(cur.real_feel_text, sizeof(cur.real_feel_text),
                   cur.feels_like_c, cur.temp_c, cur.wind_kmh, cur.precip_pct, s_lang);
-    /* --live doesn't fetch sunrise/sunset/UV/air-quality (that's a second
-     * Open-Meteo daily field set plus a separate air-quality-api.open-meteo.com
-     * call this dev-only path doesn't make) — "–" placeholders rather than
-     * fetching them, same as a real device would show on a failed AQI call. */
-    snprintf(cur.uv_display, sizeof(cur.uv_display), "\xE2\x80\x93");
-    snprintf(cur.aqi_display, sizeof(cur.aqi_display), "\xE2\x80\x93");
+
+    fmt_iso_time(cur.sunrise_str, sizeof(cur.sunrise_str), f.sunrise_iso, s_time_fmt);
+    fmt_iso_time(cur.sunset_str, sizeof(cur.sunset_str), f.sunset_iso, s_time_fmt);
+    if (f.uv_valid) snprintf(cur.uv_display, sizeof(cur.uv_display), "%d", (int)lroundf(f.uv_index_max));
+    else            snprintf(cur.uv_display, sizeof(cur.uv_display), "\xE2\x80\x93");
+    snprintf(cur.uv_cat, sizeof(cur.uv_cat), "%s", uv_category(f.uv_valid, f.uv_index_max, s_lang));
+
+    /* Air quality: separate Open-Meteo host, separate request — same as
+     * app_weather.c's do_refresh(), non-fatal on failure ("–" placeholder). */
+    bool aqi_valid = false;
+    int aqi = 0;
+    char aq_url[192];
+    snprintf(aq_url, sizeof(aq_url),
+             "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=%.4f&longitude=%.4f"
+             "&current=us_aqi&timezone=auto",
+             (double)s_live_lat, (double)s_live_lon);
+    char *aq_body = http_get_live(aq_url);
+    if (aq_body != NULL) {
+        cJSON *aq_root = cJSON_Parse(aq_body);
+        free(aq_body);
+        if (aq_root != NULL) {
+            const cJSON *aq_cur = cJSON_GetObjectItemCaseSensitive(aq_root, "current");
+            const cJSON *aqi_val = cJSON_IsObject(aq_cur) ? cJSON_GetObjectItemCaseSensitive(aq_cur, "us_aqi") : NULL;
+            if (cJSON_IsNumber(aqi_val)) { aqi = (int)aqi_val->valuedouble; aqi_valid = true; }
+            cJSON_Delete(aq_root);
+        }
+    }
+    if (!aqi_valid) fprintf(stderr, "--live: Luftqualitaets-Abruf fehlgeschlagen, zeige \"-\".\n");
+    if (aqi_valid) snprintf(cur.aqi_display, sizeof(cur.aqi_display), "%d", aqi);
+    else           snprintf(cur.aqi_display, sizeof(cur.aqi_display), "\xE2\x80\x93");
+    snprintf(cur.aqi_cat, sizeof(cur.aqi_cat), "%s", aqi_category(aqi_valid, aqi, s_lang));
 
     weather_day_t days[WEATHER_UI_DAYS] = {0};
     weather_hourly_t hourly[WEATHER_UI_DAYS];

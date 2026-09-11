@@ -36,6 +36,16 @@ typedef struct {
     int   precip_pct;
     float temp_c, feels_like_c, wind_kmh;
 
+    /* "Today" only (daily index 0), matching app_weather.c's do_refresh() —
+     * these mirror the sunrise/sunset/uv_index_max fields added to the
+     * forecast request for the 2026-09-12 design sync. sunrise_iso/
+     * sunset_iso are the raw local-time ISO strings ("2026-09-12T06:47");
+     * format with fmt_iso_time(). uv_valid false means the field was absent
+     * from the response (older cached response shape, or a malformed one). */
+    char  sunrise_iso[20], sunset_iso[20];
+    float uv_index_max;
+    bool  uv_valid;
+
     int      day_count;                  /* <= WFP_DAYS */
     wfp_day_t    days[WFP_DAYS];
     wfp_hourly_t hourly[WFP_DAYS];
