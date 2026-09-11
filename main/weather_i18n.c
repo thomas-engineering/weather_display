@@ -9,6 +9,53 @@ const char *weather_cond_text[LANG_COUNT][8] = {
     /* FR */ { "Ciel dégagé", "Plutôt dégagé", "Partiellement nuageux", "Couvert", "Brouillard", "Pluie", "Neige", "Orage" },
 };
 
+/* Short weekday names, Sunday-first to match struct tm's tm_wday. */
+const char *weather_wday_short[LANG_COUNT][7] = {
+    /* EN */ { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" },
+    /* DE */ { "So",  "Mo",  "Di",  "Mi",  "Do",  "Fr",  "Sa"  },
+    /* ES */ { "dom", "lun", "mar", "mié", "jue", "vie", "sáb" },
+    /* FR */ { "dim", "lun", "mar", "mer", "jeu", "ven", "sam" },
+};
+
+const char *weather_mon_short[LANG_COUNT][12] = {
+    /* EN */ { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" },
+    /* DE */ { "Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez" },
+    /* ES */ { "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic" },
+    /* FR */ { "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc." },
+};
+
+/* Mirrors the design's getStrings().rf. */
+const weather_real_feel_t weather_real_feel[LANG_COUNT] = {
+    [LANG_EN] = {
+        .same   = "Feels about the same as the air temperature.",
+        .cooler = "Feels noticeably cooler than the air temperature, likely due to wind.",
+        .warmer = "Feels warmer than the air temperature, likely due to humidity.",
+        .rain   = " Rain is likely — plan accordingly.",
+        .breezy = " Winds are breezy.",
+    },
+    [LANG_DE] = {
+        .same   = "Fühlt sich etwa wie die Lufttemperatur an.",
+        .cooler = "Fühlt sich durch den Wind deutlich kühler an.",
+        .warmer = "Fühlt sich durch die Luftfeuchtigkeit wärmer an.",
+        .rain   = " Regen ist wahrscheinlich — plane entsprechend.",
+        .breezy = " Es ist windig.",
+    },
+    [LANG_ES] = {
+        .same   = "Se siente similar a la temperatura del aire.",
+        .cooler = "Se siente notablemente más frío por el viento.",
+        .warmer = "Se siente más cálido por la humedad.",
+        .rain   = " Es probable que llueva — actúa en consecuencia.",
+        .breezy = " Hay viento.",
+    },
+    [LANG_FR] = {
+        .same   = "Ressenti proche de la température de l'air.",
+        .cooler = "Ressenti nettement plus frais à cause du vent.",
+        .warmer = "Ressenti plus chaud à cause de l'humidité.",
+        .rain   = " La pluie est probable — prévoyez en conséquence.",
+        .breezy = " Il y a du vent.",
+    },
+};
+
 const weather_strings_t weather_strings[LANG_COUNT] = {
     [LANG_EN] = {
         .cancel = "Cancel", .retry = "Retry", .search_placeholder = "Search for a city...",

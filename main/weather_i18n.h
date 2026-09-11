@@ -31,6 +31,19 @@ extern const char *weather_cond_text[LANG_COUNT][8];
 
 extern const weather_strings_t weather_strings[LANG_COUNT];
 
+/* Short weekday names (Sunday-first, matching struct tm's tm_wday) and short
+ * month names — used by app_format.c's fmt_date()/fmt_day_date()/fmt_day_label(). */
+extern const char *weather_wday_short[LANG_COUNT][7];
+extern const char *weather_mon_short[LANG_COUNT][12];
+
+/* "Real feel" sentence fragments — app_format.c's fmt_real_feel() picks `same`/
+ * `cooler`/`warmer` by the apparent-vs-actual temperature delta, then appends
+ * `rain` or `breezy` (or neither). Mirrors the design's getStrings().rf. */
+typedef struct {
+    const char *same, *cooler, *warmer, *rain, *breezy;
+} weather_real_feel_t;
+extern const weather_real_feel_t weather_real_feel[LANG_COUNT];
+
 /* IETF language tag, for reference / hyphenation dictionaries if the platform's text
  * shaping supports it (LVGL itself does not hyphenate). */
 extern const char *weather_lang_tag[LANG_COUNT];
