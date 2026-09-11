@@ -476,14 +476,15 @@ static lv_obj_t *stat_box_create(lv_obj_t *parent, const char *label, lv_obj_t *
 
 static void day_card_click_cb(lv_event_t *e);
 
+/* FIX: sync from Claude Design 2026-09-13 — this used to be its own bordered
+ * card (bg/radius/fixed 150px height), a flat sibling of the extras row and
+ * the chart below it. The design instead wraps all three in one card (see
+ * build_current_panel()); this is now just that card's top row, sized to its
+ * own content instead of owning a background. */
 static void build_current_card(lv_obj_t *parent) {
     ui.current_card = lv_obj_create(parent);
     lv_obj_remove_style_all(ui.current_card);
-    lv_obj_set_size(ui.current_card, LV_PCT(100), 150);
-    lv_obj_set_style_bg_color(ui.current_card, C_SURFACE, 0);
-    lv_obj_set_style_bg_opa(ui.current_card, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(ui.current_card, R_MD, 0);
-    lv_obj_set_style_pad_hor(ui.current_card, 24, 0);
+    lv_obj_set_size(ui.current_card, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(ui.current_card, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(ui.current_card, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     /* Synced from Claude Design 2026-09-10: gap 20 -> 16. */
@@ -553,14 +554,12 @@ static void build_current_card(lv_obj_t *parent) {
     for (int i = 0; i < 4; i++) lv_obj_set_height(stat_boxes[i], max_h);
 }
 
-/* Synced from Claude Design 2026-09-12: a sunrise/sunset/UV/air-quality row.
- * The design nests this inside the same card as the icon/temp/stats row
- * above; this port already splits that card from its hourly chart into flat
- * siblings of `content` (see the comment above weather_chart_create() in
- * weather_ui_create()), so this row goes the same way — its own sibling,
- * same reading order. LV_SYMBOL_UP/DOWN stand in for the design's hand-drawn
- * sparkle icons (no FontAwesome codepoints in the generated Inter faces —
- * same constraint as header_loc_icon). */
+/* Synced from Claude Design 2026-09-12: a sunrise/sunset/UV/air-quality row,
+ * nested (like the icon/temp/stats row above and the chart below) inside the
+ * one combined card build_current_panel() wraps them all in. LV_SYMBOL_UP/
+ * DOWN stand in for the design's hand-drawn sparkle icons (no FontAwesome
+ * codepoints in the generated Inter faces — same constraint as
+ * header_loc_icon). */
 static lv_obj_t *sun_item_create(lv_obj_t *parent, const char *symbol, lv_obj_t **text_lbl_out) {
     lv_obj_t *row = lv_obj_create(parent);
     lv_obj_remove_style_all(row);
@@ -599,6 +598,54 @@ static void build_current_extras(lv_obj_t *parent) {
     ui.current_aqi_lbl = lv_label_create(row);
     lv_obj_set_style_text_color(ui.current_aqi_lbl, C_TEXT, 0);
     lv_obj_set_style_text_font(ui.current_aqi_lbl, FONT_12, 0);
+}
+
+/* FIX: sync from Claude Design 2026-09-13 — the design wraps the icon/temp/
+ * stats row, the sunrise/sunset/UV/air-quality row, and the hourly chart in
+ * one bordered/background card (fixed 250px, padding 16px 24px, 12px gap
+ * between the three), with a divider line above the chart. The earlier port
+ * left all three as flat, uncarded siblings of `content` — visually just the
+ * icon/stat row had a frame, and the chart floated on the bare page
+ * background below it, which is what read as "no frame around the chart".
+ *
+ * The chart's height can't be a fixed constant here the way the old
+ * `weather_chart_create(content, LV_PCT(100), 108)` call had it: with
+ * everything now sharing one fixed 250px card, its correct height is
+ * "whatever's left" after the other two rows and the gaps/padding — exactly
+ * the design's `flex:1` on that div. flex_grow on chart_wrap resolves that
+ * independently of chart_wrap's own children (LVGL's flex algorithm sizes a
+ * grow item from the *parent's* leftover space, not the item's content), so
+ * giving the actual weather_chart widget LV_PCT(100) height inside it isn't
+ * circular — it just resolves one layout pass later, same as the day-detail
+ * sheet's stat boxes already rely on multi-pass layout elsewhere in this
+ * file. */
+static void build_current_panel(lv_obj_t *parent) {
+    lv_obj_t *panel = lv_obj_create(parent);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_size(panel, LV_PCT(100), 250);
+    lv_obj_set_style_bg_color(panel, C_SURFACE, 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(panel, R_MD, 0);
+    lv_obj_set_style_pad_hor(panel, 24, 0);
+    lv_obj_set_style_pad_ver(panel, 16, 0);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(panel, 12, 0);
+    lv_obj_remove_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    build_current_card(panel);
+    build_current_extras(panel);
+
+    lv_obj_t *chart_wrap = lv_obj_create(panel);
+    lv_obj_remove_style_all(chart_wrap);
+    lv_obj_set_size(chart_wrap, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(chart_wrap, 1);
+    lv_obj_set_style_border_side(chart_wrap, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_width(chart_wrap, 1, 0);
+    lv_obj_set_style_border_color(chart_wrap, C_DIVIDER, 0);
+    lv_obj_set_style_pad_top(chart_wrap, 10, 0);
+    lv_obj_remove_flag(chart_wrap, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui.today_chart = weather_chart_create(chart_wrap, LV_PCT(100), LV_PCT(100));
 }
 
 /* ---- forecast strip ------------------------------------------------------ */
@@ -2330,13 +2377,7 @@ void weather_ui_create(lv_obj_t *parent) {
     lv_obj_set_style_pad_row(content, 14, 0);
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
-    build_current_card(content);
-    build_current_extras(content);
-
-    /* Today's hourly series. The design's HTML drew this inline on the current
-     * card; at 1024x600 that card is already a full row, so it gets its own band
-     * directly beneath — same reading order, no crowding. */
-    ui.today_chart = weather_chart_create(content, LV_PCT(100), 108);
+    build_current_panel(content);
 
     build_forecast_strip(content);
 
