@@ -117,14 +117,20 @@ void weather_ui_show_refresh_toast(bool ok);
 void weather_ui_set_network_status(wx_net_status_t status);
 void weather_ui_set_data_stale(bool stale);
 
-/* Settings > Device information dialog (Claude Design, 2026-09-10). ip/dns/gateway
- * and note are only shown while online — pass NULL for any of them while offline,
- * the dialog falls back to "not connected" text instead. Strings are copied in,
- * safe to pass stack buffers. */
+/* Settings > Device information dialog (Claude Design, 2026-09-10; last_update
+ * added 2026-09-11, layout re-synced 2026-09-12). ip/dns/gateway/note are only
+ * shown while online — pass NULL for any of them while offline, the dialog
+ * falls back to "not connected" text instead. last_update is the exception:
+ * it always shows (you should still be able to see when data was last
+ * fetched while currently offline), so always pass a real string for it, not
+ * NULL. Strings are copied in, safe to pass stack buffers. last_update is
+ * pre-formatted by the app (already localized), same as every other display
+ * string here — pass the design's "No update yet" fallback text yourself if
+ * there has never been a successful fetch. */
 typedef struct {
     const char *device_name, *hardware_version, *firmware_version;
     bool online;
-    const char *ip, *dns, *gateway, *note;
+    const char *ip, *dns, *gateway, *last_update, *note;
 } weather_device_info_t;
 void weather_ui_set_device_info(const weather_device_info_t *info);
 

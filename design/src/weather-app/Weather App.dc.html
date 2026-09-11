@@ -258,7 +258,7 @@
   <sc-if value="{{ deviceInfoOpen }}">
     <div class="dialog-backdrop" style="position:absolute">
       
-    <div class="dialog" style="width: 326px; height: 383px">
+    <div class="dialog" style="width: 480px; height: 383px">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div data-lv="label.title" class="dialog-title">{{ t.deviceInfo }}</div>
           <button data-lv="button.icon" class="btn btn-ghost" onClick="{{ closeDeviceInfo }}" style="width:56px;height:56px">
@@ -278,6 +278,10 @@
             <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.firmwareVersion }}</span>
             <span data-lv="label.body">{{ deviceInfo.firmwareVersion }}</span>
           </div>
+          <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.lastUpdate }}</span>
+            <span data-lv="label.body">{{ lastUpdateDisplay }}</span>
+          </div>
           <sc-if value="{{ deviceInfo.online }}" hint-placeholder-val="{{ true }}">
             <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
               <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.ipAddress }}</span>
@@ -295,7 +299,6 @@
           <sc-if value="{{ deviceInfoOffline }}">
             <div data-lv="label.body" style="color:color-mix(in srgb, var(--color-text) 70%, transparent)">{{ t.notConnected }}</div>
           </sc-if>
-          
         </div>
       </div></div>
   </sc-if>
@@ -517,6 +520,7 @@ class Component extends DCLogic {
         deviceInfo: 'Device information', deviceName: 'Device name', hardwareVersion: 'Hardware version',
         firmwareVersion: 'Firmware version', ipAddress: 'IP address', dns: 'DNS', gateway: 'Gateway',
         notConnected: 'Not connected to the internet',
+        lastUpdate: 'Weather data as of', noUpdateYet: 'No update yet',
         space: 'Space', done: 'Done',
         brightness: 'Brightness', brightnessAdaptive: 'Adapt to ambient light',
         network: 'Network', configureNetwork: 'Configure network', wifiTitle: 'Wi-Fi networks',
@@ -541,6 +545,7 @@ class Component extends DCLogic {
         deviceInfo: 'Geräteinformationen', deviceName: 'Gerätename', hardwareVersion: 'Hardware-Version',
         firmwareVersion: 'Firmware-Version', ipAddress: 'IP-Adresse', dns: 'DNS', gateway: 'Gateway',
         notConnected: 'Nicht mit dem Internet verbunden',
+        lastUpdate: 'Wetterdaten vom', noUpdateYet: 'Noch keine Aktualisierung',
         space: 'Leerzeichen', done: 'Fertig',
         brightness: 'Helligkeit', brightnessAdaptive: 'An Umgebungslicht anpassen',
         network: 'Netzwerk', configureNetwork: 'Netzwerk konfigurieren', wifiTitle: 'WLAN-Netzwerke',
@@ -565,6 +570,7 @@ class Component extends DCLogic {
         deviceInfo: 'Información del dispositivo', deviceName: 'Nombre del dispositivo', hardwareVersion: 'Versión de hardware',
         firmwareVersion: 'Versión de firmware', ipAddress: 'Dirección IP', dns: 'DNS', gateway: 'Puerta de enlace',
         notConnected: 'Sin conexión a Internet',
+        lastUpdate: 'Datos meteorológicos del', noUpdateYet: 'Aún sin actualizar',
         space: 'Espacio', done: 'Listo',
         brightness: 'Brillo', brightnessAdaptive: 'Adaptar a la luz ambiental',
         network: 'Red', configureNetwork: 'Configurar red', wifiTitle: 'Redes Wi-Fi',
@@ -589,6 +595,7 @@ class Component extends DCLogic {
         deviceInfo: 'Informations sur l\u2019appareil', deviceName: 'Nom de l\u2019appareil', hardwareVersion: 'Version du matériel',
         firmwareVersion: 'Version du micrologiciel', ipAddress: 'Adresse IP', dns: 'DNS', gateway: 'Passerelle',
         notConnected: 'Pas de connexion à Internet',
+        lastUpdate: 'Données météo du', noUpdateYet: 'Pas encore de mise à jour',
         space: 'Espace', done: 'Terminé',
         brightness: 'Luminosité', brightnessAdaptive: 'Adapter à la lumière ambiante',
         network: 'Réseau', configureNetwork: 'Configurer le réseau', wifiTitle: 'Réseaux Wi-Fi',
@@ -947,6 +954,7 @@ class Component extends DCLogic {
       deviceInfoOpen, openDeviceInfo: this.openDeviceInfo, closeDeviceInfo: this.closeDeviceInfo,
       deviceInfo: this.DEVICE_INFO,
       deviceInfoOffline: !this.DEVICE_INFO.online,
+      lastUpdateDisplay: lastFetchSuccessAt ? new Date(lastFetchSuccessAt).toLocaleString(locale) : strings.noUpdateYet,
       deviceInfoNote: 'Created by M. Thomas using Claude Design and Claude Code.',
       showContent: !!weather && !(loading && !weather),
       current, days, selectedDay,

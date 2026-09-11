@@ -29,6 +29,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .device_info = "Device information", .device_name = "Device name", .hardware_version = "Hardware version",
         .firmware_version = "Firmware version", .ip_address = "IP address", .dns = "DNS", .gateway = "Gateway",
         .not_connected = "Not connected to the internet",
+        .last_update = "Weather data as of", .no_update_yet = "No update yet",
     },
     [LANG_DE] = {
         .cancel = "Abbrechen", .retry = "Erneut versuchen", .search_placeholder = "Stadt suchen...",
@@ -49,6 +50,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .device_info = "Geräteinformationen", .device_name = "Gerätename", .hardware_version = "Hardware-Version",
         .firmware_version = "Firmware-Version", .ip_address = "IP-Adresse", .dns = "DNS", .gateway = "Gateway",
         .not_connected = "Nicht mit dem Internet verbunden",
+        .last_update = "Wetterdaten vom", .no_update_yet = "Noch keine Aktualisierung",
     },
     [LANG_ES] = {
         .cancel = "Cancelar", .retry = "Reintentar", .search_placeholder = "Buscar una ciudad...",
@@ -69,6 +71,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .device_info = "Información del dispositivo", .device_name = "Nombre del dispositivo", .hardware_version = "Versión de hardware",
         .firmware_version = "Versión de firmware", .ip_address = "Dirección IP", .dns = "DNS", .gateway = "Puerta de enlace",
         .not_connected = "Sin conexión a Internet",
+        .last_update = "Datos meteorológicos del", .no_update_yet = "Aún sin actualizar",
     },
     [LANG_FR] = {
         .cancel = "Annuler", .retry = "Réessayer", .search_placeholder = "Rechercher une ville...",
@@ -89,5 +92,6 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .device_info = "Informations sur l'appareil", .device_name = "Nom de l'appareil", .hardware_version = "Version du matériel",
         .firmware_version = "Version du micrologiciel", .ip_address = "Adresse IP", .dns = "DNS", .gateway = "Passerelle",
         .not_connected = "Pas de connexion à Internet",
+        .last_update = "Données météo du", .no_update_yet = "Pas encore de mise à jour",
     },
 };

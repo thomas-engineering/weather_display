@@ -162,7 +162,14 @@ static void publish_weather(void)
 
     /* Sample data for the Settings > Device information dialog (--screen
      * device-info) — the real values come from app_weather.c on the device,
-     * which the simulator has no equivalent of. */
+     * which the simulator has no equivalent of. last_update reuses `lt`
+     * (same "now" the header's own date/time come from) so it isn't a static
+     * string that would look stale forever in a screenshot. */
+    char last_update[48], date_buf[32], time_buf[16];
+    fmt_date(date_buf, sizeof(date_buf), &lt, s_lang);
+    fmt_time(time_buf, sizeof(time_buf), &lt, s_time_fmt);
+    snprintf(last_update, sizeof(last_update), "%s, %s", date_buf, time_buf);
+
     weather_device_info_t dev_info = {
         .device_name = "Weather Display",
         .hardware_version = "ESP32-P4 Rev 1.3",
@@ -171,6 +178,7 @@ static void publish_weather(void)
         .ip = "192.168.1.42",
         .dns = "1.1.1.1",
         .gateway = "192.168.1.1",
+        .last_update = last_update,
         .note = "Created by M. Thomas using Claude Design and Claude Code.",
     };
     weather_ui_set_device_info(&dev_info);
@@ -298,6 +306,11 @@ static bool publish_weather_live(void) {
     weather_ui_set_network_status(WX_NET_ONLINE);
     weather_ui_set_data_stale(false);
 
+    char last_update[48], date_buf[32], time_buf[16];
+    fmt_date(date_buf, sizeof(date_buf), &lt, s_lang);
+    fmt_time(time_buf, sizeof(time_buf), &lt, s_time_fmt);
+    snprintf(last_update, sizeof(last_update), "%s, %s", date_buf, time_buf);
+
     weather_device_info_t dev_info = {
         .device_name = "Weather Display",
         .hardware_version = "ESP32-P4 Rev 1.3",
@@ -306,6 +319,7 @@ static bool publish_weather_live(void) {
         .ip = "192.168.1.42",
         .dns = "1.1.1.1",
         .gateway = "192.168.1.1",
+        .last_update = last_update,
         .note = "Created by M. Thomas using Claude Design and Claude Code.",
     };
     weather_ui_set_device_info(&dev_info);

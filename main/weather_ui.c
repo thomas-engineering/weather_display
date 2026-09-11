@@ -84,10 +84,12 @@ typedef struct {
     lv_obj_t *device_info_online_group, *device_info_offline_lbl;
     lv_obj_t *device_info_name_val, *device_info_hw_val, *device_info_fw_val;
     lv_obj_t *device_info_ip_val, *device_info_dns_val, *device_info_gw_val, *device_info_note_lbl;
+    lv_obj_t *device_info_last_update_val;
     bool has_device_info;
     char device_info_name[64], device_info_hw[32], device_info_fw[32];
     bool device_info_online;
     char device_info_ip[16], device_info_dns[16], device_info_gw[16];
+    char device_info_last_update[48];
     char device_info_note[160];
 
     lv_obj_t *search_backdrop, *search_ta, *search_kb, *search_results, *search_status_lbl, *search_cancel_lbl;
@@ -1441,9 +1443,10 @@ static void build_device_info_panel(lv_obj_t *parent) {
 
     lv_obj_t *panel = lv_obj_create(ui.device_info_backdrop);
     lv_obj_remove_style_all(panel);
-    /* Design fixes 326x383 regardless of online/offline state, so the dialog
-     * doesn't resize/jump when connectivity changes while it's open. */
-    lv_obj_set_size(panel, 326, 383);
+    /* Design fixes 480x383 (width synced from Claude Design 2026-09-11, was
+     * 326) regardless of online/offline state, so the dialog doesn't
+     * resize/jump when connectivity changes while it's open. */
+    lv_obj_set_size(panel, 480, 383);
     lv_obj_set_style_bg_color(panel, C_SURFACE, 0);
     lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(panel, R_LG, 0);
@@ -1479,6 +1482,11 @@ static void build_device_info_panel(lv_obj_t *parent) {
     ui.device_info_name_val = info_row_create(panel, s->device_name);
     ui.device_info_hw_val   = info_row_create(panel, s->hardware_version);
     ui.device_info_fw_val   = info_row_create(panel, s->firmware_version);
+    /* FIX: sync from Claude Design 2026-09-11/re-synced 2026-09-12 — "Last
+     * update" sits right after Firmware version and, unlike IP/DNS/Gateway,
+     * is NOT gated on being online: you can still see when data was last
+     * fetched while currently offline. */
+    ui.device_info_last_update_val = info_row_create(panel, s->last_update);
 
     ui.device_info_online_group = lv_obj_create(panel);
     lv_obj_remove_style_all(ui.device_info_online_group);
@@ -1510,6 +1518,7 @@ static void build_device_info_panel(lv_obj_t *parent) {
         lv_label_set_text(ui.device_info_ip_val, ui.device_info_ip);
         lv_label_set_text(ui.device_info_dns_val, ui.device_info_dns);
         lv_label_set_text(ui.device_info_gw_val, ui.device_info_gw);
+        lv_label_set_text(ui.device_info_last_update_val, ui.device_info_last_update);
         lv_label_set_text(ui.device_info_note_lbl, ui.device_info_note);
     }
     if (ui.device_info_online) {
@@ -1545,6 +1554,7 @@ void weather_ui_set_device_info(const weather_device_info_t *info) {
     snprintf(ui.device_info_ip, sizeof ui.device_info_ip, "%s", info->ip ? info->ip : "");
     snprintf(ui.device_info_dns, sizeof ui.device_info_dns, "%s", info->dns ? info->dns : "");
     snprintf(ui.device_info_gw, sizeof ui.device_info_gw, "%s", info->gateway ? info->gateway : "");
+    snprintf(ui.device_info_last_update, sizeof ui.device_info_last_update, "%s", info->last_update ? info->last_update : "");
     snprintf(ui.device_info_note, sizeof ui.device_info_note, "%s", info->note ? info->note : "");
 
     if (!ui.device_info_backdrop) return;   /* not built yet; weather_ui_create() picks this up */
@@ -1554,6 +1564,7 @@ void weather_ui_set_device_info(const weather_device_info_t *info) {
     lv_label_set_text(ui.device_info_ip_val, ui.device_info_ip);
     lv_label_set_text(ui.device_info_dns_val, ui.device_info_dns);
     lv_label_set_text(ui.device_info_gw_val, ui.device_info_gw);
+    lv_label_set_text(ui.device_info_last_update_val, ui.device_info_last_update);
     lv_label_set_text(ui.device_info_note_lbl, ui.device_info_note);
     if (ui.device_info_online) {
         lv_obj_remove_flag(ui.device_info_online_group, LV_OBJ_FLAG_HIDDEN);

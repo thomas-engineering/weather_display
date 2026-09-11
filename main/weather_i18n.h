@@ -21,6 +21,7 @@ typedef struct {
     const char *online, *offline, *data_outdated, *data_updated;
     const char *device_info, *device_name, *hardware_version, *firmware_version;
     const char *ip_address, *dns, *gateway, *not_connected;
+    const char *last_update, *no_update_yet;
 } weather_strings_t;
 
 /* Weather condition text, indexed by WMO weather code buckets used elsewhere in this port
