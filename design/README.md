@@ -97,16 +97,24 @@ src/weather-app/
 ├── Weather App.dc.html                the screen design — HTML/CSS, 1024x600
 ├── WeatherIcon.dc.html                the seven weather glyphs as SVG
 ├── support.js                         the canvas runtime the .dc.html files need
-├── _ds/nocturne-<uuid>/               the design system as the design links it
-└── design_handoff_lvgl_weather_ui/    the C export of 2026-09-08 14:43
+└── _ds/nocturne-<uuid>/               the design system as the design links it
 ```
 
 These `.dc.html` files run inside Claude Design's canvas, not standalone: they
 need `window.React` and the design-system bundle, so opening one in a browser
 will not render it. Read them as source.
 
-The older `lvgl_export/` bundle still in the project is superseded by
-`design_handoff_lvgl_weather_ui/` and was not copied.
+The design project also has a `design_handoff_lvgl_weather_ui/` bundle — its
+own C export attempt of the same screens. It was copied here once (as of
+2026-09-08 14:43) but removed on 2026-09-12: it never moved again after that
+copy while `main/`'s actual LVGL code kept evolving well past it (Wi-Fi
+provisioning, device-info dialog, last-update field, current LVGL API), it
+wasn't referenced by any build or script, and its own translation of the
+design was independently found unfaithful to the source SVGs in at least one
+case (the sun icon's rays). Treat `main/` as the current implementation and
+the `.dc.html`/`.svg` files above as the only source of visual truth; don't
+re-copy `design_handoff_lvgl_weather_ui/` without checking it has actually
+moved since.
 
 ## `src/nocturne/` — the design system
 
