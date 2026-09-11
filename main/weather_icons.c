@@ -57,14 +57,31 @@ static void bolt_free_cb(lv_event_t *e) {
 static void build_icon(lv_obj_t *cont, weather_icon_t icon, int32_t size, lv_color_t color) {
     switch (icon) {
         case WX_ICON_CLEAR: {
-            int32_t r = size * 0.42f;
-            dot(cont, r, r, (size - r) / 2, (size - r) / 2, color, LV_RADIUS_CIRCLE, LV_OPA_COVER);
+            /* FIX: matches WeatherIcon.dc.html's actual sun glyph (64px viewBox:
+             * circle r=13, 8 copies of one rounded rect rotated 0/45/.../315
+             * about the circle's own center) — the previous version placed 8
+             * axis-aligned ovals around the circle but never rotated the ovals
+             * themselves, so diagonal rays looked like stray vertical blobs
+             * instead of pointing outward like the design's sunburst. */
+            int32_t core_d = size * 0.40625f;   /* 26/64 */
+            dot(cont, core_d, core_d, (size - core_d) / 2, (size - core_d) / 2, color, LV_RADIUS_CIRCLE, LV_OPA_COVER);
+            int32_t ray_w = size * 0.09375f, ray_len = size * 0.171875f;      /* 6/64, 11/64 */
+            float dist = size * 0.3828125f;                                  /* center-to-ray-center, 24.5/64 */
             for (int i = 0; i < 8; i++) {
                 float a = (float)i * (float)M_PI / 4.0f;
-                int32_t ray_w = size * 0.09f, ray_len = size * 0.16f;
-                float cx = size / 2.0f + cosf(a) * (size * 0.42f);
-                float cy = size / 2.0f + sinf(a) * (size * 0.42f);
-                dot(cont, ray_w, ray_len, (int32_t)(cx - ray_w / 2), (int32_t)(cy - ray_len / 2), color, ray_w / 2, LV_OPA_COVER);
+                float cx = size / 2.0f + cosf(a) * dist;
+                float cy = size / 2.0f + sinf(a) * dist;
+                lv_obj_t *ray = dot(cont, ray_w, ray_len, (int32_t)(cx - ray_w / 2), (int32_t)(cy - ray_len / 2),
+                                     color, ray_w / 2, LV_OPA_COVER);
+                /* The design's un-rotated rect already sits at the "up" position
+                 * (our a = 270°/i=6) pointing outward along -y; turning it to
+                 * point along this ray's own radius needs the same +90° offset
+                 * from its placement angle at every i. Pivot must be the ray's
+                 * own center (not the default top-left) since its position is
+                 * already placed on the circle above. */
+                lv_obj_set_style_transform_pivot_x(ray, ray_w / 2, 0);
+                lv_obj_set_style_transform_pivot_y(ray, ray_len / 2, 0);
+                lv_obj_set_style_transform_rotation(ray, ((i * 45 + 90) % 360) * 10, 0);
             }
             break;
         }
