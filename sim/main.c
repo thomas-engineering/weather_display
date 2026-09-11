@@ -130,6 +130,22 @@ static void publish_weather(void)
     fmt_real_feel(cur.real_feel_text, sizeof(cur.real_feel_text),
                   cur.feels_like_c, cur.temp_c, cur.wind_kmh, cur.precip_pct, s_lang);
 
+    /* Sunrise/sunset/UV/air-quality row fixture (2026-09-12 sync) — plausible
+     * fixed values, not computed from `lt`, since a real sunrise/sunset calc
+     * is exactly the kind of thing this fixture file deliberately doesn't do
+     * (see fill_hourly()'s "not a weather simulation" comment). */
+    struct tm sunrise_tm = {0}, sunset_tm = {0};
+    sunrise_tm.tm_hour = 6; sunrise_tm.tm_min = 47;
+    sunset_tm.tm_hour = 19; sunset_tm.tm_min = 32;
+    fmt_time(cur.sunrise_str, sizeof(cur.sunrise_str), &sunrise_tm, s_time_fmt);
+    fmt_time(cur.sunset_str, sizeof(cur.sunset_str), &sunset_tm, s_time_fmt);
+    const float k_uv = 5.0f;
+    const int k_aqi = 42;
+    snprintf(cur.uv_display, sizeof(cur.uv_display), "%d", (int)k_uv);
+    snprintf(cur.uv_cat, sizeof(cur.uv_cat), "%s", uv_category(true, k_uv, s_lang));
+    snprintf(cur.aqi_display, sizeof(cur.aqi_display), "%d", k_aqi);
+    snprintf(cur.aqi_cat, sizeof(cur.aqi_cat), "%s", aqi_category(true, k_aqi, s_lang));
+
     weather_day_t days[WEATHER_UI_DAYS] = {0};
     weather_hourly_t hourly[WEATHER_UI_DAYS];
     const weather_hourly_t *hourly_ptr[WEATHER_UI_DAYS];
@@ -182,6 +198,12 @@ static void publish_weather(void)
         .note = "Created by M. Thomas using Claude Design and Claude Code.",
     };
     weather_ui_set_device_info(&dev_info);
+
+    /* "Updated just now" fixture for the header (2026-09-12 sync) — publish_weather()
+     * runs right when the "fetch" completes, same as the real app's do_refresh(). */
+    char ago[48];
+    fmt_time_ago(ago, sizeof(ago), now, now, s_lang);
+    weather_ui_set_last_sync_ago(ago);
 }
 
 /* ---- --live: real Open-Meteo fetch --------------------------------------- */
@@ -268,6 +290,12 @@ static bool publish_weather_live(void) {
     cur.precip_pct = f.precip_pct;
     fmt_real_feel(cur.real_feel_text, sizeof(cur.real_feel_text),
                   cur.feels_like_c, cur.temp_c, cur.wind_kmh, cur.precip_pct, s_lang);
+    /* --live doesn't fetch sunrise/sunset/UV/air-quality (that's a second
+     * Open-Meteo daily field set plus a separate air-quality-api.open-meteo.com
+     * call this dev-only path doesn't make) — "–" placeholders rather than
+     * fetching them, same as a real device would show on a failed AQI call. */
+    snprintf(cur.uv_display, sizeof(cur.uv_display), "\xE2\x80\x93");
+    snprintf(cur.aqi_display, sizeof(cur.aqi_display), "\xE2\x80\x93");
 
     weather_day_t days[WEATHER_UI_DAYS] = {0};
     weather_hourly_t hourly[WEATHER_UI_DAYS];
@@ -323,6 +351,10 @@ static bool publish_weather_live(void) {
         .note = "Created by M. Thomas using Claude Design and Claude Code.",
     };
     weather_ui_set_device_info(&dev_info);
+
+    char ago[48];
+    fmt_time_ago(ago, sizeof(ago), now_utc, now_utc, s_lang);
+    weather_ui_set_last_sync_ago(ago);
     return true;
 }
 
@@ -489,12 +521,16 @@ static void on_refresh(void)
     defer(ACT_MANUAL_REFRESH_DONE, SIM_LATENCY_MS);
 }
 
-static void on_settings_changed(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf)
+static void on_settings_changed(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf, int auto_refresh_minutes)
 {
     s_lang = lang;
     s_temp_unit = t;
     s_wind_unit = w;
     s_time_fmt = tf;
+    /* The simulator has no periodic-refresh loop to drive, so this is just
+     * echoed back into the UI on the next weather_ui_set_auto_refresh() call
+     * a settings rebuild would trigger — nothing to persist here. */
+    (void)auto_refresh_minutes;
     /* Einheiten rechnet weather_ui.c selbst um; Datum, Wochentag und der
      * "Real feel"-Satz kommen vorformatiert von hier und muessen neu. */
     publish_weather_or_live();
@@ -548,6 +584,7 @@ typedef enum {
     SCREEN_REFRESH_TOAST,
     SCREEN_DETAIL,
     SCREEN_WIFI,
+    SCREEN_WIFI_FORGET_CONFIRM,
 } sim_screen_t;
 
 static sim_screen_t s_screen = SCREEN_MAIN;
@@ -726,6 +763,18 @@ static void open_screen(void)
     case SCREEN_WIFI:
         weather_ui_open_wifi_setup();
         break;
+
+    case SCREEN_WIFI_FORGET_CONFIRM: {
+        /* Reported bug class this exercises: does the "Forget saved network"
+         * button open the confirmation dialog it's now wired to (2026-09-12
+         * sync), instead of forgetting immediately? Same object-tree-search
+         * approach as the other click-path screens above, not fixed
+         * coordinates — see the comment above open_screen(). */
+        weather_ui_open_wifi_setup();
+        lv_obj_t *forget = find_label(root, weather_strings[s_lang].forget_network);
+        if (forget == NULL || !click_owner_of(forget)) warn_missing("\"Forget saved network\"-Knopf");
+        break;
+    }
     }
 }
 
@@ -786,9 +835,10 @@ int main(int argc, char **argv)
             else if (strcmp(name, "refresh-toast") == 0) s_screen = SCREEN_REFRESH_TOAST;
             else if (strcmp(name, "detail")   == 0) s_screen = SCREEN_DETAIL;
             else if (strcmp(name, "wifi")     == 0) s_screen = SCREEN_WIFI;
+            else if (strcmp(name, "wifi-forget-confirm") == 0) s_screen = SCREEN_WIFI_FORGET_CONFIRM;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi\n", name);
+                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
@@ -803,7 +853,7 @@ int main(int argc, char **argv)
                     "  --screen            oeffnet den Screen nach dem Laden der Daten:\n"
                     "                      main (Vorgabe), search, settings,\n"
                     "                      settings-adaptive-on, device-info, forecast-icon-tap,\n"
-                    "                      refresh-toast, detail, wifi\n"
+                    "                      refresh-toast, detail, wifi, wifi-forget-confirm\n"
                     "                      refresh-toast braucht ein kurzes --screenshot-after\n"
                     "                      (z.B. 2000) — der Toast blendet sich nach 1s\n"
                     "                      wieder aus, der Standard-Wert (3000) verpasst ihn.\n"
@@ -855,6 +905,7 @@ int main(int argc, char **argv)
     weather_ui_set_brightness_adaptive_available(false);
     weather_ui_set_language(s_lang);
     weather_ui_set_units(s_temp_unit, s_wind_unit, s_time_fmt);
+    weather_ui_set_auto_refresh(30);
 
     if (open_wifi_setup) {
         weather_ui_set_network_status(WX_NET_OFFLINE);

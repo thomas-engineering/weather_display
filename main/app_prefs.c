@@ -11,7 +11,7 @@
 static const char *TAG = "prefs";
 static const char *NS = "weather";
 #define RECORD_KEY "prefs"
-#define RECORD_VERSION 1
+#define RECORD_VERSION 2 /* bumped for auto_refresh_minutes (2026-09-12 sync) */
 
 static app_prefs_t s_prefs;
 
@@ -32,7 +32,35 @@ typedef struct __attribute__((packed)) {
     uint8_t lang, temp_unit, wind_unit, time_fmt;
     uint8_t brightness;
     uint8_t brightness_adaptive;
+    uint8_t auto_refresh_idx; /* 0=off,1=15,2=30,3=60 — index not minutes, so it fits a uint8 like its siblings */
 } prefs_payload_t;
+
+/* RECORD_VERSION 1 layout, kept only so app_prefs_load() can migrate an
+ * already-written v1 record instead of silently discarding it (falling
+ * through to migrate_from_legacy_keys(), which only knows the pre-v1 scalar
+ * NVS keys and would reset every setting on any device already on v1). */
+typedef struct __attribute__((packed)) {
+    char name[64];
+    char country[64];
+    float lat, lon;
+    uint8_t lang, temp_unit, wind_unit, time_fmt;
+    uint8_t brightness;
+    uint8_t brightness_adaptive;
+} prefs_payload_v1_t;
+
+static int auto_refresh_idx_to_minutes(uint8_t idx) {
+    static const int minutes[4] = { 0, 15, 30, 60 };
+    return minutes[idx < 4 ? idx : 2];
+}
+
+static uint8_t auto_refresh_minutes_to_idx(int minutes) {
+    switch (minutes) {
+        case 0: return 0;
+        case 15: return 1;
+        case 60: return 3;
+        default: return 2; /* 30, and any unexpected value */
+    }
+}
 
 static void get_str(nvs_handle_t h, const char *key, char *dst, size_t cap) {
     size_t len = cap;
@@ -89,8 +117,10 @@ void app_prefs_load(app_prefs_t *out) {
     s_prefs.time_fmt = WX_TIME_24;
     s_prefs.brightness = 100;
     s_prefs.brightness_adaptive = false;
+    s_prefs.auto_refresh_minutes = 30; /* matches the design's initial autoRefreshMinutes */
 
     prefs_payload_t p;
+    prefs_payload_v1_t p1;
     if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, RECORD_VERSION, &p, sizeof p)) {
         memcpy(s_prefs.name, p.name, sizeof p.name);
         memcpy(s_prefs.country, p.country, sizeof p.country);
@@ -102,6 +132,34 @@ void app_prefs_load(app_prefs_t *out) {
         s_prefs.time_fmt = (wx_time_fmt_t)p.time_fmt;
         s_prefs.brightness = p.brightness;
         s_prefs.brightness_adaptive = p.brightness_adaptive != 0;
+        s_prefs.auto_refresh_minutes = auto_refresh_idx_to_minutes(p.auto_refresh_idx);
+    } else if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, 1, &p1, sizeof p1)) {
+        /* A device already on RECORD_VERSION 1 (pre-auto-refresh) — migrate its
+         * record instead of falling through to migrate_from_legacy_keys(),
+         * which only understands the older pre-record scalar keys and would
+         * silently reset every setting on any device that had already
+         * upgraded once. auto_refresh_minutes keeps today's default (30). */
+        memcpy(s_prefs.name, p1.name, sizeof p1.name);
+        memcpy(s_prefs.country, p1.country, sizeof p1.country);
+        s_prefs.lat = p1.lat;
+        s_prefs.lon = p1.lon;
+        s_prefs.lang = (weather_lang_t)p1.lang;
+        s_prefs.temp_unit = (wx_temp_unit_t)p1.temp_unit;
+        s_prefs.wind_unit = (wx_wind_unit_t)p1.wind_unit;
+        s_prefs.time_fmt = (wx_time_fmt_t)p1.time_fmt;
+        s_prefs.brightness = p1.brightness;
+        s_prefs.brightness_adaptive = p1.brightness_adaptive != 0;
+        prefs_payload_t np = {
+            .lat = s_prefs.lat, .lon = s_prefs.lon,
+            .lang = (uint8_t)s_prefs.lang, .temp_unit = (uint8_t)s_prefs.temp_unit,
+            .wind_unit = (uint8_t)s_prefs.wind_unit, .time_fmt = (uint8_t)s_prefs.time_fmt,
+            .brightness = (uint8_t)s_prefs.brightness,
+            .brightness_adaptive = s_prefs.brightness_adaptive ? 1 : 0,
+            .auto_refresh_idx = auto_refresh_minutes_to_idx(s_prefs.auto_refresh_minutes),
+        };
+        memcpy(np.name, s_prefs.name, sizeof np.name);
+        memcpy(np.country, s_prefs.country, sizeof np.country);
+        storage_record_save(&storage_backend_nvs, NS, RECORD_KEY, RECORD_VERSION, &np, sizeof np);
     } else {
         /* No valid "prefs" record yet — either a fresh device, or one still
          * on the pre-storage-record NVS layout. Either way the Kconfig
@@ -115,6 +173,7 @@ void app_prefs_load(app_prefs_t *out) {
             .wind_unit = (uint8_t)s_prefs.wind_unit, .time_fmt = (uint8_t)s_prefs.time_fmt,
             .brightness = (uint8_t)s_prefs.brightness,
             .brightness_adaptive = s_prefs.brightness_adaptive ? 1 : 0,
+            .auto_refresh_idx = auto_refresh_minutes_to_idx(s_prefs.auto_refresh_minutes),
         };
         memcpy(np.name, s_prefs.name, sizeof np.name);
         memcpy(np.country, s_prefs.country, sizeof np.country);
@@ -131,6 +190,8 @@ void app_prefs_load(app_prefs_t *out) {
     if (s_prefs.wind_unit > WX_WIND_MS) s_prefs.wind_unit = WX_WIND_KMH;
     if (s_prefs.time_fmt > WX_TIME_12) s_prefs.time_fmt = WX_TIME_24;
     if (s_prefs.brightness < 10 || s_prefs.brightness > 100) s_prefs.brightness = 100;
+    if (s_prefs.auto_refresh_minutes != 0 && s_prefs.auto_refresh_minutes != 15 &&
+        s_prefs.auto_refresh_minutes != 30 && s_prefs.auto_refresh_minutes != 60) s_prefs.auto_refresh_minutes = 30;
 
     ESP_LOGI(TAG, "city=%s,%s (%.4f,%.4f) lang=%d", s_prefs.name, s_prefs.country,
              s_prefs.lat, s_prefs.lon, (int)s_prefs.lang);
@@ -152,6 +213,7 @@ static void persist_prefs_cb(void *arg) {
         .wind_unit = (uint8_t)s_prefs.wind_unit, .time_fmt = (uint8_t)s_prefs.time_fmt,
         .brightness = (uint8_t)s_prefs.brightness,
         .brightness_adaptive = s_prefs.brightness_adaptive ? 1 : 0,
+        .auto_refresh_idx = auto_refresh_minutes_to_idx(s_prefs.auto_refresh_minutes),
     };
     memcpy(p.name, s_prefs.name, sizeof p.name);
     memcpy(p.country, s_prefs.country, sizeof p.country);
@@ -170,8 +232,9 @@ void app_prefs_save_city(const char *name, const char *country, float lat, float
     request_save();
 }
 
-void app_prefs_save_settings(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf) {
+void app_prefs_save_settings(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf, int auto_refresh_minutes) {
     s_prefs.lang = lang; s_prefs.temp_unit = t; s_prefs.wind_unit = w; s_prefs.time_fmt = tf;
+    s_prefs.auto_refresh_minutes = auto_refresh_minutes;
     request_save();
 }
 

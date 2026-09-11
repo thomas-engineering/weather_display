@@ -62,7 +62,11 @@ typedef struct {
 
     /* Header location is split so the LV_SYMBOL_* pin can keep a Montserrat font:
      * the generated Inter faces carry Latin-1 but not the FontAwesome codepoints. */
-    lv_obj_t *header_loc_icon, *header_net_dot, *header_net_lbl, *header_stale_lbl;
+    lv_obj_t *header_loc_icon, *header_net_dot, *header_net_lbl, *header_stale_lbl, *header_last_sync_lbl;
+    lv_obj_t *header_refresh_lbl;
+    bool refresh_spinning;
+
+    lv_obj_t *current_sunrise_lbl, *current_sunset_lbl, *current_uv_lbl, *current_aqi_lbl;
 
     lv_obj_t *today_chart, *detail_chart;
     weather_hourly_t hourly_today;
@@ -77,8 +81,13 @@ typedef struct {
     bool wifi_manual_mode;
 
     lv_obj_t *settings_backdrop, *settings_panel;
-    lv_obj_t *seg_lang[4], *seg_temp[2], *seg_wind[3], *seg_time[2];
+    lv_obj_t *seg_lang[4], *seg_temp[2], *seg_wind[3], *seg_time[2], *seg_auto[4];
     lv_obj_t *brightness_slider, *brightness_adaptive_sw;
+    int auto_refresh_minutes; /* 0/15/30/60 */
+
+    lv_obj_t *wifi_forget_confirm_backdrop;
+    lv_obj_t *wifi_forget_confirm_title_lbl, *wifi_forget_confirm_body_lbl;
+    lv_obj_t *wifi_forget_confirm_cancel_lbl, *wifi_forget_confirm_confirm_lbl;
 
     lv_obj_t *device_info_backdrop;
     lv_obj_t *device_info_online_group, *device_info_offline_lbl;
@@ -131,6 +140,9 @@ static void close_device_info_cb(lv_event_t *e);
 static void build_wifi_screen(lv_obj_t *parent);
 static void wifi_show_list(void);
 static void wifi_relabel(void);
+static void build_wifi_forget_confirm_panel(lv_obj_t *parent);
+static void wifi_forget_confirm_relabel(void);
+static lv_obj_t *wifi_text_btn(lv_obj_t *parent, const char *text, lv_event_cb_t cb, lv_obj_t **lbl_out);
 static void add_event_bubble_recursive(lv_obj_t *obj);
 
 /* ---- formatting helpers (mirrors the web version's unit math) --------- */
@@ -277,7 +289,7 @@ static void refresh_click_cb(lv_event_t *e) { LV_UNUSED(e); if (ui.on_refresh) u
 static void open_search_cb(lv_event_t *e);
 static void open_settings_cb(lv_event_t *e);
 
-static lv_obj_t *icon_btn_create(lv_obj_t *parent, const char *symbol, lv_event_cb_t cb) {
+static lv_obj_t *icon_btn_create_ex(lv_obj_t *parent, const char *symbol, lv_event_cb_t cb, lv_obj_t **out_lbl) {
     lv_obj_t *btn = lv_obj_create(parent);
     lv_obj_remove_style_all(btn);
     /* Synced from Claude Design 2026-09-10: touch targets enlarged again, now
@@ -293,8 +305,17 @@ static lv_obj_t *icon_btn_create(lv_obj_t *parent, const char *symbol, lv_event_
     lv_obj_set_style_text_color(lbl, C_TEXT, 0);
     lv_obj_set_style_text_font(lbl, FONT_SYMBOL_LG, 0);   /* LV_SYMBOL_* live in Montserrat only */
     lv_obj_center(lbl);
+    /* Rotation pivot for the refresh icon's loading-spin animation (see
+     * weather_ui_set_loading()) — harmless on buttons that never rotate. */
+    lv_obj_set_style_transform_pivot_x(lbl, LV_PCT(50), 0);
+    lv_obj_set_style_transform_pivot_y(lbl, LV_PCT(50), 0);
     lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, NULL);
+    if (out_lbl) *out_lbl = lbl;
     return btn;
+}
+
+static lv_obj_t *icon_btn_create(lv_obj_t *parent, const char *symbol, lv_event_cb_t cb) {
+    return icon_btn_create_ex(parent, symbol, cb, NULL);
 }
 
 static void build_header(lv_obj_t *parent) {
@@ -375,6 +396,13 @@ static void build_header(lv_obj_t *parent) {
     lv_obj_set_style_text_font(ui.header_stale_lbl, FONT_12, 0);
     lv_obj_add_flag(ui.header_stale_lbl, LV_OBJ_FLAG_HIDDEN);
 
+    /* Synced from Claude Design 2026-09-12: "Updated N min ago" next to the
+     * online/offline indicator. */
+    ui.header_last_sync_lbl = lv_label_create(status_wrap);
+    lv_label_set_text(ui.header_last_sync_lbl, "");
+    lv_obj_set_style_text_color(ui.header_last_sync_lbl, C_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(ui.header_last_sync_lbl, FONT_12, 0);
+
     lv_obj_t *time_wrap = lv_obj_create(right);
     lv_obj_remove_style_all(time_wrap);
     lv_obj_set_size(time_wrap, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -394,7 +422,7 @@ static void build_header(lv_obj_t *parent) {
     lv_obj_set_style_text_color(ui.header_date_lbl, C_TEXT_MUTED, 0);
     lv_obj_set_style_text_font(ui.header_date_lbl, FONT_18, 0);
 
-    lv_obj_t *refresh_btn = icon_btn_create(right, LV_SYMBOL_REFRESH, refresh_click_cb);
+    lv_obj_t *refresh_btn = icon_btn_create_ex(right, LV_SYMBOL_REFRESH, refresh_click_cb, &ui.header_refresh_lbl);
     lv_obj_set_style_margin_left(refresh_btn, 17, 0); /* --space-6, same reasoning as time_wrap above */
     icon_btn_create(right, LV_SYMBOL_SETTINGS, open_settings_cb);
 }
@@ -525,6 +553,54 @@ static void build_current_card(lv_obj_t *parent) {
     for (int i = 0; i < 4; i++) lv_obj_set_height(stat_boxes[i], max_h);
 }
 
+/* Synced from Claude Design 2026-09-12: a sunrise/sunset/UV/air-quality row.
+ * The design nests this inside the same card as the icon/temp/stats row
+ * above; this port already splits that card from its hourly chart into flat
+ * siblings of `content` (see the comment above weather_chart_create() in
+ * weather_ui_create()), so this row goes the same way — its own sibling,
+ * same reading order. LV_SYMBOL_UP/DOWN stand in for the design's hand-drawn
+ * sparkle icons (no FontAwesome codepoints in the generated Inter faces —
+ * same constraint as header_loc_icon). */
+static lv_obj_t *sun_item_create(lv_obj_t *parent, const char *symbol, lv_obj_t **text_lbl_out) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 6, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *icon = lv_label_create(row);
+    lv_label_set_text(icon, symbol);
+    lv_obj_set_style_text_color(icon, C_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(icon, FONT_SYMBOL, 0);
+    lv_obj_t *lbl = lv_label_create(row);
+    lv_obj_set_style_text_color(lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(lbl, FONT_12, 0);
+    *text_lbl_out = lbl;
+    return row;
+}
+
+static void build_current_extras(lv_obj_t *parent) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 17, 0); /* --space-6 */
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    sun_item_create(row, LV_SYMBOL_UP, &ui.current_sunrise_lbl);
+    sun_item_create(row, LV_SYMBOL_DOWN, &ui.current_sunset_lbl);
+
+    ui.current_uv_lbl = lv_label_create(row);
+    lv_obj_set_style_text_color(ui.current_uv_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(ui.current_uv_lbl, FONT_12, 0);
+
+    ui.current_aqi_lbl = lv_label_create(row);
+    lv_obj_set_style_text_color(ui.current_aqi_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(ui.current_aqi_lbl, FONT_12, 0);
+}
+
 /* ---- forecast strip ------------------------------------------------------ */
 
 static void build_forecast_strip(lv_obj_t *parent) {
@@ -648,6 +724,11 @@ static void render_current(void) {
     lv_label_set_text(ui.stat_precip_cap, weather_strings[ui.lang].precip);
     lv_label_set_text(ui.forecast_title, weather_strings[ui.lang].forecast);
     lv_label_set_text(ui.header_stale_lbl, weather_strings[ui.lang].data_outdated);
+
+    lv_label_set_text_fmt(ui.current_sunrise_lbl, "%s %s", weather_strings[ui.lang].sunrise, ui.cur.sunrise_str);
+    lv_label_set_text_fmt(ui.current_sunset_lbl, "%s %s", weather_strings[ui.lang].sunset, ui.cur.sunset_str);
+    lv_label_set_text_fmt(ui.current_uv_lbl, "%s %s \xC2\xB7 %s", weather_strings[ui.lang].uv_index, ui.cur.uv_cat, ui.cur.uv_display);
+    lv_label_set_text_fmt(ui.current_aqi_lbl, "%s %s \xC2\xB7 %s", weather_strings[ui.lang].air_quality, ui.cur.aqi_cat, ui.cur.aqi_display);
 }
 
 static void render_days(void) {
@@ -1060,7 +1141,7 @@ static void notify_settings_changed(void) {
         weather_chart_set_data(ui.today_chart, ui.hourly_today_valid ? &ui.hourly_today : NULL,
                                ui.temp_unit == WX_UNIT_F,
                                weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip);
-    if (ui.on_settings_changed) ui.on_settings_changed(ui.lang, ui.temp_unit, ui.wind_unit, ui.time_fmt);
+    if (ui.on_settings_changed) ui.on_settings_changed(ui.lang, ui.temp_unit, ui.wind_unit, ui.time_fmt, ui.auto_refresh_minutes);
 }
 
 /* FIX: the export left every segmented control except Language wired to a NULL
@@ -1070,6 +1151,15 @@ static void on_seg_lang(int idx, void *user) { LV_UNUSED(user); weather_ui_set_l
 static void on_seg_temp(int idx, void *user) { LV_UNUSED(user); ui.temp_unit = (wx_temp_unit_t)idx; notify_settings_changed(); }
 static void on_seg_wind(int idx, void *user) { LV_UNUSED(user); ui.wind_unit = (wx_wind_unit_t)idx; notify_settings_changed(); }
 static void on_seg_time(int idx, void *user) { LV_UNUSED(user); ui.time_fmt = (wx_time_fmt_t)idx; notify_settings_changed(); }
+/* Synced from Claude Design 2026-09-12: Off/15/30/60 min, index maps directly
+ * to k_auto_refresh_values below. */
+static const int k_auto_refresh_values[4] = { 0, 15, 30, 60 };
+static void on_seg_auto_refresh(int idx, void *user) {
+    LV_UNUSED(user);
+    if (idx < 0 || idx >= 4) return;
+    ui.auto_refresh_minutes = k_auto_refresh_values[idx];
+    notify_settings_changed();
+}
 
 /* Applied on every LV_EVENT_VALUE_CHANGED tick while dragging (so the backlight
  * follows the finger), and once more on LV_EVENT_RELEASED so the caller can
@@ -1114,6 +1204,7 @@ static void settings_rebuild(bool keep_open) {
     if (ui.search_backdrop) lv_obj_move_foreground(ui.search_backdrop);
     if (ui.detail_backdrop) lv_obj_move_foreground(ui.detail_backdrop);
     if (ui.wifi_backdrop)   lv_obj_move_foreground(ui.wifi_backdrop);
+    if (ui.wifi_forget_confirm_backdrop) lv_obj_move_foreground(ui.wifi_forget_confirm_backdrop);
     /* Device info stacks on top of settings (see the "device info dialog"
      * comment above build_device_info_panel) — without this a rebuild here
      * makes settings the newest (topmost) sibling and buries it underneath. */
@@ -1131,6 +1222,7 @@ void weather_ui_set_language(weather_lang_t lang) {
     settings_rebuild(was_open);
     device_info_rebuild(device_info_was_open);
     wifi_relabel();
+    wifi_forget_confirm_relabel();
     notify_settings_changed();
 }
 
@@ -1139,6 +1231,14 @@ void weather_ui_set_units(wx_temp_unit_t temp, wx_wind_unit_t wind, wx_time_fmt_
     ui.temp_unit = temp; ui.wind_unit = wind; ui.time_fmt = time_fmt;
     settings_rebuild(was_open);
     notify_settings_changed();
+}
+
+void weather_ui_set_auto_refresh(int minutes) {
+    ui.auto_refresh_minutes = minutes;
+    if (!ui.seg_auto[0]) return;
+    int idx = 2; /* default to 30 if an unexpected value ever arrives */
+    for (int i = 0; i < 4; i++) if (k_auto_refresh_values[i] == minutes) idx = i;
+    for (int i = 0; i < 4; i++) lv_obj_set_style_bg_opa(ui.seg_auto[i], i == idx ? LV_OPA_20 : LV_OPA_TRANSP, 0);
 }
 
 void weather_ui_set_brightness(int percent) {
@@ -1180,9 +1280,39 @@ void weather_ui_set_days(const weather_day_t days[WEATHER_UI_DAYS]) {
     render_days();
 }
 
+/* Synced from Claude Design 2026-09-12: the header refresh icon spins
+ * (0.8s linear, infinite) while a fetch is in flight — refreshIconStyle in
+ * the design. Rotation angle is in 0.1deg units; pivot is set once in
+ * icon_btn_create_ex(). */
+static void refresh_spin_anim_cb(void *obj, int32_t v) {
+    lv_obj_set_style_transform_rotation((lv_obj_t *)obj, v, 0);
+}
+
+static void refresh_spin_start(void) {
+    if (!ui.header_refresh_lbl || ui.refresh_spinning) return;
+    ui.refresh_spinning = true;
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, ui.header_refresh_lbl);
+    lv_anim_set_exec_cb(&a, refresh_spin_anim_cb);
+    lv_anim_set_values(&a, 0, 3600);
+    lv_anim_set_duration(&a, 800);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_path_cb(&a, lv_anim_path_linear);
+    lv_anim_start(&a);
+}
+
+static void refresh_spin_stop(void) {
+    if (!ui.header_refresh_lbl || !ui.refresh_spinning) return;
+    ui.refresh_spinning = false;
+    lv_anim_delete(ui.header_refresh_lbl, refresh_spin_anim_cb);
+    lv_obj_set_style_transform_rotation(ui.header_refresh_lbl, 0, 0);
+}
+
 /* FIX: the export gated this on ui.loading_lbl, a field that was declared but never
  * assigned — so it was always NULL and the whole function was a no-op. */
 void weather_ui_set_loading(bool loading) {
+    if (loading) refresh_spin_start(); else refresh_spin_stop();
     if (!ui.current_card) return;
     lv_obj_set_style_opa(ui.current_card, (loading && !ui.has_data) ? LV_OPA_40 : LV_OPA_COVER, 0);
     if (loading && !ui.has_data) lv_label_set_text(ui.current_feel_lbl, weather_strings[ui.lang].loading);
@@ -1303,17 +1433,43 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_t *f1 = field_wrap(ui.settings_panel, weather_strings[ui.lang].language);
     seg_create(f1, lang_labels, 4, ui.lang, on_seg_lang, NULL, ui.seg_lang);
 
+    /* Synced from Claude Design 2026-09-12 (second pass): Temperature and Time
+     * format now share one row (CSS grid-template-columns:1fr 1fr) instead of
+     * two full-width fields — field_wrap() hardcodes 100% width for the
+     * single-field case, so override each to flex_grow within this row
+     * instead of reusing that width. */
+    lv_obj_t *temp_time_row = lv_obj_create(ui.settings_panel);
+    lv_obj_remove_style_all(temp_time_row);
+    lv_obj_set_size(temp_time_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(temp_time_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(temp_time_row, 11, 0); /* --space-4 */
+    lv_obj_remove_flag(temp_time_row, LV_OBJ_FLAG_SCROLLABLE);
+
     static const char *const temp_labels[2] = { "\xC2\xB0" "C", "\xC2\xB0" "F" };
-    lv_obj_t *f2 = field_wrap(ui.settings_panel, weather_strings[ui.lang].temperature);
+    lv_obj_t *f2 = field_wrap(temp_time_row, weather_strings[ui.lang].temperature);
+    lv_obj_set_width(f2, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(f2, 1);
     seg_create(f2, temp_labels, 2, ui.temp_unit, on_seg_temp, NULL, ui.seg_temp);
+
+    lv_obj_t *f4 = field_wrap(temp_time_row, weather_strings[ui.lang].time_format);
+    lv_obj_set_width(f4, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(f4, 1);
+    const char *time_labels[2] = { weather_strings[ui.lang].h24, weather_strings[ui.lang].h12 };
+    seg_create(f4, time_labels, 2, ui.time_fmt, on_seg_time, NULL, ui.seg_time);
 
     static const char *const wind_labels[3] = { "km/h", "mph", "m/s" };
     lv_obj_t *f3 = field_wrap(ui.settings_panel, weather_strings[ui.lang].wind_speed);
     seg_create(f3, wind_labels, 3, ui.wind_unit, on_seg_wind, NULL, ui.seg_wind);
 
-    lv_obj_t *f4 = field_wrap(ui.settings_panel, weather_strings[ui.lang].time_format);
-    const char *time_labels[2] = { weather_strings[ui.lang].h24, weather_strings[ui.lang].h12 };
-    seg_create(f4, time_labels, 2, ui.time_fmt, on_seg_time, NULL, ui.seg_time);
+    /* Synced from Claude Design 2026-09-12: auto-refresh interval, right after
+     * Wind speed and before Brightness (design order re-shuffled in a second
+     * pass the same day — was between Brightness and Network at first). */
+    const char *auto_labels_l[4] = { weather_strings[ui.lang].auto_off, weather_strings[ui.lang].auto_15,
+                                      weather_strings[ui.lang].auto_30, weather_strings[ui.lang].auto_60 };
+    int auto_idx = 2;
+    for (int i = 0; i < 4; i++) if (k_auto_refresh_values[i] == ui.auto_refresh_minutes) auto_idx = i;
+    lv_obj_t *f6 = field_wrap(ui.settings_panel, weather_strings[ui.lang].auto_refresh);
+    seg_create(f6, auto_labels_l, 4, auto_idx, on_seg_auto_refresh, NULL, ui.seg_auto);
 
     /* Synced from Claude Design 2026-09-09 (the "Weather app with 7-day forecast"
      * project's settingsOpen field grew a brightness slider), with the design's
@@ -1542,6 +1698,7 @@ static void device_info_rebuild(bool keep_open) {
     if (ui.search_backdrop) lv_obj_move_foreground(ui.search_backdrop);
     if (ui.detail_backdrop) lv_obj_move_foreground(ui.detail_backdrop);
     if (ui.wifi_backdrop)   lv_obj_move_foreground(ui.wifi_backdrop);
+    if (ui.wifi_forget_confirm_backdrop) lv_obj_move_foreground(ui.wifi_forget_confirm_backdrop);
 }
 
 void weather_ui_set_device_info(const weather_device_info_t *info) {
@@ -1691,7 +1848,80 @@ void weather_ui_show_refresh_toast(bool ok) {
 
 static void wifi_close_cb(lv_event_t *e) { LV_UNUSED(e); lv_obj_add_flag(ui.wifi_backdrop, LV_OBJ_FLAG_HIDDEN); }
 static void wifi_back_to_list_cb(lv_event_t *e) { LV_UNUSED(e); wifi_show_list(); }
-static void wifi_forget_cb(lv_event_t *e) { LV_UNUSED(e); if (ui.on_wifi_forget) ui.on_wifi_forget(); }
+/* Synced from Claude Design 2026-09-12: forgetting the saved network now asks
+ * for confirmation first (Weather App.dc.html's wifiForgetConfirmOpen). Pure
+ * UI-side state — the app only ever sees on_wifi_forget() once, on confirm. */
+static void wifi_open_forget_confirm_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    if (ui.wifi_forget_confirm_backdrop) lv_obj_remove_flag(ui.wifi_forget_confirm_backdrop, LV_OBJ_FLAG_HIDDEN);
+}
+static void wifi_close_forget_confirm_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    if (ui.wifi_forget_confirm_backdrop) lv_obj_add_flag(ui.wifi_forget_confirm_backdrop, LV_OBJ_FLAG_HIDDEN);
+}
+static void wifi_confirm_forget_cb(lv_event_t *e) {
+    wifi_close_forget_confirm_cb(e);
+    if (ui.on_wifi_forget) ui.on_wifi_forget();
+}
+
+static void build_wifi_forget_confirm_panel(lv_obj_t *parent) {
+    const weather_strings_t *s = &weather_strings[ui.lang];
+
+    ui.wifi_forget_confirm_backdrop = lv_obj_create(parent);
+    lv_obj_remove_style_all(ui.wifi_forget_confirm_backdrop);
+    lv_obj_set_size(ui.wifi_forget_confirm_backdrop, LV_PCT(100), LV_PCT(100));
+    lv_obj_add_flag(ui.wifi_forget_confirm_backdrop, LV_OBJ_FLAG_IGNORE_LAYOUT); /* see build_settings_panel's FIX comment */
+    lv_obj_set_style_bg_color(ui.wifi_forget_confirm_backdrop, C_NEUTRAL_900, 0);
+    lv_obj_set_style_bg_opa(ui.wifi_forget_confirm_backdrop, LV_OPA_50, 0);
+    lv_obj_add_flag(ui.wifi_forget_confirm_backdrop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui.wifi_forget_confirm_backdrop, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *panel = lv_obj_create(ui.wifi_forget_confirm_backdrop);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_size(panel, 420, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(panel, C_SURFACE, 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(panel, R_LG, 0);
+    lv_obj_set_style_pad_all(panel, 20, 0);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(panel, 12, 0);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+
+    ui.wifi_forget_confirm_title_lbl = lv_label_create(panel);
+    lv_label_set_text(ui.wifi_forget_confirm_title_lbl, s->forget_confirm_title);
+    lv_obj_set_style_text_color(ui.wifi_forget_confirm_title_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(ui.wifi_forget_confirm_title_lbl, FONT_20, 0);
+
+    ui.wifi_forget_confirm_body_lbl = lv_label_create(panel);
+    lv_label_set_text(ui.wifi_forget_confirm_body_lbl, s->forget_confirm_body);
+    lv_label_set_long_mode(ui.wifi_forget_confirm_body_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(ui.wifi_forget_confirm_body_lbl, LV_PCT(100));
+    lv_obj_set_style_text_color(ui.wifi_forget_confirm_body_lbl, C_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(ui.wifi_forget_confirm_body_lbl, FONT_14, 0);
+
+    lv_obj_t *btn_row = lv_obj_create(panel);
+    lv_obj_remove_style_all(btn_row);
+    lv_obj_set_size(btn_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(btn_row, 12, 0);
+    lv_obj_remove_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    wifi_text_btn(btn_row, s->cancel, wifi_close_forget_confirm_cb, &ui.wifi_forget_confirm_cancel_lbl);
+    wifi_text_btn(btn_row, s->forget_network, wifi_confirm_forget_cb, &ui.wifi_forget_confirm_confirm_lbl);
+
+    lv_obj_update_layout(panel);
+    lv_obj_center(panel);
+}
+
+static void wifi_forget_confirm_relabel(void) {
+    if (!ui.wifi_forget_confirm_backdrop) return;
+    const weather_strings_t *s = &weather_strings[ui.lang];
+    lv_label_set_text(ui.wifi_forget_confirm_title_lbl, s->forget_confirm_title);
+    lv_label_set_text(ui.wifi_forget_confirm_body_lbl, s->forget_confirm_body);
+    lv_label_set_text(ui.wifi_forget_confirm_cancel_lbl, s->cancel);
+    lv_label_set_text(ui.wifi_forget_confirm_confirm_lbl, s->forget_network);
+}
 
 static void wifi_show_list(void) {
     ui.wifi_manual_mode = false;
@@ -1891,7 +2121,7 @@ static void build_wifi_screen(lv_obj_t *parent) {
      * btn-secondary row after the network list, not grouped with Scan/Enter
      * manually — see Weather App.dc.html's wifiShowingList block. */
     lv_obj_t *forget_btn = wifi_text_btn(ui.wifi_list_view, weather_strings[ui.lang].forget_network,
-                                         wifi_forget_cb, &ui.wifi_forget_btn_lbl);
+                                         wifi_open_forget_confirm_cb, &ui.wifi_forget_btn_lbl);
     lv_obj_set_width(forget_btn, LV_PCT(100));
 
     /* -- view 2: SSID / password pad -- */
@@ -2060,6 +2290,11 @@ void weather_ui_set_data_stale(bool stale) {
     else       lv_obj_add_flag(ui.header_stale_lbl, LV_OBJ_FLAG_HIDDEN);
 }
 
+void weather_ui_set_last_sync_ago(const char *text) {
+    if (!ui.header_last_sync_lbl) return;
+    lv_label_set_text(ui.header_last_sync_lbl, text ? text : "");
+}
+
 /* ---- entry point ---------------------------------------------------------- */
 
 void weather_ui_create(lv_obj_t *parent) {
@@ -2096,6 +2331,7 @@ void weather_ui_create(lv_obj_t *parent) {
     lv_obj_remove_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     build_current_card(content);
+    build_current_extras(content);
 
     /* Today's hourly series. The design's HTML drew this inline on the current
      * card; at 1024x600 that card is already a full row, so it gets its own band
@@ -2109,4 +2345,5 @@ void weather_ui_create(lv_obj_t *parent) {
     build_search_overlay(ui.root);
     build_detail_panel(ui.root);
     build_wifi_screen(ui.root);
+    build_wifi_forget_confirm_panel(ui.root);
 }

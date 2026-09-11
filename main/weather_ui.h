@@ -25,6 +25,15 @@ typedef struct {
     float wind_kmh;
     int precip_pct;
     char real_feel_text[160]; /* pre-composed sentence, already localized by the app */
+    /* Sunrise/sunset/UV/air-quality row (2026-09-12 sync). All pre-formatted
+     * by the app; empty string ("") hides that item's value (no reading yet,
+     * e.g. air quality fetch failed). */
+    char sunrise_str[8];  /* "06:45" or "6:45 AM" */
+    char sunset_str[8];
+    char uv_display[8];   /* rounded UV index, e.g. "5" */
+    char uv_cat[24];      /* localized category, e.g. "Moderate" */
+    char aqi_display[8];  /* rounded US AQI, e.g. "42" */
+    char aqi_cat[24];
 } weather_current_t;
 
 typedef struct {
@@ -60,7 +69,8 @@ typedef struct {
 typedef void (*weather_ui_search_cb_t)(const char *query);
 typedef void (*weather_ui_select_city_cb_t)(int result_index);
 typedef void (*weather_ui_refresh_cb_t)(void);
-typedef void (*weather_ui_settings_changed_cb_t)(weather_lang_t lang, wx_temp_unit_t temp, wx_wind_unit_t wind, wx_time_fmt_t time_fmt);
+/* auto_refresh_minutes: 0/15/30/60, added 2026-09-12 sync. */
+typedef void (*weather_ui_settings_changed_cb_t)(weather_lang_t lang, wx_temp_unit_t temp, wx_wind_unit_t wind, wx_time_fmt_t time_fmt, int auto_refresh_minutes);
 typedef void (*weather_ui_wifi_scan_cb_t)(void);
 typedef void (*weather_ui_wifi_connect_cb_t)(const char *ssid, const char *password);
 typedef void (*weather_ui_wifi_forget_cb_t)(void);
@@ -97,6 +107,15 @@ void weather_ui_set_brightness_adaptive(bool on);
 /* Greys the switch out (and forces it visually off) when no camera was
  * found — call once at startup, before weather_ui_set_brightness_adaptive(). */
 void weather_ui_set_brightness_adaptive_available(bool available);
+/* Sets the Settings panel's auto-refresh segmented control (0/15/30/60)
+ * without firing on_settings_changed — call once at startup with the
+ * persisted value, same one-way pattern as weather_ui_set_brightness(). */
+void weather_ui_set_auto_refresh(int minutes);
+
+/* Header "last synced" text, next to the online/offline indicator — pass ""
+ * to hide it. The app owns the timing (recompute periodically, same as the
+ * data_stale flag), this just displays whatever string it's given. */
+void weather_ui_set_last_sync_ago(const char *text);
 
 void weather_ui_set_current(const weather_current_t *cur);
 void weather_ui_set_days(const weather_day_t days[WEATHER_UI_DAYS]);

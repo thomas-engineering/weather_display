@@ -68,8 +68,8 @@ static void on_ambient_brightness(int percent) {
     }
 }
 
-static void on_settings_changed(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf) {
-    app_prefs_save_settings(lang, t, w, tf);
+static void on_settings_changed(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf, int auto_refresh_minutes) {
+    app_prefs_save_settings(lang, t, w, tf, auto_refresh_minutes);
     /* Units are converted for display inside weather_ui.c, but the date/weekday
      * strings and the "real feel" sentence are composed by the app — so a language
      * or clock-format change needs a re-render, not a re-fetch. */
@@ -205,6 +205,7 @@ void app_main(void) {
     weather_ui_set_brightness_adaptive_callback(on_brightness_adaptive);
     weather_ui_set_language(prefs.lang);
     weather_ui_set_units(prefs.temp_unit, prefs.wind_unit, prefs.time_fmt);
+    weather_ui_set_auto_refresh(prefs.auto_refresh_minutes);
     weather_ui_set_brightness(prefs.brightness);
     weather_ui_set_brightness_adaptive_available(have_light_sensor);
     /* A camera once fitted and later removed shouldn't leave adaptive mode

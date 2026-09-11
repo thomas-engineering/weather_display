@@ -21,6 +21,7 @@
     .wx-scroll::-webkit-scrollbar{height:6px}
     .wx-scroll::-webkit-scrollbar-thumb{background:var(--color-neutral-700);border-radius:3px}
     .wx-scroll::-webkit-scrollbar-track{background:transparent}
+    @keyframes wx-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
   </style>
 </helmet>
 <div lang="{{ htmlLang }}" style="width:1024px;height:600px;position:relative;overflow:hidden;background:radial-gradient(120% 140% at 20% -10%, var(--color-accent-900), var(--color-bg) 55%);display:flex;flex-direction:column;font-family:var(--font-body);hyphens:auto">
@@ -46,13 +47,14 @@
           <span data-lv="icon.status-dot" style="width:8px;height:8px;border-radius:50%;background:{{ netDotColor }}"></span>
           {{ netStatusLabel }}
         </span>
+        <span data-lv="label.caption" style="font-size:12px;color:color-mix(in srgb, var(--color-text) 50%, transparent)">{{ lastSyncAgo }}</span>
       </div>
       <div style="text-align:right;margin-left:var(--space-6)">
         <div data-lv="label.title" style="font-size:30px;font-weight:500;font-family:var(--font-heading);line-height:1.1">{{ nowTimeStr }}</div>
         <div data-lv="label.caption" style="font-size:18px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ nowDateStr }}</div>
       </div>
       <button data-lv="button.icon" onClick="{{ refresh }}" title="Refresh" style="margin-left:var(--space-6);width:56px;height:56px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.74 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"></path></svg>
+<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" style="{{ refreshIconStyle }}"><path d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.74 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"></path></svg>
       </button>
       <button data-lv="button.icon" onClick="{{ openSettings }}" title="Settings" style="width:56px;height:56px;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94a7.14 7.14 0 0 0 .06-.94 7.14 7.14 0 0 0-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.3 7.3 0 0 0-1.62-.94l-.36-2.54a.5.5 0 0 0-.5-.42h-3.84a.5.5 0 0 0-.5.42l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.62-.06.94s.02.63.06.94L2.83 14.5a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.32.6.22l2.39-.96c.49.38 1.03.7 1.62.94l.36 2.54c.05.24.26.42.5.42h3.84c.24 0 .45-.18.5-.42l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.24.1.46 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"></path></svg>
@@ -103,6 +105,18 @@
             <div data-lv="label.value" style="font-size:16px;line-height:1.3;font-weight:500;font-family:var(--font-heading)">{{ current.precipProb }}%</div>
           </div>
         </div>
+      </div>
+      <div style="flex:none;display:flex;align-items:center;gap:var(--space-6)">
+        <span data-lv="label.body" style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="opacity:0.7"><path d="M12 4l1.5 3h3l-2.5 2 1 3-3-2-3 2 1-3-2.5-2h3z"></path></svg>
+          {{ t.sunrise }} {{ current.sunriseStr }}
+        </span>
+        <span data-lv="label.body" style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="opacity:0.7"><path d="M12 20l1.5-3h3l-2.5-2 1-3-3 2-3-2 1 3-2.5 2h3z"></path></svg>
+          {{ t.sunset }} {{ current.sunsetStr }}
+        </span>
+        <span data-lv="label.body" style="font-size:13px;white-space:nowrap">{{ t.uvIndex }} {{ current.uvCat }} · {{ current.uvDisplay }}</span>
+        <span data-lv="label.body" style="font-size:13px;white-space:nowrap">{{ t.airQuality }} {{ current.aqiCat }} · {{ current.aqiDisplay }}</span>
       </div>
 
       <sc-if value="{{ current.chart }}" hint-placeholder-val="{{ false }}">
@@ -215,11 +229,20 @@
             <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangFr }}" onChange="{{ setLangFr }}">Français</label>
           </div>
         </div>
-        <div class="field">
-          <label data-lv="label.caption">{{ t.temperature }}</label>
-          <div data-lv="segmented" class="seg">
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempC }}" onChange="{{ setTempC }}">°C</label>
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempF }}" onChange="{{ setTempF }}">°F</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)">
+          <div class="field">
+            <label data-lv="label.caption">{{ t.temperature }}</label>
+            <div data-lv="segmented" class="seg">
+              <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempC }}" onChange="{{ setTempC }}">°C</label>
+              <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempF }}" onChange="{{ setTempF }}">°F</label>
+            </div>
+          </div>
+          <div class="field">
+            <label data-lv="label.caption">{{ t.timeFormat }}</label>
+            <div data-lv="segmented" class="seg">
+              <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime24 }}" onChange="{{ setTime24 }}">{{ t.h24 }}</label>
+              <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime12 }}" onChange="{{ setTime12 }}">{{ t.h12 }}</label>
+            </div>
           </div>
         </div>
         <div class="field">
@@ -231,10 +254,12 @@
           </div>
         </div>
         <div class="field">
-          <label data-lv="label.caption">{{ t.timeFormat }}</label>
+          <label data-lv="label.caption">{{ t.autoRefresh }}</label>
           <div data-lv="segmented" class="seg">
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime24 }}" onChange="{{ setTime24 }}">{{ t.h24 }}</label>
-            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime12 }}" onChange="{{ setTime12 }}">{{ t.h12 }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ar" checked="{{ isAutoOff }}" onChange="{{ setAutoOff }}">{{ t.autoOff }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ar" checked="{{ isAuto15 }}" onChange="{{ setAuto15 }}">{{ t.auto15 }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ar" checked="{{ isAuto30 }}" onChange="{{ setAuto30 }}">{{ t.auto30 }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ar" checked="{{ isAuto60 }}" onChange="{{ setAuto60 }}">{{ t.auto60 }}</label>
           </div>
         </div>
         <div class="field">
@@ -255,6 +280,19 @@
     </div>
   </sc-if>
 
+  <sc-if value="{{ wifiForgetConfirmOpen }}">
+    <div class="dialog-backdrop" style="position:absolute">
+      <div class="dialog" style="width:420px">
+        <div data-lv="label.title" class="dialog-title">{{ t.forgetConfirmTitle }}</div>
+        <p data-lv="label.body" style="font-size:14px;color:color-mix(in srgb, var(--color-text) 70%, transparent);margin-top:var(--space-3)">{{ t.forgetConfirmBody }}</p>
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-3);margin-top:var(--space-4)">
+          <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ closeForgetConfirm }}" style="min-height:44px;padding:10px 18px;font-size:15px">{{ t.cancel }}</button>
+          <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ confirmForgetNetwork }}" style="min-height:44px;padding:10px 18px;font-size:15px">{{ t.forgetSavedNetwork }}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
   <sc-if value="{{ deviceInfoOpen }}">
     <div class="dialog-backdrop" style="position:absolute">
       
@@ -267,33 +305,33 @@
         </div>
         <div style="display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-4)">
           <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
-            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.deviceName }}</span>
-            <span data-lv="label.body">{{ deviceInfo.deviceName }}</span>
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.deviceName }}</span>
+            <span data-lv="label.body" style="white-space:nowrap">{{ deviceInfo.deviceName }}</span>
           </div>
           <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
-            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.hardwareVersion }}</span>
-            <span data-lv="label.body">{{ deviceInfo.hardwareVersion }}</span>
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.hardwareVersion }}</span>
+            <span data-lv="label.body" style="white-space:nowrap">{{ deviceInfo.hardwareVersion }}</span>
           </div>
           <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
-            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.firmwareVersion }}</span>
-            <span data-lv="label.body">{{ deviceInfo.firmwareVersion }}</span>
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.firmwareVersion }}</span>
+            <span data-lv="label.body" style="white-space:nowrap">{{ deviceInfo.firmwareVersion }}</span>
           </div>
           <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
-            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.lastUpdate }}</span>
-            <span data-lv="label.body">{{ lastUpdateDisplay }}</span>
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.lastUpdate }}</span>
+            <span data-lv="label.body" style="white-space:nowrap">{{ lastUpdateDisplay }}</span>
           </div>
           <sc-if value="{{ deviceInfo.online }}" hint-placeholder-val="{{ true }}">
             <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
-              <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.ipAddress }}</span>
-              <span data-lv="label.body">{{ deviceInfo.ip }}</span>
+              <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.ipAddress }}</span>
+              <span data-lv="label.body" style="white-space:nowrap">{{ deviceInfo.ip }}</span>
             </div>
             <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
-              <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.dns }}</span>
-              <span data-lv="label.body">{{ deviceInfo.dns }}</span>
+              <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.dns }}</span>
+              <span data-lv="label.body" style="white-space:nowrap">{{ deviceInfo.dns }}</span>
             </div>
             <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
-              <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.gateway }}</span>
-              <span data-lv="label.body">{{ deviceInfo.gateway }}</span>
+              <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.gateway }}</span>
+              <span data-lv="label.body" style="white-space:nowrap">{{ deviceInfo.gateway }}</span>
             </div><div data-lv="label.body" style="min-height:4.6em;line-height:1.15em;overflow:hidden">{{ deviceInfoNote }}</div>
           </sc-if>
           <sc-if value="{{ deviceInfoOffline }}">
@@ -337,7 +375,7 @@
             </sc-for>
           </div>
           <button data-lv="button.ghost" class="btn btn-ghost" onClick="{{ openManualSsidEntry }}" style="margin-top:var(--space-2)">{{ t.enterManually }}</button>
-          <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ forgetSavedNetwork }}" style="margin-top:var(--space-2)">{{ t.forgetSavedNetwork }}</button>
+          <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ openForgetConfirm }}" style="margin-top:var(--space-2)">{{ t.forgetSavedNetwork }}</button>
         </sc-if>
 
         <sc-if value="{{ wifiShowingManual }}">
@@ -501,6 +539,9 @@ class Component extends DCLogic {
     wifiManualSsid: '',
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
     lastFetchSuccessAt: null,
+    autoRefreshMinutes: 30,
+    wifiForgetConfirmOpen: false,
+    airQuality: null,
   };
 
   STALE_MS = 60 * 60 * 1000;
@@ -517,6 +558,13 @@ class Component extends DCLogic {
         feelsLike: 'Feels like', wind: 'Wind', precip: 'Precip.', forecast: '7-Day Forecast',
         loading: 'Loading weather…', today: 'Today', tomorrow: 'Tomorrow', error: 'Could not load weather',
         dataUpdated: 'Weather data updated.',
+        updatedNow: 'Updated just now', updatedAgoMin: 'Updated {n} min ago', updatedAgoHour: 'Updated {n} h ago',
+        sunrise: 'Sunrise', sunset: 'Sunset', uvIndex: 'UV index',
+        uvLow: 'Low', uvModerate: 'Moderate', uvHigh: 'High', uvVeryHigh: 'Very high', uvExtreme: 'Extreme',
+        autoRefresh: 'Auto-refresh', autoOff: 'Off', auto15: '15 min', auto30: '30 min', auto60: '1 h',
+        airQuality: 'Air quality', aqiGood: 'Good', aqiModerate: 'Moderate', aqiUnhealthySensitive: 'Unhealthy (sensitive)',
+        aqiUnhealthy: 'Unhealthy', aqiVeryUnhealthy: 'Very unhealthy', aqiHazardous: 'Hazardous',
+        forgetConfirmTitle: 'Forget this network?', forgetConfirmBody: 'You will need to enter the password again to reconnect.',
         deviceInfo: 'Device information', deviceName: 'Device name', hardwareVersion: 'Hardware version',
         firmwareVersion: 'Firmware version', ipAddress: 'IP address', dns: 'DNS', gateway: 'Gateway',
         notConnected: 'Not connected to the internet',
@@ -538,10 +586,17 @@ class Component extends DCLogic {
         cancel: 'Abbrechen', retry: 'Erneut versuchen', searchPlaceholder: 'Stadt suchen…',
         noCities: 'Keine Städte gefunden.', searching: 'Suche…', settings: 'Einstellungen',
         temperature: 'Temperatur', windSpeed: 'Windgeschwindigkeit', timeFormat: 'Zeitformat',
-        language: 'Sprache', h24: '24-Stunden', h12: '12-Stunden', humidity: 'Luftfeuchtigkeit',
+        language: 'Sprache', h24: '24 Std.', h12: '12 Std.', humidity: 'Luftfeuchte',
         feelsLike: 'Gefühlt', wind: 'Wind', precip: 'Niederschlag', forecast: '7-Tage-Vorhersage',
         loading: 'Wetter wird geladen…', today: 'Heute', tomorrow: 'Morgen', error: 'Wetter konnte nicht geladen werden',
         dataUpdated: 'Wetterdaten aktualisiert.',
+        updatedNow: 'Gerade aktualisiert', updatedAgoMin: 'Vor {n} Min. aktualisiert', updatedAgoHour: 'Vor {n} Std. aktualisiert',
+        sunrise: 'Sonnenaufgang', sunset: 'Sonnenuntergang', uvIndex: 'UV-Index',
+        uvLow: 'Niedrig', uvModerate: 'Mäßig', uvHigh: 'Hoch', uvVeryHigh: 'Sehr hoch', uvExtreme: 'Extrem',
+        autoRefresh: 'Automatische Aktualisierung', autoOff: 'Aus', auto15: '15 Min', auto30: '30 Min', auto60: '1 Std',
+        airQuality: 'Luftqualität', aqiGood: 'Gut', aqiModerate: 'Mäßig', aqiUnhealthySensitive: 'Ungesund (sensibel)',
+        aqiUnhealthy: 'Ungesund', aqiVeryUnhealthy: 'Sehr ungesund', aqiHazardous: 'Gefährlich',
+        forgetConfirmTitle: 'Dieses Netzwerk vergessen?', forgetConfirmBody: 'Du musst das Passwort erneut eingeben, um dich wieder zu verbinden.',
         deviceInfo: 'Geräteinformationen', deviceName: 'Gerätename', hardwareVersion: 'Hardware-Version',
         firmwareVersion: 'Firmware-Version', ipAddress: 'IP-Adresse', dns: 'DNS', gateway: 'Gateway',
         notConnected: 'Nicht mit dem Internet verbunden',
@@ -563,10 +618,17 @@ class Component extends DCLogic {
         cancel: 'Cancelar', retry: 'Reintentar', searchPlaceholder: 'Buscar una ciudad…',
         noCities: 'No se encontraron ciudades.', searching: 'Buscando…', settings: 'Ajustes',
         temperature: 'Temperatura', windSpeed: 'Velocidad del viento', timeFormat: 'Formato de hora',
-        language: 'Idioma', h24: '24 horas', h12: '12 horas', humidity: 'Humedad',
+        language: 'Idioma', h24: '24 h', h12: '12 h', humidity: 'Humedad',
         feelsLike: 'Sensación', wind: 'Viento', precip: 'Precip.', forecast: 'Pronóstico de 7 días',
         loading: 'Cargando el clima…', today: 'Hoy', tomorrow: 'Mañana', error: 'No se pudo cargar el clima',
         dataUpdated: 'Datos del clima actualizados.',
+        updatedNow: 'Actualizado justo ahora', updatedAgoMin: 'Actualizado hace {n} min', updatedAgoHour: 'Actualizado hace {n} h',
+        sunrise: 'Amanecer', sunset: 'Atardecer', uvIndex: 'Índice UV',
+        uvLow: 'Bajo', uvModerate: 'Moderado', uvHigh: 'Alto', uvVeryHigh: 'Muy alto', uvExtreme: 'Extremo',
+        autoRefresh: 'Actualización automática', autoOff: 'Apagado', auto15: '15 min', auto30: '30 min', auto60: '1 h',
+        airQuality: 'Calidad del aire', aqiGood: 'Buena', aqiModerate: 'Moderada', aqiUnhealthySensitive: 'Insalubre (sensibles)',
+        aqiUnhealthy: 'Insalubre', aqiVeryUnhealthy: 'Muy insalubre', aqiHazardous: 'Peligrosa',
+        forgetConfirmTitle: '¿Olvidar esta red?', forgetConfirmBody: 'Deberás introducir la contraseña de nuevo para volver a conectarte.',
         deviceInfo: 'Información del dispositivo', deviceName: 'Nombre del dispositivo', hardwareVersion: 'Versión de hardware',
         firmwareVersion: 'Versión de firmware', ipAddress: 'Dirección IP', dns: 'DNS', gateway: 'Puerta de enlace',
         notConnected: 'Sin conexión a Internet',
@@ -588,10 +650,17 @@ class Component extends DCLogic {
         cancel: 'Annuler', retry: 'Réessayer', searchPlaceholder: 'Rechercher une ville…',
         noCities: 'Aucune ville trouvée.', searching: 'Recherche…', settings: 'Paramètres',
         temperature: 'Température', windSpeed: 'Vitesse du vent', timeFormat: 'Format de l\u2019heure',
-        language: 'Langue', h24: '24 heures', h12: '12 heures', humidity: 'Humidité',
+        language: 'Langue', h24: '24 h', h12: '12 h', humidity: 'Humidité',
         feelsLike: 'Ressenti', wind: 'Vent', precip: 'Précip.', forecast: 'Prévisions sur 7 jours',
         loading: 'Chargement de la météo…', today: 'Aujourd\u2019hui', tomorrow: 'Demain', error: 'Impossible de charger la météo',
         dataUpdated: 'Données météo mises à jour.',
+        updatedNow: 'Mis à jour à l\u2019instant', updatedAgoMin: 'Mis à jour il y a {n} min', updatedAgoHour: 'Mis à jour il y a {n} h',
+        sunrise: 'Lever du soleil', sunset: 'Coucher du soleil', uvIndex: 'Indice UV',
+        uvLow: 'Faible', uvModerate: 'Modéré', uvHigh: 'Élevé', uvVeryHigh: 'Très élevé', uvExtreme: 'Extrême',
+        autoRefresh: 'Actualisation automatique', autoOff: 'Désactivé', auto15: '15 min', auto30: '30 min', auto60: '1 h',
+        airQuality: 'Qualité de l\u2019air', aqiGood: 'Bonne', aqiModerate: 'Modérée', aqiUnhealthySensitive: 'Malsaine (sensibles)',
+        aqiUnhealthy: 'Malsaine', aqiVeryUnhealthy: 'Très malsaine', aqiHazardous: 'Dangereuse',
+        forgetConfirmTitle: 'Oublier ce réseau ?', forgetConfirmBody: 'Vous devrez à nouveau saisir le mot de passe pour vous reconnecter.',
         deviceInfo: 'Informations sur l\u2019appareil', deviceName: 'Nom de l\u2019appareil', hardwareVersion: 'Version du matériel',
         firmwareVersion: 'Version du micrologiciel', ipAddress: 'Adresse IP', dns: 'DNS', gateway: 'Passerelle',
         notConnected: 'Pas de connexion à Internet',
@@ -620,6 +689,12 @@ class Component extends DCLogic {
     this.onOffline = () => this.setState({ isOnline: false });
     window.addEventListener('online', this.onOnline);
     window.addEventListener('offline', this.onOffline);
+    this.autoRefreshTimer = setInterval(() => {
+      const { autoRefreshMinutes, lastFetchSuccessAt, loading } = this.state;
+      if (!autoRefreshMinutes || loading) return;
+      const due = !lastFetchSuccessAt || (Date.now() - lastFetchSuccessAt) >= autoRefreshMinutes * 60000;
+      if (due) this.fetchWeather();
+    }, 60000);
   }
   componentWillUnmount() {
     clearInterval(this.clockTimer);
@@ -627,6 +702,7 @@ class Component extends DCLogic {
     clearTimeout(this.sheetTimer);
     clearTimeout(this.wifiScanTimer);
     clearTimeout(this.wifiConnectTimer);
+    clearInterval(this.autoRefreshTimer);
     window.removeEventListener('online', this.onOnline);
     window.removeEventListener('offline', this.onOffline);
   }
@@ -689,6 +765,9 @@ class Component extends DCLogic {
   };
   openManualSsidEntry = () => this.setState({ wifiManualMode: true, wifiManualSsid: '' });
   forgetSavedNetwork = () => {};
+  openForgetConfirm = () => this.setState({ wifiForgetConfirmOpen: true });
+  closeForgetConfirm = () => this.setState({ wifiForgetConfirmOpen: false });
+  confirmForgetNetwork = () => { this.forgetSavedNetwork(); this.setState({ wifiForgetConfirmOpen: false }); };
   cancelManualSsidEntry = () => this.setState({ wifiManualMode: false, wifiManualSsid: '' });
   manualSsidKbAppend = (ch) => this.setState((s) => ({ wifiManualSsid: (s.wifiManualSsid || '') + ch }));
   manualSsidKbBackspace = () => this.setState((s) => ({ wifiManualSsid: (s.wifiManualSsid || '').slice(0, -1) }));
@@ -732,12 +811,21 @@ class Component extends DCLogic {
     return this._fetchWeatherInner(lat, lon);
   }
   async _fetchWeatherInner(lat, lon) {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,wind_speed_10m,weather_code&hourly=temperature_2m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max&timezone=auto&forecast_days=7`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,wind_speed_10m,weather_code&hourly=temperature_2m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=7`;
+    const aqUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi&timezone=auto`;
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error('Weather service unavailable');
       const data = await res.json();
-      this.setState({ weather: data, timezone: data.timezone || this.state.timezone, loading: false, lastFetchSuccessAt: Date.now() });
+      let airQuality = null;
+      try {
+        const aqRes = await fetch(aqUrl);
+        if (aqRes.ok) {
+          const aqData = await aqRes.json();
+          airQuality = aqData.current?.us_aqi ?? null;
+        }
+      } catch (e) {}
+      this.setState({ weather: data, airQuality, timezone: data.timezone || this.state.timezone, loading: false, lastFetchSuccessAt: Date.now() });
       return true;
     } catch (e) {
       this.setState({ error: e.message || 'Could not load weather', loading: false });
@@ -802,6 +890,42 @@ class Component extends DCLogic {
     return `${Math.round(this.convertWind(kmh, unit))} ${this.windLabel(unit)}`;
   }
 
+  fmtIsoTime(isoStr, format) {
+    if (!isoStr) return '';
+    const timePart = isoStr.split('T')[1] || '';
+    let [h, m] = timePart.split(':').map(Number);
+    if (Number.isNaN(h)) return '';
+    if (format === '12') {
+      const suffix = h >= 12 ? 'PM' : 'AM';
+      let h12 = h % 12; if (h12 === 0) h12 = 12;
+      return `${h12}:${String(m).padStart(2, '0')} ${suffix}`;
+    }
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  }
+  uvCategory(uv, strings) {
+    if (uv == null) return '';
+    if (uv < 3) return strings.uvLow;
+    if (uv < 6) return strings.uvModerate;
+    if (uv < 8) return strings.uvHigh;
+    if (uv < 11) return strings.uvVeryHigh;
+    return strings.uvExtreme;
+  }
+  aqiCategory(aqi, strings) {
+    if (aqi == null) return '';
+    if (aqi <= 50) return strings.aqiGood;
+    if (aqi <= 100) return strings.aqiModerate;
+    if (aqi <= 150) return strings.aqiUnhealthySensitive;
+    if (aqi <= 200) return strings.aqiUnhealthy;
+    if (aqi <= 300) return strings.aqiVeryUnhealthy;
+    return strings.aqiHazardous;
+  }
+  timeAgo(ms, strings) {
+    if (!ms) return '';
+    const diffMin = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if (diffMin < 1) return strings.updatedNow;
+    if (diffMin < 60) return strings.updatedAgoMin.replace('{n}', diffMin);
+    return strings.updatedAgoHour.replace('{n}', Math.round(diffMin / 60));
+  }
   fmtTime(date, tz, format, locale) {
     try {
       return new Intl.DateTimeFormat(locale, { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: format === '12' }).format(date);
@@ -887,7 +1011,7 @@ class Component extends DCLogic {
   }
 
   renderVals() {
-    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, deviceInfoOpen, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt } = this.state;
+    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, deviceInfoOpen, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt, autoRefreshMinutes, wifiForgetConfirmOpen, airQuality } = this.state;
     const isDataStale = !!lastFetchSuccessAt && (now.getTime() - lastFetchSuccessAt) > this.STALE_MS;
     const strings = this.getStrings(language);
     const locale = this.LOCALE[language] || 'en-US';
@@ -911,6 +1035,13 @@ class Component extends DCLogic {
       };
       current.chart = this.buildDayChart(weather, 0, units.temp, units.time, locale);
       const d = weather.daily;
+      current.sunriseStr = this.fmtIsoTime(d.sunrise?.[0], units.time);
+      current.sunsetStr = this.fmtIsoTime(d.sunset?.[0], units.time);
+      current.uvValue = d.uv_index_max?.[0];
+      current.uvDisplay = current.uvValue != null ? Math.round(current.uvValue) : '–';
+      current.uvCat = this.uvCategory(current.uvValue, strings);
+      current.aqiDisplay = airQuality != null ? Math.round(airQuality) : '–';
+      current.aqiCat = this.aqiCategory(airQuality, strings);
       days = d.time.map((dateStr, i) => ({
         key: dateStr,
         dayLabel: this.dayLabel(dateStr, i, strings, locale),
@@ -944,6 +1075,8 @@ class Component extends DCLogic {
       isOnline, isDataStale,
       netStatusLabel: isOnline ? strings.online : strings.offline,
       netDotColor: isOnline ? 'var(--color-accent)' : 'var(--color-neutral-500)',
+      lastSyncAgo: this.timeAgo(lastFetchSuccessAt, strings),
+      refreshIconStyle: loading ? 'animation:wx-spin 0.8s linear infinite;transform-origin:center' : '',
       isLoading: loading && !weather,
       hasError: !!error,
       errorMsg: error ? strings.error : '',
@@ -981,6 +1114,9 @@ class Component extends DCLogic {
       setBrightness: this.setBrightness, toggleBrightnessAdaptive: this.toggleBrightnessAdaptive,
       switchTrackStyle: `position:relative;display:inline-block;width:36px;height:20px;border-radius:10px;flex-shrink:0;transition:background-color .15s ease,border-color .15s ease;background:${brightnessAdaptive ? 'var(--color-accent-700)' : 'var(--color-neutral-800)'};border:1px solid ${brightnessAdaptive ? 'var(--color-accent)' : 'var(--color-neutral-600)'}`,
       switchThumbStyle: `position:absolute;top:1px;left:${brightnessAdaptive ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${brightnessAdaptive ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
+      isAutoOff: autoRefreshMinutes === 0, isAuto15: autoRefreshMinutes === 15, isAuto30: autoRefreshMinutes === 30, isAuto60: autoRefreshMinutes === 60,
+      setAutoOff: () => this.setState({ autoRefreshMinutes: 0 }), setAuto15: () => this.setState({ autoRefreshMinutes: 15 }),
+      setAuto30: () => this.setState({ autoRefreshMinutes: 30 }), setAuto60: () => this.setState({ autoRefreshMinutes: 60 }),
       isTempC: units.temp === 'c', isTempF: units.temp === 'f',
       isWindKmh: units.wind === 'kmh', isWindMph: units.wind === 'mph', isWindMs: units.wind === 'ms',
       isTime24: units.time === '24', isTime12: units.time === '12',
@@ -1002,7 +1138,8 @@ class Component extends DCLogic {
       wifiShowingManual: wifiOpen && wifiManualMode,
       wifiShowingDetail: wifiOpen && !!wifiSelectedSsid && !wifiManualMode,
       openManualSsidEntry: this.openManualSsidEntry, cancelManualSsidEntry: this.cancelManualSsidEntry,
-      forgetSavedNetwork: this.forgetSavedNetwork,
+      openForgetConfirm: this.openForgetConfirm, closeForgetConfirm: this.closeForgetConfirm, confirmForgetNetwork: this.confirmForgetNetwork,
+      wifiForgetConfirmOpen,
       manualSsidKbBackspace: this.manualSsidKbBackspace, confirmManualSsid: this.confirmManualSsid,
       wifiManualSsid, wifiManualSsidEmpty: !wifiManualSsid,
       manualKbRows: [

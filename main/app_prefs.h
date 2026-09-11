@@ -15,6 +15,7 @@ typedef struct {
     wx_time_fmt_t  time_fmt;
     int brightness; /* 10-100, display backlight */
     bool brightness_adaptive; /* true: camera-driven, ignored if no camera was found */
+    int auto_refresh_minutes; /* 0/15/30/60; 0 disables the periodic background refresh */
 } app_prefs_t;
 
 /* Loads prefs from storage (NVS today, see main/storage_backend_nvs.c),
@@ -31,7 +32,7 @@ void app_prefs_load(app_prefs_t *out);
  * synchronous flash write there would block the touch gesture that
  * triggered it. */
 void app_prefs_save_city(const char *name, const char *country, float lat, float lon);
-void app_prefs_save_settings(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf);
+void app_prefs_save_settings(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf, int auto_refresh_minutes);
 void app_prefs_save_brightness(int percent);
 void app_prefs_save_brightness_adaptive(bool enabled);
 

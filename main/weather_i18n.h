@@ -22,6 +22,16 @@ typedef struct {
     const char *device_info, *device_name, *hardware_version, *firmware_version;
     const char *ip_address, *dns, *gateway, *not_connected;
     const char *last_update, *no_update_yet;
+    /* Header "last synced" text (2026-09-12 sync). data_updated_ago_min/hour
+     * take one %d (minutes/hours) — app_format.c's fmt_time_ago() snprintf's
+     * directly into them, matching the design's "{n}" placeholder. */
+    const char *data_updated_now, *data_updated_ago_min, *data_updated_ago_hour;
+    const char *sunrise, *sunset, *uv_index;
+    const char *uv_low, *uv_moderate, *uv_high, *uv_very_high, *uv_extreme;
+    const char *air_quality;
+    const char *aqi_good, *aqi_moderate, *aqi_unhealthy_sensitive, *aqi_unhealthy, *aqi_very_unhealthy, *aqi_hazardous;
+    const char *auto_refresh, *auto_off, *auto_15, *auto_30, *auto_60;
+    const char *forget_confirm_title, *forget_confirm_body;
 } weather_strings_t;
 
 /* Weather condition text, indexed by WMO weather code buckets used elsewhere in this port

@@ -36,14 +36,6 @@ menu "Weather Display Configuration"
         int "Maximum connection retries"
         default 8
 
-    config WEATHER_REFRESH_MINUTES
-        int "Forecast refresh interval (minutes)"
-        default 15
-        range 5 240
-        help
-            Open-Meteo's free tier is generous but not unlimited; 15 minutes is well
-            within it and matches how often the data actually changes.
-
     config WEATHER_DEFAULT_CITY_NAME
         string "Default city name"
         default "Trier"

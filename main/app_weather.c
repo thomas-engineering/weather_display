@@ -17,6 +17,7 @@
 #include "mbedtls/error.h"
 #include "esp_app_desc.h"
 
+#include <math.h>
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
@@ -60,6 +61,16 @@ static int s_day_count;
 static weather_hourly_t s_hourly[WEATHER_UI_DAYS];
 static bool s_hourly_valid[WEATHER_UI_DAYS];
 static time_t s_last_success;      /* for the header's "data may be outdated" flag */
+
+/* Sunrise/sunset/UV/air-quality row (2026-09-12 sync) — "today" only, same as
+ * the design's current.sunriseStr/sunsetStr/uvValue. Air quality comes from a
+ * separate API (different host), so it gets its own valid flag: a failed
+ * air-quality fetch shouldn't blank out an otherwise-successful forecast. */
+static char s_sunrise_iso[20], s_sunset_iso[20];
+static float s_uv_max;
+static bool  s_uv_valid;
+static int   s_aqi;
+static bool  s_aqi_valid;
 
 #define STALE_AFTER_SEC (60 * 60)
 
@@ -151,6 +162,14 @@ static float jarr(const cJSON *o, const char *k, int i, float dflt) {
     return cJSON_IsNumber(v) ? (float)v->valuedouble : dflt;
 }
 
+/* Reads element `i` of a string array (sunrise/sunset), or NULL if absent. */
+static const char *jarr_str(const cJSON *o, const char *k, int i) {
+    const cJSON *a = cJSON_GetObjectItemCaseSensitive(o, k);
+    if (!cJSON_IsArray(a)) return NULL;
+    const cJSON *v = cJSON_GetArrayItem(a, i);
+    return cJSON_IsString(v) && v->valuestring ? v->valuestring : NULL;
+}
+
 /* ---- UI push (always under the display lock) ----------------------------- */
 
 /* Settings > Device information dialog (Claude Design, 2026-09-10; "Last
@@ -203,6 +222,15 @@ static void push_device_info_to_ui(void) {
         .note = "Created by M. Thomas using Claude Design and Claude Code.",
     };
     weather_ui_set_device_info(&info);
+
+    /* Synced from Claude Design 2026-09-12: header "Updated N min ago" text.
+     * Piggybacks on the same call sites/cadence as the device-info push above
+     * (every successful refresh, every failure, and the ~30s idle tick) —
+     * it's a pure function of s_last_success and wall-clock time, no reason
+     * for its own schedule. */
+    char ago[48];
+    fmt_time_ago(ago, sizeof ago, s_last_success, time(NULL), p->lang);
+    weather_ui_set_last_sync_ago(ago);
 }
 
 static void ui_error(const char *msg) {
@@ -248,6 +276,14 @@ static void push_forecast_to_ui(void) {
     cur.precip_pct = s_cur_precip;
     fmt_real_feel(cur.real_feel_text, sizeof cur.real_feel_text,
                   s_cur_feel, s_cur_temp, s_cur_wind, s_cur_precip, lang);
+    fmt_iso_time(cur.sunrise_str, sizeof cur.sunrise_str, s_sunrise_iso, p->time_fmt);
+    fmt_iso_time(cur.sunset_str, sizeof cur.sunset_str, s_sunset_iso, p->time_fmt);
+    if (s_uv_valid) snprintf(cur.uv_display, sizeof cur.uv_display, "%d", (int)lroundf(s_uv_max));
+    else            snprintf(cur.uv_display, sizeof cur.uv_display, "\xE2\x80\x93"); /* "–" */
+    snprintf(cur.uv_cat, sizeof cur.uv_cat, "%s", uv_category(s_uv_valid, s_uv_max, lang));
+    if (s_aqi_valid) snprintf(cur.aqi_display, sizeof cur.aqi_display, "%d", s_aqi);
+    else             snprintf(cur.aqi_display, sizeof cur.aqi_display, "\xE2\x80\x93");
+    snprintf(cur.aqi_cat, sizeof cur.aqi_cat, "%s", aqi_category(s_aqi_valid, s_aqi, lang));
 
     weather_day_t days[WEATHER_UI_DAYS] = {0};
     for (int i = 0; i < WEATHER_UI_DAYS; i++) {
@@ -304,7 +340,8 @@ static void do_refresh(bool is_manual) {
              "&hourly=temperature_2m,precipitation"
              "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
              "apparent_temperature_max,apparent_temperature_min,"
-             "precipitation_probability_max,wind_speed_10m_max"
+             "precipitation_probability_max,wind_speed_10m_max,"
+             "sunrise,sunset,uv_index_max"
              "&timezone=auto&forecast_days=%d",
              p->lat, p->lon, WEATHER_UI_DAYS);
 
@@ -348,6 +385,16 @@ static void do_refresh(bool is_manual) {
         s_days[i].precip = (int)jarr(daily, "precipitation_probability_max", i, 0);
         s_days[i].wmax   = jarr(daily, "wind_speed_10m_max", i, 0);
     }
+
+    /* Sunrise/sunset/UV: "today" only (index 0), matching the design's
+     * current.sunriseStr/sunsetStr/uvValue. */
+    const char *sunrise = jarr_str(daily, "sunrise", 0);
+    const char *sunset  = jarr_str(daily, "sunset", 0);
+    snprintf(s_sunrise_iso, sizeof s_sunrise_iso, "%s", sunrise ? sunrise : "");
+    snprintf(s_sunset_iso, sizeof s_sunset_iso, "%s", sunset ? sunset : "");
+    s_uv_valid = cJSON_IsArray(cJSON_GetObjectItemCaseSensitive(daily, "uv_index_max")) && n > 0;
+    s_uv_max = jarr(daily, "uv_index_max", 0, 0);
+
     /* Hourly arrives as one flat 7x24 series; slice it per day. */
     const cJSON *hourly = cJSON_GetObjectItemCaseSensitive(root, "hourly");
     for (int d = 0; d < WEATHER_UI_DAYS; d++) s_hourly_valid[d] = false;
@@ -372,6 +419,29 @@ static void do_refresh(bool is_manual) {
         }
     }
     cJSON_Delete(root);
+
+    /* Air quality: separate host, separate request. Non-fatal on failure —
+     * an otherwise-good forecast shouldn't turn into an error screen just
+     * because this one extra call didn't land; the UI shows "–" instead
+     * (see aqi_category()'s has_value=false case). */
+    s_aqi_valid = false;
+    char aq_url[192];
+    snprintf(aq_url, sizeof aq_url,
+             "https://air-quality-api.open-meteo.com/v1/air-quality?latitude=%.4f&longitude=%.4f"
+             "&current=us_aqi&timezone=auto",
+             p->lat, p->lon);
+    char *aq_body = http_get(aq_url);
+    if (aq_body) {
+        cJSON *aq_root = cJSON_Parse(aq_body);
+        free(aq_body);
+        if (aq_root) {
+            const cJSON *aq_cur = cJSON_GetObjectItemCaseSensitive(aq_root, "current");
+            const cJSON *aqi_val = cJSON_IsObject(aq_cur) ? cJSON_GetObjectItemCaseSensitive(aq_cur, "us_aqi") : NULL;
+            if (cJSON_IsNumber(aqi_val)) { s_aqi = (int)aqi_val->valuedouble; s_aqi_valid = true; }
+            cJSON_Delete(aq_root);
+        }
+    }
+    if (!s_aqi_valid) ESP_LOGW(TAG, "air-quality fetch failed, showing '-' for it");
 
     s_last_success = time(NULL);
     s_have_forecast = true;
@@ -524,9 +594,15 @@ static void weather_task(void *arg) {
             do_search(pending_search.query);
         }
 
-        /* Periodic refresh, and a per-minute clock tick so the header stays live. */
+        /* Periodic refresh, and a per-minute clock tick so the header stays live.
+         * Synced from Claude Design 2026-09-12: the interval is now the user's
+         * auto_refresh_minutes setting (Settings > Auto-refresh), not the fixed
+         * CONFIG_WEATHER_REFRESH_MINUTES Kconfig value — 0 disables periodic
+         * refresh entirely (the ~30s tick below still keeps the clock/"updated
+         * N min ago" text live either way). */
         TickType_t now = xTaskGetTickCount();
-        if ((now - last_auto) >= pdMS_TO_TICKS(CONFIG_WEATHER_REFRESH_MINUTES * 60 * 1000)) {
+        int auto_refresh_min = app_prefs_get()->auto_refresh_minutes;
+        if (auto_refresh_min > 0 && (now - last_auto) >= pdMS_TO_TICKS(auto_refresh_min * 60 * 1000)) {
             do_refresh(false);
             last_auto = now;
         } else if (s_have_forecast) {

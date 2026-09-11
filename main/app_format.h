@@ -33,4 +33,20 @@ void fmt_real_feel(char *out, size_t n, float apparent_c, float actual_c,
  * tm_wday is valid). Returns false on a malformed string. */
 bool parse_iso_date(const char *s, struct tm *out);
 
+/* "06:45" or "6:45 AM" — reads the "HH:MM" after the 'T' in an Open-Meteo
+ * local-time ISO string (e.g. "2026-09-12T06:45", as returned by the
+ * `sunrise`/`sunset` daily fields). Writes "" if `iso` is NULL/malformed. */
+void fmt_iso_time(char *out, size_t n, const char *iso, wx_time_fmt_t fmt);
+
+/* Header "last synced" text (2026-09-12 sync), mirroring the design's
+ * timeAgo(): "Updated just now" / "Updated N min ago" / "Updated N h ago".
+ * `last_success` == 0 (never fetched) writes "". */
+void fmt_time_ago(char *out, size_t n, time_t last_success, time_t now, weather_lang_t lang);
+
+/* UV-index / US AQI value to a localized category string, same thresholds as
+ * the design's uvCategory()/aqiCategory(). `has_value` false (no reading yet)
+ * returns "". */
+const char *uv_category(bool has_value, float uv, weather_lang_t lang);
+const char *aqi_category(bool has_value, int aqi, weather_lang_t lang);
+
 #endif
