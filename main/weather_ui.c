@@ -99,7 +99,16 @@ typedef struct {
     bool device_info_online;
     char device_info_ip[16], device_info_dns[16], device_info_gw[16];
     char device_info_last_update[48];
-    char device_info_note[160];
+    /* FIX: was 160 — too small for the note text after the 2026-09-13 design
+     * sync (184 chars incl. the data-source/license attribution added that
+     * day), so it silently truncated mid-word ("...creativecommon") instead
+     * of the label ever getting a chance to wrap it. snprintf() into this
+     * always NUL-terminates safely either way, so the failure mode was
+     * "wrong text", not a crash — easy to mistake for a font/wrap bug, which
+     * is what this looked like before checking the actual byte count. Sized
+     * with real headroom since this design's own note text has already
+     * changed three times in one day. */
+    char device_info_note[256];
 
     lv_obj_t *search_backdrop, *search_ta, *search_kb, *search_results, *search_status_lbl, *search_cancel_lbl;
 
@@ -1646,10 +1655,11 @@ static void build_device_info_panel(lv_obj_t *parent) {
 
     lv_obj_t *panel = lv_obj_create(ui.device_info_backdrop);
     lv_obj_remove_style_all(panel);
-    /* Design fixes 480x383 (width synced from Claude Design 2026-09-11, was
-     * 326) regardless of online/offline state, so the dialog doesn't
-     * resize/jump when connectivity changes while it's open. */
-    lv_obj_set_size(panel, 480, 383);
+    /* Design fixes 479x399 (2026-09-13 re-sync grew this from 480x383 — was
+     * 326x383 before that, 2026-09-11) regardless of online/offline state, so
+     * the dialog doesn't resize/jump when connectivity changes while it's
+     * open. */
+    lv_obj_set_size(panel, 479, 399);
     lv_obj_set_style_bg_color(panel, C_SURFACE, 0);
     lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(panel, R_LG, 0);

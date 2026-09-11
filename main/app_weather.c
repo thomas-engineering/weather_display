@@ -217,13 +217,13 @@ static void push_device_info_to_ui(void) {
         /* FIX: sync from Claude Design 2026-09-12 — unlike ip/dns/gateway,
          * last_update is not gated on being online. */
         .last_update = last_update,
-        /* Copied verbatim from the design's deviceInfoNote field (re-synced
-         * 2026-09-13: "and Claude Code." -> "and Claude.", plus the note is
-         * now 4 lines, not 1 — an earlier pass here had dropped the space
-         * between "Code." and "Using" and never added the line breaks). */
-        .note = "Created by M. Thomas using Claude Design and Claude.\n"
-        "Using Data from Open-Meteo.com and OpenAQ.org.\n"
-        "Licensed under CC BY 4.0\n"
+        /* Copied verbatim from the design's deviceInfoNote field. Re-synced
+         * 2026-09-13 (second pass same day): "Claude." -> "Claude Code."
+         * again, and the "Licensed under" line merged into the "Using Data"
+         * line above it — the design's text is churning between syncs, so
+         * this is copied fresh each time rather than patched. */
+        .note = "Created by M. Thomas using Claude Design and Claude Code.\n"
+        "Using Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0\n"
         "(https://creativecommons.org/licenses/by/4.0/).",
     };
     weather_ui_set_device_info(&info);
