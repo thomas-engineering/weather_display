@@ -196,7 +196,10 @@ static void publish_weather(void)
         .dns = "1.1.1.1",
         .gateway = "192.168.1.1",
         .last_update = last_update,
-        .note = "Created by M. Thomas using Claude Design and Claude Code.",
+        .note = "Created by M. Thomas using Claude Design and Claude.\n"
+                 "Using Data from Open-Meteo.com and OpenAQ.org.\n"
+                 "Licensed under CC BY 4.0\n"
+                 "(https://creativecommons.org/licenses/by/4.0/).",
     };
     weather_ui_set_device_info(&dev_info);
 
@@ -375,7 +378,10 @@ static bool publish_weather_live(void) {
         .dns = "1.1.1.1",
         .gateway = "192.168.1.1",
         .last_update = last_update,
-        .note = "Created by M. Thomas using Claude Design and Claude Code.",
+        .note = "Created by M. Thomas using Claude Design and Claude.\n"
+                 "Using Data from Open-Meteo.com and OpenAQ.org.\n"
+                 "Licensed under CC BY 4.0\n"
+                 "(https://creativecommons.org/licenses/by/4.0/).",
     };
     weather_ui_set_device_info(&dev_info);
 
