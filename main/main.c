@@ -203,9 +203,19 @@ void app_main(void) {
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
     weather_ui_set_brightness_adaptive_callback(on_brightness_adaptive);
+    /* FIX: weather_ui_set_language()/weather_ui_set_units() both end by firing
+     * the settings-changed callback (so language/unit-only edits from the UI
+     * get persisted), which re-saves *every* field of app_prefs including
+     * ui.auto_refresh_minutes — still 0 at that point if this call came
+     * after them. That silently clobbered a freshly loaded non-zero
+     * auto-refresh interval back to "Off" in s_prefs (and in NVS, via the
+     * debounced save) on every cold boot, even though the Settings dialog
+     * looked right afterward — it renders from ui.auto_refresh_minutes,
+     * which this line does set correctly, just too late to matter to the
+     * save that already fired. Setting it first avoids the whole race. */
+    weather_ui_set_auto_refresh(prefs.auto_refresh_minutes);
     weather_ui_set_language(prefs.lang);
     weather_ui_set_units(prefs.temp_unit, prefs.wind_unit, prefs.time_fmt);
-    weather_ui_set_auto_refresh(prefs.auto_refresh_minutes);
     weather_ui_set_brightness(prefs.brightness);
     weather_ui_set_brightness_adaptive_available(have_light_sensor);
     /* A camera once fitted and later removed shouldn't leave adaptive mode
