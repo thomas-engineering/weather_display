@@ -85,6 +85,24 @@ touch input targets the deepest clickable object under a point) rather than
 on hardware — added a `device-info` screen state to `sim/main.c` and
 `scripts/sim.sh --shots` alongside the fix.
 
+Re-pulled again 2026-09-14 for a favorites addition to the location-selection
+(search) screen: a star toggle button on every search result
+(`result.toggleFav`/`result.favColor`) and up to six favorite-city slots
+(`favoriteSlots`, backed by `favorites: new Array(6).fill(null)`) shown above
+the results, each removable via its own "×" button; tapping a filled slot
+jumps straight to that city like picking a search result does. Matched by
+lat/lon (`toggleFavorite()`), first empty slot wins, and a seventh favorite
+is silently ignored rather than evicting an existing one. `WeatherIcon.dc.html`
+and `support.js` were re-checked in the same pull and are byte-identical to
+the copies already here — only `Weather App.dc.html` changed. Ported to
+`components/app_logic/favorites.{h,c}` (the pure toggle/remove/match logic,
+host-tested), `main/app_favorites.{h,c}` (NVS persistence, its own record
+separate from settings), and `main/weather_ui.c`/`main/app_weather.c`/
+`main/main.c` (UI + wiring). The design has no star glyph available in LVGL
+(neither the generated Inter fonts nor LVGL's own symbol set carry one), so
+it's drawn as an `lv_line` outline — same technique as `weather_icons.c`'s
+storm-icon lightning bolt — rather than a text glyph.
+
 ## `src/weather-app/` — the app design
 
 The "Weather app with 7-day forecast" Claude Design project (ID withheld —

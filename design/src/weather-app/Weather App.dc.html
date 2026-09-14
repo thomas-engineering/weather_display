@@ -174,6 +174,24 @@
         <input data-lv="input.search" class="input" readOnly="{{ true }}" placeholder="{{ t.searchPlaceholder }}" value="{{ searchQuery }}" style="font-size:16px;padding:10px 14px;caret-color:transparent">
         <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ closeSearch }}" style="min-height:44px;padding:10px 18px;font-size:15px">{{ t.cancel }}</button>
       </div>
+      <div style="margin-bottom:var(--space-4)">
+        <div data-lv="label.caption" style="font-size:11px;color:color-mix(in srgb, var(--color-text) 45%, transparent);margin-bottom:6px">{{ t.favorites }}</div>
+        <div style="display:flex;gap:8px">
+          <sc-for list="{{ favoriteSlots }}" as="slot" hint-placeholder-count="6">
+            <sc-if value="{{ slot.filled }}" hint-placeholder-val="{{ false }}">
+              <div style="position:relative;flex:1;min-width:0">
+                <button data-lv="list.item" onClick="{{ slot.select }}" style="width:100%;text-align:left;padding:8px 10px;background:var(--color-accent-900);border:1px solid var(--color-accent-700);border-radius:var(--radius-md);color:var(--color-accent-100);cursor:pointer;overflow:hidden">
+                  <span data-lv="label.caption" style="display:block;font-size:12px;font-weight:500;font-family:var(--font-heading);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ slot.name }}</span>
+                </button>
+                <button data-lv="button.icon" onClick="{{ slot.remove }}" title="{{ t.removeFavorite }}" style="position:absolute;top:-9px;right:-9px;width:26px;height:26px;border-radius:50%;background:var(--color-surface);border:1px solid var(--color-divider);color:var(--color-text);font-size:13px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0">×</button>
+              </div>
+            </sc-if>
+            <sc-if value="{{ slot.empty }}" hint-placeholder-val="{{ true }}">
+              <div style="flex:1;min-width:0;min-height:40px;border:1px dashed var(--color-divider);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;color:color-mix(in srgb, var(--color-text) 40%, transparent);font-size:11px">{{ t.emptyFavorite }}</div>
+            </sc-if>
+          </sc-for>
+        </div>
+      </div>
       <sc-if value="{{ searching }}">
         <div data-lv="label.body" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);font-size:13px;padding:var(--space-2)">{{ t.searching }}</div>
       </sc-if>
@@ -182,10 +200,15 @@
       </sc-if>
       <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:var(--space-2);overflow-y:auto">
         <sc-for list="{{ searchResults }}" as="result" hint-placeholder-count="0">
-          <button data-lv="list.item" onClick="{{ result.select }}" style="text-align:left;display:flex;flex-direction:column;gap:2px;padding:var(--space-3) var(--space-4);background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
-            <span data-lv="label.title" style="font-size:14px;font-weight:500;font-family:var(--font-heading)">{{ result.name }}</span>
-            <span data-lv="label.caption" style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ result.sub }}</span>
-          </button>
+          <div style="display:flex;align-items:stretch;gap:var(--space-2)">
+            <button data-lv="list.item" onClick="{{ result.select }}" style="flex:1;min-width:0;text-align:left;display:flex;flex-direction:column;gap:2px;padding:var(--space-3) var(--space-4);background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:var(--color-text);cursor:pointer">
+              <span data-lv="label.title" style="font-size:14px;font-weight:500;font-family:var(--font-heading)">{{ result.name }}</span>
+              <span data-lv="label.caption" style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ result.sub }}</span>
+            </button>
+            <button data-lv="button.icon" onClick="{{ result.toggleFav }}" title="{{ t.favorite }}" style="flex:none;width:44px;height:44px;align-self:center;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);color:{{ result.favColor }};cursor:pointer;display:flex;align-items:center;justify-content:center">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.7 7-6.3-3.8-6.3 3.8 1.7-7-5.4-4.7 7.1-.6z"></path></svg>
+            </button>
+          </div>
         </sc-for>
       </div>
 
@@ -542,6 +565,7 @@ class Component extends DCLogic {
     autoRefreshMinutes: 30,
     wifiForgetConfirmOpen: false,
     airQuality: null,
+    favorites: new Array(6).fill(null),
   };
 
   STALE_MS = 60 * 60 * 1000;
@@ -554,7 +578,7 @@ class Component extends DCLogic {
         cancel: 'Cancel', retry: 'Retry', searchPlaceholder: 'Search for a city…',
         noCities: 'No cities found.', searching: 'Searching…', settings: 'Settings',
         temperature: 'Temperature', windSpeed: 'Wind speed', timeFormat: 'Time format',
-        language: 'Language', h24: '24-hour', h12: '12-hour', humidity: 'Humidity',
+        language: 'Language', favorites: 'Favorites', favorite: 'Favorite', emptyFavorite: 'Empty', removeFavorite: 'Remove favorite', h24: '24-hour', h12: '12-hour', humidity: 'Humidity',
         feelsLike: 'Feels like', wind: 'Wind', precip: 'Precip.', forecast: '7-Day Forecast',
         loading: 'Loading weather…', today: 'Today', tomorrow: 'Tomorrow', error: 'Could not load weather',
         dataUpdated: 'Weather data updated.',
@@ -586,7 +610,7 @@ class Component extends DCLogic {
         cancel: 'Abbrechen', retry: 'Erneut versuchen', searchPlaceholder: 'Stadt suchen…',
         noCities: 'Keine Städte gefunden.', searching: 'Suche…', settings: 'Einstellungen',
         temperature: 'Temperatur', windSpeed: 'Windgeschwindigkeit', timeFormat: 'Zeitformat',
-        language: 'Sprache', h24: '24 Std.', h12: '12 Std.', humidity: 'Luftfeuchte',
+        language: 'Sprache', favorites: 'Favoriten', favorite: 'Favorit', emptyFavorite: 'Leer', removeFavorite: 'Favorit entfernen', h24: '24 Std.', h12: '12 Std.', humidity: 'Luftfeuchte',
         feelsLike: 'Gefühlt', wind: 'Wind', precip: 'Niederschlag', forecast: '7-Tage-Vorhersage',
         loading: 'Wetter wird geladen…', today: 'Heute', tomorrow: 'Morgen', error: 'Wetter konnte nicht geladen werden',
         dataUpdated: 'Wetterdaten aktualisiert.',
@@ -618,7 +642,7 @@ class Component extends DCLogic {
         cancel: 'Cancelar', retry: 'Reintentar', searchPlaceholder: 'Buscar una ciudad…',
         noCities: 'No se encontraron ciudades.', searching: 'Buscando…', settings: 'Ajustes',
         temperature: 'Temperatura', windSpeed: 'Velocidad del viento', timeFormat: 'Formato de hora',
-        language: 'Idioma', h24: '24 h', h12: '12 h', humidity: 'Humedad',
+        language: 'Idioma', favorites: 'Favoritos', favorite: 'Favorito', emptyFavorite: 'Vacío', removeFavorite: 'Quitar favorito', h24: '24 h', h12: '12 h', humidity: 'Humedad',
         feelsLike: 'Sensación', wind: 'Viento', precip: 'Precip.', forecast: 'Pronóstico de 7 días',
         loading: 'Cargando el clima…', today: 'Hoy', tomorrow: 'Mañana', error: 'No se pudo cargar el clima',
         dataUpdated: 'Datos del clima actualizados.',
@@ -650,7 +674,7 @@ class Component extends DCLogic {
         cancel: 'Annuler', retry: 'Réessayer', searchPlaceholder: 'Rechercher une ville…',
         noCities: 'Aucune ville trouvée.', searching: 'Recherche…', settings: 'Paramètres',
         temperature: 'Température', windSpeed: 'Vitesse du vent', timeFormat: 'Format de l\u2019heure',
-        language: 'Langue', h24: '24 h', h12: '12 h', humidity: 'Humidité',
+        language: 'Langue', favorites: 'Favoris', favorite: 'Favori', emptyFavorite: 'Vide', removeFavorite: 'Retirer le favori', h24: '24 h', h12: '12 h', humidity: 'Humidité',
         feelsLike: 'Ressenti', wind: 'Vent', precip: 'Précip.', forecast: 'Prévisions sur 7 jours',
         loading: 'Chargement de la météo…', today: 'Aujourd\u2019hui', tomorrow: 'Demain', error: 'Impossible de charger la météo',
         dataUpdated: 'Données météo mises à jour.',
@@ -859,6 +883,27 @@ class Component extends DCLogic {
     }, () => this.fetchWeather());
   }
 
+  toggleFavorite = (r) => {
+    const favs = this.state.favorites.slice();
+    const idx = favs.findIndex((f) => f && f.lat === r.latitude && f.lon === r.longitude);
+    if (idx !== -1) { favs[idx] = null; this.setState({ favorites: favs }); return; }
+    const empty = favs.findIndex((f) => !f);
+    if (empty === -1) return;
+    favs[empty] = { name: r.name, country: r.country || '', lat: r.latitude, lon: r.longitude };
+    this.setState({ favorites: favs });
+  };
+  removeFavorite = (idx) => {
+    const favs = this.state.favorites.slice();
+    favs[idx] = null;
+    this.setState({ favorites: favs });
+  };
+  selectFavorite = (entry) => {
+    this.setState({
+      location: { name: entry.name, country: entry.country || '', lat: entry.lat, lon: entry.lon },
+      searchOpen: false, searchQuery: '', searchResults: [],
+    }, () => this.fetchWeather());
+  };
+
   weatherMeta(code, strings) {
     return strings.cond[code] || strings.cond[3];
   }
@@ -1011,7 +1056,7 @@ class Component extends DCLogic {
   }
 
   renderVals() {
-    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, deviceInfoOpen, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt, autoRefreshMinutes, wifiForgetConfirmOpen, airQuality } = this.state;
+    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, deviceInfoOpen, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt, autoRefreshMinutes, wifiForgetConfirmOpen, airQuality, favorites } = this.state;
     const isDataStale = !!lastFetchSuccessAt && (now.getTime() - lastFetchSuccessAt) > this.STALE_MS;
     const strings = this.getStrings(language);
     const locale = this.LOCALE[language] || 'en-US';
@@ -1109,7 +1154,12 @@ class Component extends DCLogic {
         name: r.name,
         sub: [r.admin1, r.country].filter(Boolean).join(', '),
         select: () => this.selectLocation(r),
+        toggleFav: () => this.toggleFavorite(r),
+        favColor: favorites.some((f) => f && f.lat === r.latitude && f.lon === r.longitude) ? 'var(--color-accent)' : 'color-mix(in srgb, var(--color-text) 45%, transparent)',
       })),
+      favoriteSlots: favorites.map((f, i) => f
+        ? { filled: true, empty: false, name: f.name, select: () => this.selectFavorite(f), remove: () => this.removeFavorite(i) }
+        : { filled: false, empty: true }),
       settingsOpen, brightness, brightnessAdaptive,
       setBrightness: this.setBrightness, toggleBrightnessAdaptive: this.toggleBrightnessAdaptive,
       switchTrackStyle: `position:relative;display:inline-block;width:36px;height:20px;border-radius:10px;flex-shrink:0;transition:background-color .15s ease,border-color .15s ease;background:${brightnessAdaptive ? 'var(--color-accent-700)' : 'var(--color-neutral-800)'};border:1px solid ${brightnessAdaptive ? 'var(--color-accent)' : 'var(--color-neutral-600)'}`,
