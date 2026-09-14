@@ -111,6 +111,7 @@ typedef struct {
     char device_info_note[256];
 
     lv_obj_t *search_backdrop, *search_ta, *search_kb, *search_results, *search_status_lbl, *search_cancel_lbl;
+    lv_obj_t *favorites_caption_lbl, *favorites_row;
 
     lv_obj_t *detail_backdrop, *detail_panel, *detail_icon, *detail_day_lbl, *detail_hilo_lbl, *detail_cond_lbl;
     lv_obj_t *detail_feel_lbl, *detail_precip_lbl, *detail_wind_lbl;
@@ -137,6 +138,9 @@ typedef struct {
     weather_ui_wifi_forget_cb_t on_wifi_forget;
     weather_ui_brightness_cb_t on_brightness;
     weather_ui_brightness_adaptive_cb_t on_brightness_adaptive;
+    weather_ui_favorite_toggle_cb_t on_favorite_toggle;
+    weather_ui_favorite_select_cb_t on_favorite_select;
+    weather_ui_favorite_remove_cb_t on_favorite_remove;
 } weather_ui_t;
 
 static weather_ui_t ui;
@@ -986,6 +990,65 @@ static void search_result_click_cb(lv_event_t *e) {
 
 static void search_cancel_cb(lv_event_t *e) { LV_UNUSED(e); lv_obj_add_flag(ui.search_backdrop, LV_OBJ_FLAG_HIDDEN); }
 
+/* ---- favorite star icon ---------------------------------------------------
+ *
+ * The design's favorite toggle is a filled 5-point-star SVG path
+ * ("Weather App.dc.html", result.toggleFav button). LVGL has no filled-
+ * arbitrary-polygon widget and the generated Inter fonts only carry ASCII +
+ * Latin-1 (see tools/gen_fonts.sh) — no star/bookmark glyph, and LVGL's own
+ * FontAwesome symbol subset (lv_symbol_def.h) has none either, so a text
+ * glyph would render as a tofu box (the exact bug class this file has hit
+ * before — see the LVGL decorative-obj CLICKABLE comment below). Drawn as a
+ * closed lv_line outline instead, same technique as WX_ICON_STORM's
+ * lightning bolt in weather_icons.c: a malloc'd point array that outlives
+ * the icon via LV_EVENT_DELETE. */
+static void star_free_cb(lv_event_t *e) { lv_free(lv_obj_get_user_data(lv_event_get_target_obj(e))); }
+
+static lv_obj_t *star_icon_create(lv_obj_t *parent, int32_t size, lv_color_t color) {
+    lv_obj_t *cont = lv_obj_create(parent);
+    lv_obj_remove_style_all(cont);
+    lv_obj_set_size(cont, size, size);
+    lv_obj_remove_flag(cont, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_point_precise_t *pts = lv_malloc(sizeof(lv_point_precise_t) * 11);
+    if (!pts) return cont;
+    float cx = size * 0.5f, cy = size * 0.5f;
+    float r_out = size * 0.48f, r_in = size * 0.19f;
+    for (int i = 0; i < 10; i++) {
+        float ang = (float)(-M_PI / 2.0 + i * M_PI / 5.0);
+        float r = (i % 2 == 0) ? r_out : r_in;
+        pts[i].x = (lv_coord_t)lroundf(cx + r * cosf(ang));
+        pts[i].y = (lv_coord_t)lroundf(cy + r * sinf(ang));
+    }
+    pts[10] = pts[0]; /* close the loop */
+
+    lv_obj_t *line = lv_line_create(cont);
+    lv_line_set_points(line, pts, 11);
+    lv_obj_set_user_data(line, pts);
+    lv_obj_add_event_cb(line, star_free_cb, LV_EVENT_DELETE, NULL);
+    lv_obj_set_style_line_color(line, color, 0);
+    lv_obj_set_style_line_width(line, LV_MAX(1, size / 10), 0);
+    lv_obj_set_style_line_rounded(line, true, 0);
+    return cont;
+}
+
+static void search_fav_click_cb(lv_event_t *e) {
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (ui.on_favorite_toggle) ui.on_favorite_toggle(idx);
+}
+
+static void favorite_slot_click_cb(lv_event_t *e) {
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (ui.on_favorite_select) ui.on_favorite_select(idx);
+    lv_obj_add_flag(ui.search_backdrop, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void favorite_remove_click_cb(lv_event_t *e) {
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (ui.on_favorite_remove) ui.on_favorite_remove(idx);
+}
+
 static void open_search_cb(lv_event_t *e) {
     LV_UNUSED(e);
     lv_textarea_set_text(ui.search_ta, "");
@@ -994,6 +1057,7 @@ static void open_search_cb(lv_event_t *e) {
     /* Captions follow the current language. */
     lv_textarea_set_placeholder_text(ui.search_ta, weather_strings[ui.lang].search_placeholder);
     lv_label_set_text(ui.search_cancel_lbl, weather_strings[ui.lang].cancel);
+    if (ui.favorites_caption_lbl) lv_label_set_text(ui.favorites_caption_lbl, weather_strings[ui.lang].favorites);
     lv_obj_remove_flag(ui.search_backdrop, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_state(ui.search_ta, LV_STATE_FOCUSED);
     lv_keyboard_set_textarea(ui.search_kb, ui.search_ta);
@@ -1117,6 +1181,29 @@ static void build_search_overlay(lv_obj_t *parent) {
     lv_obj_set_style_text_font(ui.search_cancel_lbl, FONT_14, 0);
     lv_obj_center(ui.search_cancel_lbl);
 
+    /* Favorites: a caption plus WEATHER_UI_FAVORITES_MAX slots, populated by
+     * weather_ui_set_favorites() (called once at startup and after every
+     * toggle/remove) — built once here, like search_results, rather than
+     * torn down and rebuilt on every open. */
+    lv_obj_t *fav_section = lv_obj_create(ui.search_backdrop);
+    lv_obj_remove_style_all(fav_section);
+    lv_obj_set_size(fav_section, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(fav_section, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(fav_section, 6, 0);
+    lv_obj_remove_flag(fav_section, LV_OBJ_FLAG_SCROLLABLE);
+
+    ui.favorites_caption_lbl = lv_label_create(fav_section);
+    lv_label_set_text(ui.favorites_caption_lbl, weather_strings[ui.lang].favorites);
+    lv_obj_set_style_text_color(ui.favorites_caption_lbl, C_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(ui.favorites_caption_lbl, FONT_12, 0);
+
+    ui.favorites_row = lv_obj_create(fav_section);
+    lv_obj_remove_style_all(ui.favorites_row);
+    lv_obj_set_size(ui.favorites_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(ui.favorites_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(ui.favorites_row, 8, 0);
+    lv_obj_remove_flag(ui.favorites_row, LV_OBJ_FLAG_SCROLLABLE);
+
     ui.search_status_lbl = lv_label_create(ui.search_backdrop);
     lv_obj_set_style_text_color(ui.search_status_lbl, C_TEXT_MUTED, 0);
     /* FIX: never had an explicit font, so it fell back to LVGL's global default
@@ -1147,13 +1234,29 @@ void weather_ui_set_searching(bool searching) {
     lv_label_set_text(ui.search_status_lbl, searching ? weather_strings[ui.lang].searching : "");
 }
 
-void weather_ui_set_search_results(const char *const names[], const char *const subs[], int count) {
+void weather_ui_set_search_results(const char *const names[], const char *const subs[],
+                                    const bool *const is_fav, int count) {
     lv_obj_clean(ui.search_results);
     lv_label_set_text(ui.search_status_lbl, count == 0 ? weather_strings[ui.lang].no_cities : "");
     for (int i = 0; i < count; i++) {
-        lv_obj_t *row = lv_obj_create(ui.search_results);
+        /* Outer row: the clickable name/sub card plus a separate favorite-
+         * toggle button next to it (design: result.select vs result.toggleFav
+         * are two different buttons side by side, not one). FIX: lv_obj_create()
+         * defaults CLICKABLE — this outer wrapper is purely a layout row, left
+         * clickable it would swallow taps meant for its children (same pitfall
+         * already hit twice: the info icon, the forecast icons). */
+        lv_obj_t *outer = lv_obj_create(ui.search_results);
+        lv_obj_remove_style_all(outer);
+        lv_obj_set_size(outer, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(outer, LV_FLEX_FLOW_ROW);
+        lv_obj_set_style_pad_column(outer, 8, 0);
+        lv_obj_remove_flag(outer, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(outer, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *row = lv_obj_create(outer);
         lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+        lv_obj_set_flex_grow(row, 1);
+        lv_obj_set_size(row, 0, LV_SIZE_CONTENT);
         lv_obj_set_style_bg_color(row, C_SURFACE, 0);
         lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(row, 1, 0);
@@ -1176,6 +1279,93 @@ void weather_ui_set_search_results(const char *const names[], const char *const 
         lv_label_set_text(s, subs[i]);
         lv_obj_set_style_text_color(s, C_TEXT_MUTED, 0);
         lv_obj_set_style_text_font(s, FONT_12, 0);
+
+        bool fav = is_fav && is_fav[i];
+        lv_obj_t *fav_btn = lv_obj_create(outer);
+        lv_obj_remove_style_all(fav_btn);
+        lv_obj_set_size(fav_btn, 44, 44);
+        lv_obj_set_style_bg_color(fav_btn, C_SURFACE, 0);
+        lv_obj_set_style_bg_opa(fav_btn, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(fav_btn, 1, 0);
+        lv_obj_set_style_border_color(fav_btn, C_DIVIDER, 0);
+        lv_obj_set_style_radius(fav_btn, R_MD, 0);
+        lv_obj_add_flag(fav_btn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(fav_btn, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_event_cb(fav_btn, search_fav_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+        lv_obj_t *star = star_icon_create(fav_btn, 20, fav ? C_ACCENT : C_TEXT_MUTED);
+        lv_obj_center(star);
+    }
+}
+
+void weather_ui_set_favorites(const char *const names[WEATHER_UI_FAVORITES_MAX],
+                               const bool used[WEATHER_UI_FAVORITES_MAX]) {
+    if (!ui.favorites_row) return;
+    lv_obj_clean(ui.favorites_row);
+    for (int i = 0; i < WEATHER_UI_FAVORITES_MAX; i++) {
+        if (used[i]) {
+            lv_obj_t *slot = lv_obj_create(ui.favorites_row);
+            lv_obj_remove_style_all(slot);
+            lv_obj_set_flex_grow(slot, 1);
+            lv_obj_set_size(slot, 0, LV_SIZE_CONTENT);
+            lv_obj_set_style_min_height(slot, 40, 0);
+            lv_obj_set_style_bg_color(slot, C_ACCENT_900, 0);
+            lv_obj_set_style_bg_opa(slot, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(slot, 1, 0);
+            lv_obj_set_style_border_color(slot, C_ACCENT_700, 0);
+            lv_obj_set_style_radius(slot, R_MD, 0);
+            lv_obj_set_style_pad_hor(slot, 10, 0);
+            lv_obj_set_style_pad_ver(slot, 8, 0);
+            lv_obj_add_flag(slot, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_remove_flag(slot, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_event_cb(slot, favorite_slot_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+
+            lv_obj_t *lbl = lv_label_create(slot);
+            lv_label_set_text(lbl, names[i]);
+            lv_obj_set_width(lbl, LV_PCT(100));
+            lv_label_set_long_mode(lbl, LV_LABEL_LONG_DOT);
+            lv_obj_set_style_text_color(lbl, C_ACCENT_100, 0);
+            lv_obj_set_style_text_font(lbl, FONT_12, 0);
+
+            /* Small round remove button, overlapping the slot's top-right
+             * corner (design: position:absolute;top:-9px;right:-9px). LVGL's
+             * flex layout would otherwise place this as a normal flex child,
+             * so it opts out with IGNORE_LAYOUT and is positioned by
+             * lv_obj_align() instead. */
+            lv_obj_t *remove_btn = lv_obj_create(slot);
+            lv_obj_remove_style_all(remove_btn);
+            lv_obj_add_flag(remove_btn, LV_OBJ_FLAG_IGNORE_LAYOUT);
+            lv_obj_set_size(remove_btn, 22, 22);
+            lv_obj_align(remove_btn, LV_ALIGN_TOP_RIGHT, 8, -10);
+            lv_obj_set_style_radius(remove_btn, LV_RADIUS_CIRCLE, 0);
+            lv_obj_set_style_bg_color(remove_btn, C_SURFACE, 0);
+            lv_obj_set_style_bg_opa(remove_btn, LV_OPA_COVER, 0);
+            lv_obj_set_style_border_width(remove_btn, 1, 0);
+            lv_obj_set_style_border_color(remove_btn, C_DIVIDER, 0);
+            lv_obj_add_flag(remove_btn, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_remove_flag(remove_btn, LV_OBJ_FLAG_SCROLLABLE);
+            lv_obj_add_event_cb(remove_btn, favorite_remove_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+            lv_obj_t *x_lbl = lv_label_create(remove_btn);
+            lv_label_set_text(x_lbl, "\xC3\x97" /* U+00D7, same glyph the settings-close button uses */);
+            lv_obj_set_style_text_color(x_lbl, C_TEXT, 0);
+            lv_obj_set_style_text_font(x_lbl, FONT_12, 0);
+            lv_obj_center(x_lbl);
+        } else {
+            /* Empty placeholder — decorative only, matching the design's
+             * dashed-border box (LVGL has no dashed border, solid divider
+             * color is the closest equivalent). FIX: stays non-clickable
+             * deliberately — same pitfall this file has hit before with
+             * decorative lv_obj_create() children left at their default
+             * CLICKABLE flag. */
+            lv_obj_t *empty = lv_obj_create(ui.favorites_row);
+            lv_obj_remove_style_all(empty);
+            lv_obj_set_flex_grow(empty, 1);
+            lv_obj_set_size(empty, 0, 40);
+            lv_obj_set_style_border_width(empty, 1, 0);
+            lv_obj_set_style_border_color(empty, C_DIVIDER, 0);
+            lv_obj_set_style_radius(empty, R_MD, 0);
+            lv_obj_remove_flag(empty, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_remove_flag(empty, LV_OBJ_FLAG_SCROLLABLE);
+        }
     }
 }
 
@@ -2231,6 +2421,14 @@ void weather_ui_set_brightness_callback(weather_ui_brightness_cb_t on_brightness
 
 void weather_ui_set_brightness_adaptive_callback(weather_ui_brightness_adaptive_cb_t on_adaptive) {
     ui.on_brightness_adaptive = on_adaptive;
+}
+
+void weather_ui_set_favorite_callbacks(weather_ui_favorite_toggle_cb_t on_toggle,
+                                        weather_ui_favorite_select_cb_t on_select,
+                                        weather_ui_favorite_remove_cb_t on_remove) {
+    ui.on_favorite_toggle = on_toggle;
+    ui.on_favorite_select = on_select;
+    ui.on_favorite_remove = on_remove;
 }
 
 void weather_ui_open_wifi_setup(void) {

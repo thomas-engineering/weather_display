@@ -18,6 +18,7 @@
 #include "app_wifi.h"
 #include "app_weather.h"
 #include "app_prefs.h"
+#include "app_favorites.h"
 #include "app_light.h"
 #include "sdkconfig.h"
 
@@ -30,6 +31,9 @@ static void on_search(const char *query)          { app_weather_search(query); }
 static void on_select_city(int idx)               { app_weather_select_city(idx); }
 static void on_refresh(void)                      { app_weather_refresh(); }
 static void on_wifi_scan(void)                    { app_weather_wifi_scan(); }
+static void on_favorite_toggle(int result_index)  { app_weather_toggle_favorite(result_index); }
+static void on_favorite_select(int slot_index)    { app_weather_select_favorite(slot_index); }
+static void on_favorite_remove(int slot_index)    { app_weather_remove_favorite(slot_index); }
 
 static void on_wifi_connect(const char *ssid, const char *password) {
     app_weather_wifi_connect(ssid, password);
@@ -154,6 +158,7 @@ void app_main(void) {
 
     app_prefs_t prefs;
     app_prefs_load(&prefs);
+    app_favorites_load();
 
     /* Panel + touch. Rotation and touch mirroring match the vendor's own LVGL
      * example for this board (09_lvgl_demo_v9). TRIPLE_PARTIAL is the known
@@ -203,6 +208,7 @@ void app_main(void) {
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
     weather_ui_set_brightness_adaptive_callback(on_brightness_adaptive);
+    weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
     /* FIX: weather_ui_set_language()/weather_ui_set_units() both end by firing
      * the settings-changed callback (so language/unit-only edits from the UI
      * get persisted), which re-saves *every* field of app_prefs including

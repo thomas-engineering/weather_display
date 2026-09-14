@@ -7,6 +7,11 @@
 
 #define WEATHER_UI_DAYS 7
 
+/* Matches APP_FAVORITES_MAX (components/app_logic/include/favorites.h) by
+ * convention, not by #include — weather_ui.c stays hardware/app_logic-free
+ * per CLAUDE.md's Codeorganisation, so it only knows a plain slot count. */
+#define WEATHER_UI_FAVORITES_MAX 6
+
 typedef enum { WX_UNIT_C, WX_UNIT_F } wx_temp_unit_t;
 typedef enum { WX_WIND_KMH, WX_WIND_MPH, WX_WIND_MS } wx_wind_unit_t;
 typedef enum { WX_TIME_24, WX_TIME_12 } wx_time_fmt_t;
@@ -82,6 +87,16 @@ typedef void (*weather_ui_brightness_cb_t)(int percent, bool final);
  * directly and when dragging the manual slider turns adaptive mode off (the
  * two controls fight over the same backlight, so a manual drag wins). */
 typedef void (*weather_ui_brightness_adaptive_cb_t)(bool on);
+/* Favorites, added for the location-selection screen (Claude Design's
+ * favorites/favoriteSlots state, "Weather App.dc.html"). `result_index` /
+ * `slot_index` are indices into the arrays most recently passed to
+ * weather_ui_set_search_results() / weather_ui_set_favorites() respectively
+ * — the app resolves them back to a city (it already holds the lat/lon,
+ * the UI never does). Toggling and removing don't close the search screen;
+ * selecting a favorite does, same as picking a plain search result. */
+typedef void (*weather_ui_favorite_toggle_cb_t)(int result_index);
+typedef void (*weather_ui_favorite_select_cb_t)(int slot_index);
+typedef void (*weather_ui_favorite_remove_cb_t)(int slot_index);
 
 /* Builds the whole 1024x600 screen as a child of `parent` (typically lv_screen_active()). */
 void weather_ui_create(lv_obj_t *parent);
@@ -92,6 +107,9 @@ void weather_ui_set_wifi_callbacks(weather_ui_wifi_scan_cb_t on_scan, weather_ui
                                     weather_ui_wifi_forget_cb_t on_forget);
 void weather_ui_set_brightness_callback(weather_ui_brightness_cb_t on_brightness);
 void weather_ui_set_brightness_adaptive_callback(weather_ui_brightness_adaptive_cb_t on_adaptive);
+void weather_ui_set_favorite_callbacks(weather_ui_favorite_toggle_cb_t on_toggle,
+                                        weather_ui_favorite_select_cb_t on_select,
+                                        weather_ui_favorite_remove_cb_t on_remove);
 
 void weather_ui_set_language(weather_lang_t lang);
 void weather_ui_set_units(wx_temp_unit_t temp, wx_wind_unit_t wind, wx_time_fmt_t time_fmt);
@@ -158,9 +176,19 @@ weather_lang_t weather_ui_get_language(void);
 wx_time_fmt_t  weather_ui_get_time_fmt(void);
 
 /* Called by the app once its geocoding-API fetch (triggered via the on_search
- * callback) resolves; parallel arrays, `count` entries, 0 clears/shows "no cities". */
-void weather_ui_set_search_results(const char *const names[], const char *const subs[], int count);
+ * callback) resolves; parallel arrays, `count` entries, 0 clears/shows "no cities".
+ * is_fav[i] colors that result's favorite-toggle star — pass NULL to leave
+ * every star unfavorited (e.g. while the app hasn't computed it yet). */
+void weather_ui_set_search_results(const char *const names[], const char *const subs[],
+                                    const bool *const is_fav, int count);
 void weather_ui_set_searching(bool searching);
+
+/* Favorite-city slots shown above the search results (always
+ * WEATHER_UI_FAVORITES_MAX entries; used[i] false renders an empty
+ * placeholder, names[i] is only read where used[i] is true). Call once at
+ * startup with the persisted set and again after every toggle/remove. */
+void weather_ui_set_favorites(const char *const names[WEATHER_UI_FAVORITES_MAX],
+                               const bool used[WEATHER_UI_FAVORITES_MAX]);
 
 /* Called once the app's Wi-Fi scan (triggered via on_scan) resolves. */
 void weather_ui_set_wifi_scan_results(const wx_wifi_network_t *networks, int count);

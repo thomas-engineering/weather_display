@@ -85,6 +85,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .aqi_unhealthy = "Unhealthy", .aqi_very_unhealthy = "Very unhealthy", .aqi_hazardous = "Hazardous",
         .auto_refresh = "Auto-refresh", .auto_off = "Off", .auto_15 = "15 min", .auto_30 = "30 min", .auto_60 = "1 h",
         .forget_confirm_title = "Forget this network?", .forget_confirm_body = "You will need to enter the password again to reconnect.",
+        .favorites = "Favorites", .empty_favorite = "Empty",
     },
     [LANG_DE] = {
         .cancel = "Abbrechen", .retry = "Erneut versuchen", .search_placeholder = "Stadt suchen...",
@@ -114,6 +115,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .aqi_unhealthy = "Ungesund", .aqi_very_unhealthy = "Sehr ungesund", .aqi_hazardous = "Gefährlich",
         .auto_refresh = "Automatische Aktualisierung", .auto_off = "Aus", .auto_15 = "15 Min", .auto_30 = "30 Min", .auto_60 = "1 Std",
         .forget_confirm_title = "Dieses Netzwerk vergessen?", .forget_confirm_body = "Du musst das Passwort erneut eingeben, um dich wieder zu verbinden.",
+        .favorites = "Favoriten", .empty_favorite = "Leer",
     },
     [LANG_ES] = {
         .cancel = "Cancelar", .retry = "Reintentar", .search_placeholder = "Buscar una ciudad...",
@@ -143,6 +145,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .aqi_unhealthy = "Insalubre", .aqi_very_unhealthy = "Muy insalubre", .aqi_hazardous = "Peligrosa",
         .auto_refresh = "Actualización automática", .auto_off = "Apagado", .auto_15 = "15 min", .auto_30 = "30 min", .auto_60 = "1 h",
         .forget_confirm_title = "¿Olvidar esta red?", .forget_confirm_body = "Deberás introducir la contraseña de nuevo para volver a conectarte.",
+        .favorites = "Favoritos", .empty_favorite = "Vacío",
     },
     [LANG_FR] = {
         .cancel = "Annuler", .retry = "Réessayer", .search_placeholder = "Rechercher une ville...",
@@ -172,5 +175,6 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .aqi_unhealthy = "Malsaine", .aqi_very_unhealthy = "Très malsaine", .aqi_hazardous = "Dangereuse",
         .auto_refresh = "Actualisation automatique", .auto_off = "Désactivé", .auto_15 = "15 min", .auto_30 = "30 min", .auto_60 = "1 h",
         .forget_confirm_title = "Oublier ce réseau ?", .forget_confirm_body = "Vous devrez à nouveau saisir le mot de passe pour vous reconnecter.",
+        .favorites = "Favoris", .empty_favorite = "Vide",
     },
 };

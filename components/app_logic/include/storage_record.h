@@ -18,10 +18,13 @@
  * mid-write leaves either the old record or the new one, never a mix.
  */
 
-/* Largest payload a record may hold. Both app records today (prefs, wifi
- * credentials) are well under this; raise it if a future record needs more,
- * it only affects the stack buffers inside storage_record.c. */
-#define STORAGE_RECORD_MAX_PAYLOAD 192
+/* Largest payload a record may hold. Raise it if a future record needs
+ * more, it only affects the stack buffers inside storage_record.c (two of
+ * this size, transient, inside storage_record_save()). 900 covers the
+ * largest record today: main/app_favorites.c's 6-slot app_favorite_t[]
+ * (components/app_logic/include/favorites.h), packed size 137 bytes/slot *
+ * 6 = 822 bytes, with headroom. */
+#define STORAGE_RECORD_MAX_PAYLOAD 900
 
 /* Loads the record at ns/key, validates it (matching version, matching
  * payload_len against out_len, matching CRC32), and copies the payload into

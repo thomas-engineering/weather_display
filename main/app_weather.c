@@ -1,5 +1,6 @@
 #include "app_weather.h"
 #include "app_prefs.h"
+#include "app_favorites.h"
 #include "app_format.h"
 #include "app_wifi.h"
 #include "sdkconfig.h"
@@ -27,7 +28,8 @@ static const char *TAG = "weather";
 #define HTTP_BUF_MAX     (48 * 1024)
 #define SEARCH_DEBOUNCE_MS 450
 
-typedef enum { CMD_SEARCH, CMD_SELECT, CMD_REFRESH, CMD_RELANG, CMD_WIFI_SCAN, CMD_WIFI_CONNECT, CMD_WIFI_FORGET } cmd_kind_t;
+typedef enum { CMD_SEARCH, CMD_SELECT, CMD_REFRESH, CMD_RELANG, CMD_WIFI_SCAN, CMD_WIFI_CONNECT, CMD_WIFI_FORGET,
+               CMD_FAV_TOGGLE, CMD_FAV_SELECT, CMD_FAV_REMOVE } cmd_kind_t;
 
 typedef struct {
     cmd_kind_t kind;
@@ -457,6 +459,42 @@ static void do_refresh(bool is_manual) {
 
 /* ---- geocoding ----------------------------------------------------------- */
 
+/* Re-renders the search-results list from s_hits/s_hit_count, recomputing
+ * each row's favorite-star color from the current favorites set. Called
+ * both when a search resolves and whenever the favorites set itself
+ * changes (toggle/remove) while results are still on screen. */
+static void push_search_results_to_ui(void) {
+    const char *names[APP_WEATHER_MAX_RESULTS];
+    const char *subs[APP_WEATHER_MAX_RESULTS];
+    bool is_fav[APP_WEATHER_MAX_RESULTS];
+    const app_favorite_t *favs = app_favorites_get();
+    for (int i = 0; i < s_hit_count; i++) {
+        names[i] = s_hits[i].name;
+        subs[i] = s_hits[i].label;
+        is_fav[i] = app_favorites_contains(favs, s_hits[i].lat, s_hits[i].lon);
+    }
+    if (bsp_display_lock(1000)) {
+        weather_ui_set_search_results(names, subs, is_fav, s_hit_count);
+        bsp_display_unlock();
+    }
+}
+
+/* Re-renders the favorite-slot row from app_favorites_get(). Called at
+ * worker startup and after every toggle/remove. */
+static void push_favorites_to_ui(void) {
+    const app_favorite_t *favs = app_favorites_get();
+    const char *names[APP_FAVORITES_MAX];
+    bool used[APP_FAVORITES_MAX];
+    for (int i = 0; i < APP_FAVORITES_MAX; i++) {
+        names[i] = favs[i].name;
+        used[i] = favs[i].used;
+    }
+    if (bsp_display_lock(1000)) {
+        weather_ui_set_favorites(names, used);
+        bsp_display_unlock();
+    }
+}
+
 static void do_search(const char *query) {
     const app_prefs_t *p = app_prefs_get();
     if (!query || strlen(query) < 2) {
@@ -512,15 +550,8 @@ static void do_search(const char *query) {
         }
     }
 
-    const char *names[APP_WEATHER_MAX_RESULTS];
-    const char *subs[APP_WEATHER_MAX_RESULTS];
-    for (int i = 0; i < s_hit_count; i++) { names[i] = s_hits[i].name; subs[i] = s_hits[i].label; }
-
-    if (bsp_display_lock(1000)) {
-        weather_ui_set_searching(false);
-        weather_ui_set_search_results(names, subs, s_hit_count);
-        bsp_display_unlock();
-    }
+    if (bsp_display_lock(1000)) { weather_ui_set_searching(false); bsp_display_unlock(); }
+    push_search_results_to_ui();
 }
 
 /* ---- worker -------------------------------------------------------------- */
@@ -533,6 +564,7 @@ static void weather_task(void *arg) {
     TickType_t search_due = 0;
 
     TickType_t last_auto = xTaskGetTickCount();
+    push_favorites_to_ui();
     if (app_wifi_is_connected()) do_refresh(false);
 
     for (;;) {
@@ -591,6 +623,29 @@ static void weather_task(void *arg) {
                         bsp_display_unlock();
                     }
                     break;
+                case CMD_FAV_TOGGLE:
+                    if (cmd.index >= 0 && cmd.index < s_hit_count) {
+                        geo_hit_t *h = &s_hits[cmd.index];
+                        app_favorites_toggle_save(h->name, h->country, h->lat, h->lon);
+                        push_favorites_to_ui();
+                        push_search_results_to_ui();
+                    }
+                    break;
+                case CMD_FAV_SELECT: {
+                    const app_favorite_t *favs = app_favorites_get();
+                    if (cmd.index >= 0 && cmd.index < APP_FAVORITES_MAX && favs[cmd.index].used) {
+                        const app_favorite_t *f = &favs[cmd.index];
+                        app_prefs_save_city(f->name, f->country, f->lat, f->lon);
+                        do_refresh(false);
+                        last_auto = xTaskGetTickCount();
+                    }
+                    break;
+                }
+                case CMD_FAV_REMOVE:
+                    app_favorites_remove_save(cmd.index);
+                    push_favorites_to_ui();
+                    push_search_results_to_ui();
+                    break;
             }
         }
 
@@ -637,6 +692,21 @@ void app_weather_search(const char *query) {
 
 void app_weather_select_city(int idx) {
     cmd_t c = { .kind = CMD_SELECT, .index = idx };
+    post(&c);
+}
+
+void app_weather_toggle_favorite(int result_index) {
+    cmd_t c = { .kind = CMD_FAV_TOGGLE, .index = result_index };
+    post(&c);
+}
+
+void app_weather_select_favorite(int slot_index) {
+    cmd_t c = { .kind = CMD_FAV_SELECT, .index = slot_index };
+    post(&c);
+}
+
+void app_weather_remove_favorite(int slot_index) {
+    cmd_t c = { .kind = CMD_FAV_REMOVE, .index = slot_index };
     post(&c);
 }
 

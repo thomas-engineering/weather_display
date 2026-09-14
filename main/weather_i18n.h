@@ -32,6 +32,7 @@ typedef struct {
     const char *aqi_good, *aqi_moderate, *aqi_unhealthy_sensitive, *aqi_unhealthy, *aqi_very_unhealthy, *aqi_hazardous;
     const char *auto_refresh, *auto_off, *auto_15, *auto_30, *auto_60;
     const char *forget_confirm_title, *forget_confirm_body;
+    const char *favorites, *empty_favorite;
 } weather_strings_t;
 
 /* Weather condition text, indexed by WMO weather code buckets used elsewhere in this port

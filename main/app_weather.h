@@ -22,6 +22,14 @@ void app_weather_search(const char *query);
 /* Picks result `idx` from the last search, persists it, and re-fetches. */
 void app_weather_select_city(int idx);
 
+/* Favorites, addressed the same way weather_ui.h documents: `result_index`
+ * is an index into the last search results, `slot_index` into the
+ * WEATHER_UI_FAVORITES_MAX favorite slots. All asynchronous, like every
+ * other entry point here. */
+void app_weather_toggle_favorite(int result_index);
+void app_weather_select_favorite(int slot_index);
+void app_weather_remove_favorite(int slot_index);
+
 /* Re-fetches the forecast for the currently selected city. */
 void app_weather_refresh(void);
 

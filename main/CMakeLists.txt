@@ -8,6 +8,7 @@ idf_component_register(
         "app_wifi.c"
         "app_weather.c"
         "app_prefs.c"
+        "app_favorites.c"
         "app_format.c"
         "app_light.c"
         "storage_backend_nvs.c"

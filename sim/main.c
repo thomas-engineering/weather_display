@@ -477,7 +477,10 @@ static void deferred_cb(lv_timer_t *timer)
             subs[i]  = k_cities[s_result_idx[i]].sub;
         }
         weather_ui_set_searching(false);
-        weather_ui_set_search_results(names, subs, s_result_count);
+        /* No fake favorites backend in the simulator (yet) — every result
+         * renders unfavorited. weather_ui_set_search_results() treats a NULL
+         * is_fav the same way. */
+        weather_ui_set_search_results(names, subs, NULL, s_result_count);
         break;
     }
     case ACT_CITY_SELECTED:
@@ -937,6 +940,13 @@ int main(int argc, char **argv)
     weather_ui_set_language(s_lang);
     weather_ui_set_units(s_temp_unit, s_wind_unit, s_time_fmt);
     weather_ui_set_auto_refresh(30);
+    {
+        /* No fake favorites backend in the simulator (yet) — render the
+         * search screen's favorites row all-empty, same as a fresh device. */
+        const char *empty_names[WEATHER_UI_FAVORITES_MAX] = {0};
+        bool empty_used[WEATHER_UI_FAVORITES_MAX] = {0};
+        weather_ui_set_favorites(empty_names, empty_used);
+    }
 
     if (open_wifi_setup) {
         weather_ui_set_network_status(WX_NET_OFFLINE);
