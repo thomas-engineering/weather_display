@@ -36,6 +36,7 @@
 
 #include "app_format.h"
 #include "cJSON.h"
+#include "favorites.h"
 #include "weather_forecast_parse.h"
 #include "weather_i18n.h"
 #include "weather_ui.h"
@@ -58,6 +59,12 @@ static wx_time_fmt_t  s_time_fmt  = WX_TIME_24;
 
 static char s_city[64]    = "Trier";
 static char s_country[64] = "Germany";
+
+/* ---- Favorites (Gegenstueck zu main/app_favorites.c) --------------------- */
+/* Zero-initialized like a fresh device — no fake NVS here, favorites reset
+ * every simulator run. Uses the real components/app_logic/favorites.c logic
+ * (toggle/remove/contains), not a reimplementation. */
+static app_favorite_t s_favorites[APP_FAVORITES_MAX];
 
 /* ---- --live: real Open-Meteo data instead of the fixtures below ---------- */
 /* Same defaults as CONFIG_WEATHER_DEFAULT_LAT/LON_MILLIDEG (main/Kconfig.projbuild). */
@@ -437,6 +444,46 @@ static void run_search(void)
     }
 }
 
+/* The UI shows the country under the city name, not the full region — same
+ * extraction on_select_city() already did (everything after the last comma
+ * in `sub`), factored out so the favorites path (which needs a bare country
+ * to match main/app_weather.c's geo_hit_t/app_favorite_t shape) uses the
+ * same rule instead of a second copy of it. */
+static void city_country(const sim_city_t *c, char *out, size_t out_sz)
+{
+    const char *comma = strrchr(c->sub, ',');
+    snprintf(out, out_sz, "%s", comma ? comma + 2 : c->sub);
+}
+
+/* Re-renders the search-results list from s_result_idx/s_result_count,
+ * recomputing each row's favorite-star color — the sim's counterpart to
+ * app_weather.c's push_search_results_to_ui(). */
+static void push_search_results_to_ui_sim(void)
+{
+    const char *names[SIM_CITY_COUNT];
+    const char *subs[SIM_CITY_COUNT];
+    bool is_fav[SIM_CITY_COUNT];
+    for (int i = 0; i < s_result_count; i++) {
+        const sim_city_t *c = &k_cities[s_result_idx[i]];
+        names[i] = c->name;
+        subs[i]  = c->sub;
+        is_fav[i] = app_favorites_contains(s_favorites, c->lat, c->lon);
+    }
+    weather_ui_set_search_results(names, subs, is_fav, s_result_count);
+}
+
+/* Sim's counterpart to app_weather.c's push_favorites_to_ui(). */
+static void push_favorites_to_ui_sim(void)
+{
+    const char *names[APP_FAVORITES_MAX];
+    bool used[APP_FAVORITES_MAX];
+    for (int i = 0; i < APP_FAVORITES_MAX; i++) {
+        names[i] = s_favorites[i].name;
+        used[i]  = s_favorites[i].used;
+    }
+    weather_ui_set_favorites(names, used);
+}
+
 /* ---- Fake-WLAN ---------------------------------------------------------- */
 
 static const wx_wifi_network_t k_networks[] = {
@@ -460,29 +507,21 @@ typedef enum {
     ACT_WIFI_SCAN_RESULTS,
     ACT_WIFI_CONNECT_RESULT,
     ACT_OPEN_SCREEN,
+    ACT_CLICK_FAVORITE_STAR,
 } sim_action_t;
 
 static void open_screen(void);
+static void click_favorite_star_in_search(void);
 
 static void deferred_cb(lv_timer_t *timer)
 {
     const sim_action_t action = (sim_action_t)(uintptr_t)lv_timer_get_user_data(timer);
 
     switch (action) {
-    case ACT_SEARCH_RESULTS: {
-        const char *names[SIM_CITY_COUNT];
-        const char *subs[SIM_CITY_COUNT];
-        for (int i = 0; i < s_result_count; i++) {
-            names[i] = k_cities[s_result_idx[i]].name;
-            subs[i]  = k_cities[s_result_idx[i]].sub;
-        }
+    case ACT_SEARCH_RESULTS:
         weather_ui_set_searching(false);
-        /* No fake favorites backend in the simulator (yet) — every result
-         * renders unfavorited. weather_ui_set_search_results() treats a NULL
-         * is_fav the same way. */
-        weather_ui_set_search_results(names, subs, NULL, s_result_count);
+        push_search_results_to_ui_sim();
         break;
-    }
     case ACT_CITY_SELECTED:
         publish_weather_or_live();
         break;
@@ -515,6 +554,13 @@ static void deferred_cb(lv_timer_t *timer)
          * Felder, und der Chart darin misst sich auf Hoehe null. */
         open_screen();
         break;
+
+    case ACT_CLICK_FAVORITE_STAR:
+        /* Deferred past ACT_SEARCH_RESULTS's own SIM_LATENCY_MS delay (see
+         * SCREEN_FAVORITE_TAP below) — the result row this clicks doesn't
+         * exist until that fires. */
+        click_favorite_star_in_search();
+        break;
     }
 }
 
@@ -539,14 +585,43 @@ static void on_select_city(int idx)
     if (idx < 0 || idx >= s_result_count) return;
     const sim_city_t *c = &k_cities[s_result_idx[idx]];
     snprintf(s_city, sizeof(s_city), "%s", c->name);
-    /* Die UI zeigt unter dem Ortsnamen das Land, nicht die volle Region — vom
-     * letzten Komma an ist genau das der Rest. */
-    const char *comma = strrchr(c->sub, ',');
-    snprintf(s_country, sizeof(s_country), "%s", comma ? comma + 2 : c->sub);
+    city_country(c, s_country, sizeof s_country);
     s_live_lat = c->lat;
     s_live_lon = c->lon;
     weather_ui_set_loading(true);
     defer(ACT_CITY_SELECTED, SIM_LATENCY_MS);
+}
+
+/* ---- Favorites (Gegenstueck zu app_weather_toggle/select/remove_favorite) */
+
+static void on_favorite_toggle(int result_index)
+{
+    if (result_index < 0 || result_index >= s_result_count) return;
+    const sim_city_t *c = &k_cities[s_result_idx[result_index]];
+    char country[64];
+    city_country(c, country, sizeof country);
+    app_favorites_toggle(s_favorites, c->name, country, c->lat, c->lon);
+    push_favorites_to_ui_sim();
+    push_search_results_to_ui_sim();
+}
+
+static void on_favorite_select(int slot_index)
+{
+    if (slot_index < 0 || slot_index >= APP_FAVORITES_MAX || !s_favorites[slot_index].used) return;
+    const app_favorite_t *f = &s_favorites[slot_index];
+    snprintf(s_city, sizeof(s_city), "%s", f->name);
+    snprintf(s_country, sizeof(s_country), "%s", f->country);
+    s_live_lat = f->lat;
+    s_live_lon = f->lon;
+    weather_ui_set_loading(true);
+    defer(ACT_CITY_SELECTED, SIM_LATENCY_MS);
+}
+
+static void on_favorite_remove(int slot_index)
+{
+    app_favorites_remove(s_favorites, slot_index);
+    push_favorites_to_ui_sim();
+    push_search_results_to_ui_sim();
 }
 
 static void on_refresh(void)
@@ -619,6 +694,7 @@ typedef enum {
     SCREEN_DETAIL,
     SCREEN_WIFI,
     SCREEN_WIFI_FORGET_CONFIRM,
+    SCREEN_FAVORITE_TAP,
 } sim_screen_t;
 
 static sim_screen_t s_screen = SCREEN_MAIN;
@@ -809,7 +885,40 @@ static void open_screen(void)
         if (forget == NULL || !click_owner_of(forget)) warn_missing("\"Forget saved network\"-Knopf");
         break;
     }
+
+    case SCREEN_FAVORITE_TAP: {
+        /* Reported bug: the favorite-star toggle button didn't do anything
+         * in the simulator (weather_ui_set_favorite_callbacks() was never
+         * wired here) and looked mis-sized against the search-result card
+         * next to it. Opens search the same way SCREEN_SEARCH does, then
+         * (once results actually exist — ACT_SEARCH_RESULTS' own
+         * SIM_LATENCY_MS delay) taps the star on the first result. */
+        lv_obj_t *pin = find_label(root, LV_SYMBOL_GPS);
+        if (pin == NULL || !click_owner_of(pin)) { warn_missing("Ortsmarke im Header"); break; }
+        lv_obj_t *ta = find_by_class(root, &lv_textarea_class);
+        if (ta != NULL) lv_textarea_set_text(ta, "Tri");
+        defer(ACT_CLICK_FAVORITE_STAR, SIM_LATENCY_MS + 200);
+        break;
     }
+    }
+}
+
+/* Clicks the favorite-star button on the first search result ("Trier",
+ * per SCREEN_FAVORITE_TAP's query) — walks the object tree from its name
+ * label rather than a fixed index, same reasoning as click_owner_of()'s own
+ * comment above open_screen(): find_label("Trier") -> row (the clickable
+ * name/sub card) -> outer (the row's non-clickable wrapper, see
+ * weather_ui_set_search_results()) -> its 2nd child, the star button. */
+static void click_favorite_star_in_search(void)
+{
+    lv_obj_t *root = lv_screen_active();
+    lv_obj_t *name_lbl = find_label(root, "Trier");
+    if (name_lbl == NULL) { warn_missing("Suchergebnis \"Trier\""); return; }
+    lv_obj_t *row = lv_obj_get_parent(name_lbl);
+    lv_obj_t *outer = lv_obj_get_parent(row);
+    lv_obj_t *fav_btn = lv_obj_get_child(outer, 1);
+    if (fav_btn == NULL) { warn_missing("Favoriten-Stern neben \"Trier\""); return; }
+    lv_obj_send_event(fav_btn, LV_EVENT_CLICKED, NULL);
 }
 
 /* ---- Screenshot --------------------------------------------------------- */
@@ -870,9 +979,10 @@ int main(int argc, char **argv)
             else if (strcmp(name, "detail")   == 0) s_screen = SCREEN_DETAIL;
             else if (strcmp(name, "wifi")     == 0) s_screen = SCREEN_WIFI;
             else if (strcmp(name, "wifi-forget-confirm") == 0) s_screen = SCREEN_WIFI_FORGET_CONFIRM;
+            else if (strcmp(name, "favorite-tap") == 0) s_screen = SCREEN_FAVORITE_TAP;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm\n", name);
+                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
@@ -887,7 +997,8 @@ int main(int argc, char **argv)
                     "  --screen            oeffnet den Screen nach dem Laden der Daten:\n"
                     "                      main (Vorgabe), search, settings,\n"
                     "                      settings-adaptive-on, device-info, forecast-icon-tap,\n"
-                    "                      refresh-toast, detail, wifi, wifi-forget-confirm\n"
+                    "                      refresh-toast, detail, wifi, wifi-forget-confirm,\n"
+                    "                      favorite-tap\n"
                     "                      refresh-toast braucht ein kurzes --screenshot-after\n"
                     "                      (z.B. 2000) — der Toast blendet sich nach 1s\n"
                     "                      wieder aus, der Standard-Wert (3000) verpasst ihn.\n"
@@ -934,19 +1045,14 @@ int main(int argc, char **argv)
     weather_ui_set_callbacks(on_search, on_select_city, on_refresh, on_settings_changed);
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
+    weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
     /* The simulator has no camera; render the adaptive switch the way a real
      * board with nothing on the MIPI-CSI connector would. */
     weather_ui_set_brightness_adaptive_available(false);
     weather_ui_set_language(s_lang);
     weather_ui_set_units(s_temp_unit, s_wind_unit, s_time_fmt);
     weather_ui_set_auto_refresh(30);
-    {
-        /* No fake favorites backend in the simulator (yet) — render the
-         * search screen's favorites row all-empty, same as a fresh device. */
-        const char *empty_names[WEATHER_UI_FAVORITES_MAX] = {0};
-        bool empty_used[WEATHER_UI_FAVORITES_MAX] = {0};
-        weather_ui_set_favorites(empty_names, empty_used);
-    }
+    push_favorites_to_ui_sim(); /* all-empty, s_favorites is zero-initialized like a fresh device */
 
     if (open_wifi_setup) {
         weather_ui_set_network_status(WX_NET_OFFLINE);

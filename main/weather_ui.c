@@ -145,6 +145,7 @@ typedef struct {
 
 static weather_ui_t ui;
 
+static void set_search_status_text(const char *text);
 static void build_settings_panel(lv_obj_t *parent);
 static void build_device_info_panel(lv_obj_t *parent);
 static void device_info_rebuild(bool keep_open);
@@ -1033,6 +1034,45 @@ static lv_obj_t *star_icon_create(lv_obj_t *parent, int32_t size, lv_color_t col
     return cont;
 }
 
+/* Same reasoning as star_icon_create() above, for the favorites-slot remove
+ * button's "×": a text glyph's crossing point isn't guaranteed to sit at the
+ * geometric center of its own label box (Inter's × here didn't — no
+ * descender space below it, uneven side bearing — and nudging the label by
+ * an empirically-measured offset only matched one screenshot, not the
+ * general case). Two lines from corner to corner of a `size`x`size` box
+ * cross exactly at (size/2, size/2) by construction, so lv_obj_center()
+ * on the whole icon is guaranteed correct regardless of font metrics. */
+static void x_free_cb(lv_event_t *e) { lv_free(lv_obj_get_user_data(lv_event_get_target_obj(e))); }
+
+static lv_obj_t *x_icon_create(lv_obj_t *parent, int32_t size, lv_color_t color) {
+    lv_obj_t *cont = lv_obj_create(parent);
+    lv_obj_remove_style_all(cont);
+    lv_obj_set_size(cont, size, size);
+    lv_obj_remove_flag(cont, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+
+    float inset = size * 0.22f;
+    int32_t line_w = LV_MAX(2, size / 9);
+
+    for (int i = 0; i < 2; i++) {
+        lv_point_precise_t *pts = lv_malloc(sizeof(lv_point_precise_t) * 2);
+        if (!pts) continue;
+        pts[0].x = (lv_coord_t)lroundf(inset);
+        pts[0].y = (lv_coord_t)lroundf(i == 0 ? inset : size - inset);
+        pts[1].x = (lv_coord_t)lroundf(size - inset);
+        pts[1].y = (lv_coord_t)lroundf(i == 0 ? size - inset : inset);
+
+        lv_obj_t *line = lv_line_create(cont);
+        lv_line_set_points(line, pts, 2);
+        lv_obj_set_user_data(line, pts);
+        lv_obj_add_event_cb(line, x_free_cb, LV_EVENT_DELETE, NULL);
+        lv_obj_set_style_line_color(line, color, 0);
+        lv_obj_set_style_line_width(line, line_w, 0);
+        lv_obj_set_style_line_rounded(line, true, 0);
+    }
+    return cont;
+}
+
 static void search_fav_click_cb(lv_event_t *e) {
     int idx = (int)(intptr_t)lv_event_get_user_data(e);
     if (ui.on_favorite_toggle) ui.on_favorite_toggle(idx);
@@ -1049,11 +1089,20 @@ static void favorite_remove_click_cb(lv_event_t *e) {
     if (ui.on_favorite_remove) ui.on_favorite_remove(idx);
 }
 
+/* LV_OBJ_FLAG_OVERFLOW_VISIBLE alone isn't enough to let the remove button
+ * overlap its slot's corner: LVGL only skips clipping out to the object's
+ * *ext draw size* (normally just shadow/outline spread, near 0 here), not
+ * an arbitrary child offset — see lv_refr.c's obj_coords_ext. This widens
+ * that allowance so the badge's overflow actually falls inside it. */
+static void favorite_slot_ext_draw_size_cb(lv_event_t *e) {
+    lv_event_set_ext_draw_size(e, 20);
+}
+
 static void open_search_cb(lv_event_t *e) {
     LV_UNUSED(e);
     lv_textarea_set_text(ui.search_ta, "");
     lv_obj_clean(ui.search_results);
-    lv_label_set_text(ui.search_status_lbl, "");
+    set_search_status_text("");
     /* Captions follow the current language. */
     lv_textarea_set_placeholder_text(ui.search_ta, weather_strings[ui.lang].search_placeholder);
     lv_label_set_text(ui.search_cancel_lbl, weather_strings[ui.lang].cancel);
@@ -1191,6 +1240,11 @@ static void build_search_overlay(lv_obj_t *parent) {
     lv_obj_set_flex_flow(fav_section, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(fav_section, 6, 0);
     lv_obj_remove_flag(fav_section, LV_OBJ_FLAG_SCROLLABLE);
+    /* Same overflow allowance as favorites_row below, in case the badge's
+     * protrusion above that row's top ever exceeds the caption+gap space
+     * already above it within this container. */
+    lv_obj_add_flag(fav_section, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(fav_section, favorite_slot_ext_draw_size_cb, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
 
     ui.favorites_caption_lbl = lv_label_create(fav_section);
     lv_label_set_text(ui.favorites_caption_lbl, weather_strings[ui.lang].favorites);
@@ -1203,6 +1257,13 @@ static void build_search_overlay(lv_obj_t *parent) {
     lv_obj_set_flex_flow(ui.favorites_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(ui.favorites_row, 8, 0);
     lv_obj_remove_flag(ui.favorites_row, LV_OBJ_FLAG_SCROLLABLE);
+    /* The remove-button badge on each filled slot pokes above that slot's
+     * own top edge, which is also this row's top edge (the row's
+     * SIZE_CONTENT height is exactly the tallest slot's height) — without
+     * this, the row clips the badge's top the same way an un-fixed slot
+     * clipped its right/bottom (see favorite_slot_ext_draw_size_cb()). */
+    lv_obj_add_flag(ui.favorites_row, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(ui.favorites_row, favorite_slot_ext_draw_size_cb, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
 
     ui.search_status_lbl = lv_label_create(ui.search_backdrop);
     lv_obj_set_style_text_color(ui.search_status_lbl, C_TEXT_MUTED, 0);
@@ -1210,7 +1271,7 @@ static void build_search_overlay(lv_obj_t *parent) {
      * (lv_font_montserrat_14, ASCII-only) instead of the Inter build — "Keine
      * Städte gefunden." rendered its ä as a tofu box. */
     lv_obj_set_style_text_font(ui.search_status_lbl, FONT_14, 0);
-    lv_label_set_text(ui.search_status_lbl, "");
+    lv_obj_add_flag(ui.search_status_lbl, LV_OBJ_FLAG_HIDDEN);
 
     ui.search_results = lv_obj_create(ui.search_backdrop);
     lv_obj_remove_style_all(ui.search_results);
@@ -1229,15 +1290,27 @@ static void build_search_overlay(lv_obj_t *parent) {
     lv_keyboard_set_mode(ui.search_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
 }
 
-void weather_ui_set_searching(bool searching) {
+/* FIX: an empty status label still reserved its own flex-row gap on both
+ * sides plus its line height, widening the search screen's Favorites-to-
+ * results gap by ~35px for what — "searching…"/"no cities" — is usually
+ * nothing at all to show. Hidden flex children take no layout space at all
+ * (not even their share of pad_row), so hiding it whenever there's no
+ * message closes that gap down to the single normal pad_row. */
+static void set_search_status_text(const char *text) {
     if (!ui.search_status_lbl) return;
-    lv_label_set_text(ui.search_status_lbl, searching ? weather_strings[ui.lang].searching : "");
+    lv_label_set_text(ui.search_status_lbl, text);
+    if (text[0] == '\0') lv_obj_add_flag(ui.search_status_lbl, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_remove_flag(ui.search_status_lbl, LV_OBJ_FLAG_HIDDEN);
+}
+
+void weather_ui_set_searching(bool searching) {
+    set_search_status_text(searching ? weather_strings[ui.lang].searching : "");
 }
 
 void weather_ui_set_search_results(const char *const names[], const char *const subs[],
                                     const bool *const is_fav, int count) {
     lv_obj_clean(ui.search_results);
-    lv_label_set_text(ui.search_status_lbl, count == 0 ? weather_strings[ui.lang].no_cities : "");
+    set_search_status_text(count == 0 ? weather_strings[ui.lang].no_cities : "");
     for (int i = 0; i < count; i++) {
         /* Outer row: the clickable name/sub card plus a separate favorite-
          * toggle button next to it (design: result.select vs result.toggleFav
@@ -1249,6 +1322,13 @@ void weather_ui_set_search_results(const char *const names[], const char *const 
         lv_obj_remove_style_all(outer);
         lv_obj_set_size(outer, LV_PCT(100), LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(outer, LV_FLEX_FLOW_ROW);
+        /* FIX: the design centers the fixed 44px favorite button on the
+         * cross axis against the (taller, two-line) result card next to it
+         * (align-items:stretch on the row, align-self:center on the
+         * button). LVGL flex defaults cross-align to START, which pinned
+         * the button to the top instead — center both explicitly so the
+         * fixed-height button doesn't look mis-sized against the card. */
+        lv_obj_set_flex_align(outer, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_column(outer, 8, 0);
         lv_obj_remove_flag(outer, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_remove_flag(outer, LV_OBJ_FLAG_SCROLLABLE);
@@ -1315,6 +1395,22 @@ void weather_ui_set_favorites(const char *const names[WEATHER_UI_FAVORITES_MAX],
             lv_obj_set_style_radius(slot, R_MD, 0);
             lv_obj_set_style_pad_hor(slot, 10, 0);
             lv_obj_set_style_pad_ver(slot, 8, 0);
+            /* FIX: a plain lv_obj_create() child is placed at its default
+             * (0,0) coordinate, not centered — the label ended up pinned to
+             * the slot's top edge instead of sitting in the middle of the
+             * (taller, min-height-40) button. Flex + a centered main-axis
+             * place fixes that without touching the label's own horizontal
+             * (left/ellipsis) behavior, which cross_place=START preserves. */
+            lv_obj_set_flex_flow(slot, LV_FLEX_FLOW_COLUMN);
+            lv_obj_set_flex_align(slot, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+            /* FIX: LVGL clips a widget's children to its own box by default,
+             * which cut the remove button's circle off wherever it stuck out
+             * past slot's edges — the design's own badge (position:absolute;
+             * top:-9px;right:-9px) has no such limit, it freely overlaps the
+             * button's corner. OVERFLOW_VISIBLE plus a widened ext draw size
+             * (see favorite_slot_ext_draw_size_cb()) together lift that. */
+            lv_obj_add_flag(slot, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+            lv_obj_add_event_cb(slot, favorite_slot_ext_draw_size_cb, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
             lv_obj_add_flag(slot, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_remove_flag(slot, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_add_event_cb(slot, favorite_slot_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
@@ -1326,16 +1422,18 @@ void weather_ui_set_favorites(const char *const names[WEATHER_UI_FAVORITES_MAX],
             lv_obj_set_style_text_color(lbl, C_ACCENT_100, 0);
             lv_obj_set_style_text_font(lbl, FONT_12, 0);
 
-            /* Small round remove button, overlapping the slot's top-right
-             * corner (design: position:absolute;top:-9px;right:-9px). LVGL's
-             * flex layout would otherwise place this as a normal flex child,
-             * so it opts out with IGNORE_LAYOUT and is positioned by
-             * lv_obj_align() instead. */
+            /* Round remove button, overlapping the slot's top-right corner
+             * (design: position:absolute;top:-9px;right:-9px;width/height:
+             * 26px — enlarged here to 34px, past even the design's own
+             * size, for an easier tap target on a corner-badge button).
+             * LVGL's flex layout would otherwise place this as a normal
+             * flex child, so it opts out with IGNORE_LAYOUT and is
+             * positioned by lv_obj_align() instead. */
             lv_obj_t *remove_btn = lv_obj_create(slot);
             lv_obj_remove_style_all(remove_btn);
             lv_obj_add_flag(remove_btn, LV_OBJ_FLAG_IGNORE_LAYOUT);
-            lv_obj_set_size(remove_btn, 22, 22);
-            lv_obj_align(remove_btn, LV_ALIGN_TOP_RIGHT, 8, -10);
+            lv_obj_set_size(remove_btn, 34, 34);
+            lv_obj_align(remove_btn, LV_ALIGN_TOP_RIGHT, 12, -16);
             lv_obj_set_style_radius(remove_btn, LV_RADIUS_CIRCLE, 0);
             lv_obj_set_style_bg_color(remove_btn, C_SURFACE, 0);
             lv_obj_set_style_bg_opa(remove_btn, LV_OPA_COVER, 0);
@@ -1344,11 +1442,8 @@ void weather_ui_set_favorites(const char *const names[WEATHER_UI_FAVORITES_MAX],
             lv_obj_add_flag(remove_btn, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_remove_flag(remove_btn, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_add_event_cb(remove_btn, favorite_remove_click_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-            lv_obj_t *x_lbl = lv_label_create(remove_btn);
-            lv_label_set_text(x_lbl, "\xC3\x97" /* U+00D7, same glyph the settings-close button uses */);
-            lv_obj_set_style_text_color(x_lbl, C_TEXT, 0);
-            lv_obj_set_style_text_font(x_lbl, FONT_12, 0);
-            lv_obj_center(x_lbl);
+            lv_obj_t *x_icon = x_icon_create(remove_btn, 18, C_TEXT_MUTED);
+            lv_obj_center(x_icon);
         } else {
             /* Empty placeholder — decorative only, matching the design's
              * dashed-border box (LVGL has no dashed border, solid divider

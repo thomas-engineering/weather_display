@@ -56,6 +56,7 @@ add_executable(weather_sim
     "${APP_DIR}/weather_i18n.c"
     "${APP_DIR}/app_format.c"
     "${APP_LOGIC_DIR}/weather_forecast_parse.c"
+    "${APP_LOGIC_DIR}/favorites.c"
     "${CJSON_DIR}/cJSON.c"
     ${WEATHER_FONT_SRCS}
 )
