@@ -2,12 +2,6 @@ name: Manual Dual-Chip Release Build
 
 on:
   workflow_dispatch: # Allows manual triggering from the GitHub Actions UI
-    inputs:
-      version_tag:
-        description: 'Version number for this release (e.g., 1.0.5)'
-        required: true
-        default: '1.0.0'
-        type: string
 
 jobs:
   build-and-release:
@@ -22,13 +16,19 @@ jobs:
         fetch-depth: 0
         submodules: 'recursive' # Required for project-specific submodules/drivers
 
-    # 1. AUTOMATION: Create a release branch based on user input
+    # 1. AUTOMATION: Create a release branch/tag from version.txt — the same
+    #    file ESP-IDF's build reads for PROJECT_VER (see tools/cmake/project.cmake:
+    #    version.txt beats git describe), so the release name always matches
+    #    what's actually embedded in the built firmware's esp_app_desc. Edit
+    #    version.txt by hand to set the release version; there is no manual
+    #    input for it anymore, to avoid the two ever disagreeing.
     - name: Create Release Branch & Tag
       id: create_version
       run: |
-        VERSION="v${{ github.event.inputs.version_tag }}"
+        RAW_VERSION="$(tr -d '[:space:]' < version.txt)"
+        VERSION="v${RAW_VERSION}"
         echo "version=$VERSION" >> $GITHUB_OUTPUT
-        
+
         # Create and push a local branch to freeze the build state
         git checkout -b "release/$VERSION"
         git push origin "release/$VERSION"
@@ -49,30 +49,110 @@ jobs:
     - name: Prepare P4 Binary
       run: cp build/weather_display.bin firmware_p4.bin
 
-    # 3. AUTOMATION: Fetch the latest precompiled C6 Slave firmware from Espressif
-    - name: Fetch ESP32-C6 Hosted Slave Binary
+    # 3. AUTOMATION: Build the ESP32-C6 "hosted slave" (coprocessor) firmware
+    #    from Espressif's esp_hosted source. There is no prebuilt binary to
+    #    download here — verified that espressif/esp-hosted-mcu publishes no
+    #    GitHub Releases and carries no .bin files anywhere in the repo, so
+    #    building it ourselves is the only way to produce one. Uses
+    #    esp_hosted's own examples/network_split/station/cp project as the
+    #    coprocessor firmware.
+    #
+    #    Which tag to build is resolved from THIS repo's own
+    #    main/idf_component.yml (the "3.0.*"-style constraint the P4 build
+    #    itself is pinned to) rather than always taking esp-hosted-mcu's
+    #    default branch — the P4 and C6 must agree on an esp_hosted major.minor
+    #    or eh_host_mcu_transport_verify_fw_compat() logs a version-mismatch
+    #    error at boot (main/main.c's on-device logs already show this for
+    #    the currently-flashed C6). Only the simple "MAJOR.MINOR.*" glob this
+    #    project actually uses is handled — not full semver-range syntax.
+    - name: Resolve C6 esp_hosted Version
+      id: c6_ref
       run: |
-        # Download the official precompiled SPI slave binary from esp-hosted
-        curl -L -o esp32c6_hosted_slave.bin https://github.com
+        CONSTRAINT=$(awk '
+          /espressif\/esp_hosted:/ { found=1; next }
+          found && /version:/ {
+            gsub(/.*version:[[:space:]]*"?/, "");
+            gsub(/".*/, "");
+            print;
+            exit
+          }' main/idf_component.yml)
+        if [ -z "$CONSTRAINT" ]; then
+          echo "::error::Could not find espressif/esp_hosted's version constraint in main/idf_component.yml"
+          exit 1
+        fi
+        case "$CONSTRAINT" in
+          *.\*)
+            PREFIX="v${CONSTRAINT%.*}."
+            ;;
+          *)
+            echo "::error::Unsupported esp_hosted version constraint '$CONSTRAINT' — only MAJOR.MINOR.* globs are handled, update this step for other syntax"
+            exit 1
+            ;;
+        esac
+
+        LATEST=$(git ls-remote --tags --refs https://github.com/espressif/esp-hosted-mcu.git "refs/tags/${PREFIX}*" \
+          | awk -F'/' '{print $NF}' | sort -V | tail -n1)
+        if [ -z "$LATEST" ]; then
+          echo "::error::No espressif/esp-hosted-mcu tag matches '${PREFIX}*' (constraint '$CONSTRAINT' from main/idf_component.yml)"
+          exit 1
+        fi
+
+        echo "Building esp-hosted-mcu $LATEST (matches main/idf_component.yml constraint '$CONSTRAINT')"
+        echo "ref=$LATEST" >> $GITHUB_OUTPUT
+
+    - name: Checkout esp-hosted-mcu (for the C6 coprocessor firmware)
+      uses: actions/checkout@v4
+      with:
+        repository: espressif/esp-hosted-mcu
+        ref: ${{ steps.c6_ref.outputs.ref }}
+        path: esp-hosted-mcu-src
+
+    - name: Build ESP32-C6 Hosted Slave Firmware
+      uses: espressif/esp-idf-ci-action@v1
+      with:
+        esp_idf_version: v6.1
+        target: esp32c6
+        path: 'esp-hosted-mcu-src/examples/network_split/station/cp'
+        command: |
+          idf.py build
+
+    # Prepare the compiled C6 binary and read its version straight out of
+    # the source that just built it (eh_common_fw_version.h — generated by
+    # esp_hosted's own tools/check_fw_versions.py from the espressif/esp_hosted
+    # idf_component.yml the coprocessor build just resolved), rather than a
+    # hardcoded/guessed string.
+    - name: Prepare C6 Binary and Read Its Version
+      id: c6_version
+      run: |
+        CP_DIR="esp-hosted-mcu-src/examples/network_split/station/cp"
+        cp "$CP_DIR/build/eh_cp_network_split_station.bin" esp32c6_hosted_slave.bin
+
+        VER_HDR=$(find "$CP_DIR/managed_components/espressif__esp_hosted" \
+          -name "eh_common_fw_version.h" -print -quit)
+        MAJ=$(grep -oP '#define\s+PROJECT_VERSION_MAJOR_1\s+\K\d+' "$VER_HDR")
+        MIN=$(grep -oP '#define\s+PROJECT_VERSION_MINOR_1\s+\K\d+' "$VER_HDR")
+        PAT=$(grep -oP '#define\s+PROJECT_VERSION_PATCH_1\s+\K\d+' "$VER_HDR")
+        echo "c6_version=${MAJ}.${MIN}.${PAT}" >> $GITHUB_OUTPUT
 
     # 4. AUTOMATION: Calculate SHA-256 checksums and write the manifest.json
     - name: Generate Manifest and Checksums
       id: manifest
       run: |
         VERSION="${{ steps.create_version.outputs.version }}"
-        
+        C6_VERSION="${{ steps.c6_version.outputs.c6_version }}"
+
         P4_SHA=$(sha256sum firmware_p4.bin | awk '{print $1}')
         C6_SHA=$(sha256sum esp32c6_hosted_slave.bin | awk '{print $1}')
-        
+
         cat <<EOF > manifest.json
         {
           "version": "$VERSION",
           "p4_sha256": "$P4_SHA",
-          "c6_version": "latest",
+          "c6_version": "$C6_VERSION",
           "c6_sha256": "$C6_SHA"
         }
         EOF
-        
+
         echo "Manifest generated successfully:"
         cat manifest.json
 
