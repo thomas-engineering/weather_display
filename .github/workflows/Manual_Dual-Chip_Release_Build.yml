@@ -1,0 +1,95 @@
+name: Manual Dual-Chip Release Build
+
+on:
+  workflow_dispatch: # Allows manual triggering from the GitHub Actions UI
+    inputs:
+      version_tag:
+        description: 'Version number for this release (e.g., 1.0.5)'
+        required: true
+        default: '1.0.0'
+        type: string
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        submodules: 'recursive' # Required for project-specific submodules/drivers
+
+    # 1. AUTOMATION: Create a release branch based on user input
+    - name: Create Release Branch & Tag
+      id: create_version
+      run: |
+        VERSION="v${{ github.event.inputs.version_tag }}"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+        # Create and push a local branch to freeze the build state
+        git checkout -b "release/$VERSION"
+        git push origin "release/$VERSION"
+
+    # 2. AUTOMATION: Build ESP32-P4 firmware applying project sdkconfig defaults
+    - name: Build ESP32-P4 Firmware
+      uses: espressif/esp-idf-ci-action@v1
+      with:
+        esp_idf_version: v6.1.0
+        target: esp32p4
+        path: '.'
+        # Generates the configuration exactly matching the project sdkconfig for the Waveshare display
+        command: |
+          idf.py defconfig
+          idf.py build
+
+    # Prepare the compiled App binary for upload
+    - name: Prepare P4 Binary
+      run: cp build/weather_display.bin firmware_p4.bin
+
+    # 3. AUTOMATION: Fetch the latest precompiled C6 Slave firmware from Espressif
+    - name: Fetch ESP32-C6 Hosted Slave Binary
+      run: |
+        # Download the official precompiled SPI slave binary from esp-hosted
+        curl -L -o esp32c6_hosted_slave.bin https://github.com
+
+    # 4. AUTOMATION: Calculate SHA-256 checksums and write the manifest.json
+    - name: Generate Manifest and Checksums
+      id: manifest
+      run: |
+        VERSION="${{ steps.create_version.outputs.version }}"
+        
+        P4_SHA=$(sha256sum firmware_p4.bin | awk '{print $1}')
+        C6_SHA=$(sha256sum esp32c6_hosted_slave.bin | awk '{print $1}')
+        
+        cat <<EOF > manifest.json
+        {
+          "version": "$VERSION",
+          "p4_sha256": "$P4_SHA",
+          "c6_version": "latest",
+          "c6_sha256": "$C6_SHA"
+        }
+        EOF
+        
+        echo "Manifest generated successfully:"
+        cat manifest.json
+
+    # 5. AUTOMATION: Create and publish the GitHub Release with attached assets
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.create_version.outputs.version }}
+        target_commitish: release/${{ steps.create_version.outputs.version }}
+        name: Release ${{ steps.create_version.outputs.version }}
+        body: |
+          Manually triggered release build for Weather Display (Waveshare P4 Board).
+          - ESP-IDF Version: v6.1.0
+          - Includes display drivers and esp-hosted SPI network configuration.
+        draft: false
+        prerelease: false
+        files: |
+          firmware_p4.bin
+          esp32c6_hosted_slave.bin
+          manifest.json
