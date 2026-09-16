@@ -109,12 +109,21 @@ jobs:
     # "Failed to resolve component 'esp_hosted' required by component
     # 'main': unknown name" — see the CMake warning that precedes it in a
     # failed run's log for the exact same explanation.
+    #
+    # FIX (second real run failed here, past the above): espressif/esp-hosted-mcu
+    # vendors third-party code as git submodules (.gitmodules: protobuf-c,
+    # esp-idf-kconfig, esp_wifi_remote) — without submodules: 'recursive'
+    # (already set on the P4 checkout above, missed here) those directories
+    # come back empty, and the cp build failed with "Cannot find source
+    # file: protobuf-c/protobuf-c/protobuf-c.c" / "No SOURCES given to
+    # target: msg_codec".
     - name: Checkout esp-hosted-mcu (for the C6 coprocessor firmware)
       uses: actions/checkout@v4
       with:
         repository: espressif/esp-hosted-mcu
         ref: ${{ steps.c6_ref.outputs.ref }}
         path: esp_hosted
+        submodules: 'recursive'
 
     - name: Build ESP32-C6 Hosted Slave Firmware
       uses: espressif/esp-idf-ci-action@v1
