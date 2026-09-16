@@ -131,9 +131,9 @@ static void lvgl_stall_probe_cb(lv_timer_t *t) {
 /* Investigated using ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE + a hardware panel
  * mirror (esp_lcd_panel_mirror()) instead of software ROTATE_180, to dodge a
  * buffer-switch-release stall that cost up to ~260ms per tap under
- * TRIPLE_PARTIAL (ESP-IDF v6.0.2's DPI panel driver doesn't expose the
- * on_frame_buf_complete callback that mode needs, only the coarser
- * on_refresh_done). NONE mode alone measurably fixed the stall (confirmed on
+ * TRIPLE_PARTIAL — on ESP-IDF v6.0.2, whose DPI panel driver didn't expose
+ * the on_frame_buf_complete callback that mode wants, only the coarser
+ * on_refresh_done. NONE mode alone measurably fixed the stall (confirmed on
  * hardware: 61-80ms, all explained by genuine render/flush cost), but NONE
  * mode refuses any adapter-side rotation, and hardware panel mirroring turned
  * out not to be a substitute on this panel: all four mirror_x/mirror_y
@@ -144,9 +144,14 @@ static void lvgl_stall_probe_cb(lv_timer_t *t) {
  * GRAM-addressing concept that doesn't apply to panels with no internal
  * framebuffer to re-address — consistent with mirror_x appearing to do
  * nothing observable across the tests. Back to the known-working
- * ROTATE_180 + TRIPLE_PARTIAL below; the occasional large stall is an
- * accepted limitation until esp_lvgl_adapter or ESP-IDF exposes proper
- * buffer-release timing for MIPI DSI. */
+ * ROTATE_180 + TRIPLE_PARTIAL below. Switched to ESP-IDF 6.1 on 2026-09-18
+ * (see design/README.md-adjacent memory notes), whose esp_lcd_mipi_dsi.h
+ * does expose on_frame_buf_complete, and esp_lvgl_adapter's own CMake probe
+ * (ESP_LCD_DPI_HAS_FRAME_BUF_COMPLETE_CB) confirmed picking it up — no
+ * on_refresh_done-deprecated warning in the build. Whether that actually
+ * shrinks the stall is still unmeasured (needs touch-driven on-device
+ * timing, not just a boot log); treat it as still an open question, not a
+ * confirmed fix, until someone taps through it and checks lvgl_stall. */
 
 void app_main(void) {
     esp_err_t err = nvs_flash_init();
@@ -162,11 +167,13 @@ void app_main(void) {
 
     /* Panel + touch. Rotation and touch mirroring match the vendor's own LVGL
      * example for this board (09_lvgl_demo_v9). TRIPLE_PARTIAL is the known
-     * tradeoff here: it occasionally stalls the LVGL/touch task for up to
-     * ~260ms (ESP-IDF v6.0.2's DPI panel driver lacks the on_frame_buf_complete
-     * callback this mode wants for buffer-switch release), but it's the mode
-     * that actually renders this panel upright — see the comment above
-     * app_main() for what was tried and ruled out. */
+     * tradeoff here: it occasionally stalled the LVGL/touch task for up to
+     * ~260ms on ESP-IDF v6.0.2, whose DPI panel driver lacked the
+     * on_frame_buf_complete callback this mode wants for buffer-switch
+     * release — see the comment above app_main() for what was tried and
+     * ruled out, and for why IDF 6.1 (current) may or may not actually
+     * improve this; it's the mode that actually renders this panel
+     * upright either way. */
     bsp_display_cfg_t cfg = {
         .lv_adapter_cfg = ESP_LV_ADAPTER_DEFAULT_CONFIG(),
         .rotation = ESP_LV_ADAPTER_ROTATE_180,
