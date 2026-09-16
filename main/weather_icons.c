@@ -97,11 +97,22 @@ static void build_icon(lv_obj_t *cont, weather_icon_t icon, int32_t size, lv_col
             dot(cont, size * 0.86f, size * 0.10f, size * 0.06f, size * 0.70f, color, size * 0.05f, LV_OPA_60);
             dot(cont, size * 0.62f, size * 0.10f, size * 0.06f, size * 0.86f, color, size * 0.05f, LV_OPA_40);
             break;
-        case WX_ICON_RAIN:
+        case WX_ICON_RAIN: {
+            /* FIX: two mismatches against WeatherIcon.dc.html's own rain
+             * glyph (rects at x=15/30/45, y=45/48/45, all height=14, in its
+             * 64x64 viewBox). First, build_cloud()'s base bar (its lowest
+             * element, with this y_off=-0.10) bottoms out at size*0.74 —
+             * the drops used to start at size*0.72, overlapping the cloud's
+             * base by 2% of the icon size instead of sitting clearly below
+             * it. Second, the design staggers its middle drop 3/64 lower
+             * than the outer two (same length, offset start, not a uniform
+             * row) — this drew all three at the same y instead. */
             build_cloud(cont, size, color, LV_OPA_COVER, -0.10f);
+            const float drop_y[3] = { 0.78f, 0.82f, 0.78f };
             for (int i = 0; i < 3; i++)
-                dot(cont, size * 0.08f, size * 0.24f, size * (0.22f + i * 0.28f), size * 0.72f, color, size * 0.04f, LV_OPA_COVER);
+                dot(cont, size * 0.08f, size * 0.18f, size * (0.22f + i * 0.28f), size * drop_y[i], color, size * 0.04f, LV_OPA_COVER);
             break;
+        }
         case WX_ICON_SNOW:
             build_cloud(cont, size, color, LV_OPA_COVER, -0.10f);
             for (int i = 0; i < 3; i++)
