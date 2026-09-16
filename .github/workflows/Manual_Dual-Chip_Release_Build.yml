@@ -37,7 +37,7 @@ jobs:
     - name: Build ESP32-P4 Firmware
       uses: espressif/esp-idf-ci-action@v1
       with:
-        esp_idf_version: v6.1.0
+        esp_idf_version: v6.1  # without tailing .0
         target: esp32p4
         path: '.'
         # Generates the configuration exactly matching the project sdkconfig for the Waveshare display
