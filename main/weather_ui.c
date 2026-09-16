@@ -91,11 +91,11 @@ typedef struct {
 
     lv_obj_t *device_info_backdrop;
     lv_obj_t *device_info_online_group, *device_info_offline_lbl;
-    lv_obj_t *device_info_name_val, *device_info_hw_val, *device_info_fw_val;
+    lv_obj_t *device_info_name_val, *device_info_hw_val, *device_info_fw_val, *device_info_cp_val;
     lv_obj_t *device_info_ip_val, *device_info_dns_val, *device_info_gw_val, *device_info_note_lbl;
     lv_obj_t *device_info_last_update_val;
     bool has_device_info;
-    char device_info_name[64], device_info_hw[32], device_info_fw[32];
+    char device_info_name[64], device_info_hw[32], device_info_fw[32], device_info_cp[32];
     bool device_info_online;
     char device_info_ip[16], device_info_dns[16], device_info_gw[16];
     char device_info_last_update[48];
@@ -1940,11 +1940,16 @@ static void build_device_info_panel(lv_obj_t *parent) {
 
     lv_obj_t *panel = lv_obj_create(ui.device_info_backdrop);
     lv_obj_remove_style_all(panel);
-    /* Design fixes 479x399 (2026-09-13 re-sync grew this from 480x383 — was
-     * 326x383 before that, 2026-09-11) regardless of online/offline state, so
-     * the dialog doesn't resize/jump when connectivity changes while it's
-     * open. */
-    lv_obj_set_size(panel, 479, 399);
+    /* Design fixed this at 479x399 through 2026-09-13 (grew from 480x383,
+     * before that 326x383 on 2026-09-11) regardless of online/offline state,
+     * so the dialog didn't resize/jump when connectivity changed while open.
+     * The 2026-09-18 sync (adding the Coprocessor version row) switched to
+     * width:479px;height:auto;max-height:520px — content-sized up to a cap,
+     * scrolling past it (panel is left scrollable, its lv_obj_create()
+     * default, matching the design's own overflow-y:auto) instead of a
+     * second fixed height to keep in sync by hand. */
+    lv_obj_set_size(panel, 479, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_height(panel, 520, 0);
     lv_obj_set_style_bg_color(panel, C_SURFACE, 0);
     lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(panel, R_LG, 0);
@@ -1980,6 +1985,10 @@ static void build_device_info_panel(lv_obj_t *parent) {
     ui.device_info_name_val = info_row_create(panel, s->device_name);
     ui.device_info_hw_val   = info_row_create(panel, s->hardware_version);
     ui.device_info_fw_val   = info_row_create(panel, s->firmware_version);
+    /* Coprocessor version (2026-09-18 sync) — the ESP32-C6's own esp_hosted
+     * firmware version, right after Application version (né Firmware
+     * version, same sync). */
+    ui.device_info_cp_val   = info_row_create(panel, s->coprocessor_version);
     /* FIX: sync from Claude Design 2026-09-11/re-synced 2026-09-12 — "Last
      * update" sits right after Firmware version and, unlike IP/DNS/Gateway,
      * is NOT gated on being online: you can still see when data was last
@@ -2013,6 +2022,7 @@ static void build_device_info_panel(lv_obj_t *parent) {
         lv_label_set_text(ui.device_info_name_val, ui.device_info_name);
         lv_label_set_text(ui.device_info_hw_val, ui.device_info_hw);
         lv_label_set_text(ui.device_info_fw_val, ui.device_info_fw);
+        lv_label_set_text(ui.device_info_cp_val, ui.device_info_cp);
         lv_label_set_text(ui.device_info_ip_val, ui.device_info_ip);
         lv_label_set_text(ui.device_info_dns_val, ui.device_info_dns);
         lv_label_set_text(ui.device_info_gw_val, ui.device_info_gw);
@@ -2049,6 +2059,7 @@ void weather_ui_set_device_info(const weather_device_info_t *info) {
     snprintf(ui.device_info_name, sizeof ui.device_info_name, "%s", info->device_name ? info->device_name : "");
     snprintf(ui.device_info_hw, sizeof ui.device_info_hw, "%s", info->hardware_version ? info->hardware_version : "");
     snprintf(ui.device_info_fw, sizeof ui.device_info_fw, "%s", info->firmware_version ? info->firmware_version : "");
+    snprintf(ui.device_info_cp, sizeof ui.device_info_cp, "%s", info->coprocessor_version ? info->coprocessor_version : "");
     ui.device_info_online = info->online;
     snprintf(ui.device_info_ip, sizeof ui.device_info_ip, "%s", info->ip ? info->ip : "");
     snprintf(ui.device_info_dns, sizeof ui.device_info_dns, "%s", info->dns ? info->dns : "");
@@ -2060,6 +2071,7 @@ void weather_ui_set_device_info(const weather_device_info_t *info) {
     lv_label_set_text(ui.device_info_name_val, ui.device_info_name);
     lv_label_set_text(ui.device_info_hw_val, ui.device_info_hw);
     lv_label_set_text(ui.device_info_fw_val, ui.device_info_fw);
+    lv_label_set_text(ui.device_info_cp_val, ui.device_info_cp);
     lv_label_set_text(ui.device_info_ip_val, ui.device_info_ip);
     lv_label_set_text(ui.device_info_dns_val, ui.device_info_dns);
     lv_label_set_text(ui.device_info_gw_val, ui.device_info_gw);

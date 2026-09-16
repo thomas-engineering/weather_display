@@ -22,10 +22,13 @@ idf_component_register(
     REQUIRES esp32_p4_wifi6_touch_lcd_7b lvgl__lvgl
     PRIV_REQUIRES esp_wifi esp_driver_sdmmc nvs_flash esp_http_client esp-tls
                   espressif__cjson lwip esp_netif espressif__esp_video app_logic esp_timer
-                  esp_app_format)
+                  esp_app_format espressif__esp_hosted)
 
 # NOTE: no esp_hosted/SDMMC link workaround here. The Waveshare examples carry one
 # for esp_hosted 1.4.x, which relied on the IDF 5 umbrella driver's transitive SDMMC
 # include. This project is on esp_hosted 3.0.x, which needs no such patch — and its
 # component library is an INTERFACE target, so target_link_libraries(... PRIVATE ...)
-# against it is a hard CMake error.
+# against it is a hard CMake error. Declaring it in PRIV_REQUIRES above (needed since
+# 2026-09-18 for app_weather.c's esp_hosted_get_coprocessor_fwversion() call — the
+# Device Info dialog's Coprocessor version field) goes through idf_component_register's
+# own dependency graph, not a raw target_link_libraries call, so it doesn't hit that.

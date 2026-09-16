@@ -198,14 +198,15 @@ static void publish_weather(void)
         .device_name = "Weather Display",
         .hardware_version = "ESP32-P4 Rev 1.3",
         .firmware_version = "1.0.0-sim",
+        .coprocessor_version = "3.0.7-sim",
         .online = true,
         .ip = "192.168.1.42",
         .dns = "1.1.1.1",
         .gateway = "192.168.1.1",
         .last_update = last_update,
         .note = "Created by M. Thomas using Claude Design and Claude Code.\n"
-                 "Using Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0\n"
-                 "(https://creativecommons.org/licenses/by/4.0/).",
+                 "Using Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0 "
+                 "for non-commercial use (https://creativecommons.org/licenses/by/4.0/).",
     };
     weather_ui_set_device_info(&dev_info);
 
@@ -379,14 +380,15 @@ static bool publish_weather_live(void) {
         .device_name = "Weather Display",
         .hardware_version = "ESP32-P4 Rev 1.3",
         .firmware_version = "1.0.0-sim-live",
+        .coprocessor_version = "3.0.7-sim",
         .online = true,
         .ip = "192.168.1.42",
         .dns = "1.1.1.1",
         .gateway = "192.168.1.1",
         .last_update = last_update,
         .note = "Created by M. Thomas using Claude Design and Claude Code.\n"
-                 "Using Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0\n"
-                 "(https://creativecommons.org/licenses/by/4.0/).",
+                 "Using Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0 "
+                 "for non-commercial use (https://creativecommons.org/licenses/by/4.0/).",
     };
     weather_ui_set_device_info(&dev_info);
 

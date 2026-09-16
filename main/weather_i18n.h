@@ -20,6 +20,10 @@ typedef struct {
     const char *enter_manually, *enter_ssid, *next, *cancel2;
     const char *online, *offline, *data_outdated, *data_updated;
     const char *device_info, *device_name, *hardware_version, *firmware_version;
+    /* "Coprocessor version" (2026-09-18 sync): the ESP32-C6's own esp_hosted
+     * firmware version, added right after firmware_version ("Application
+     * version" in that same sync — was "Firmware version"). */
+    const char *coprocessor_version;
     const char *ip_address, *dns, *gateway, *not_connected;
     const char *last_update, *no_update_yet;
     /* Header "last synced" text (2026-09-12 sync). data_updated_ago_min/hour

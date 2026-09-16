@@ -17,6 +17,7 @@
 #include "cJSON.h"
 #include "mbedtls/error.h"
 #include "esp_app_desc.h"
+#include "esp_hosted.h"
 
 #include <math.h>
 #include <string.h>
@@ -183,11 +184,26 @@ static const char *jarr_str(const cJSON *o, const char *k, int i) {
  *
  * Hardware version is this board's fixed silicon revision (see CLAUDE.md /
  * the P4 board memory note), not something firmware can read back at
- * runtime. Firmware version comes from esp_app_get_description(), which
- * ESP-IDF fills from `git describe` at build time. */
+ * runtime. Application version (Coprocessor version's sibling row, "Firmware
+ * version" before the 2026-09-18 sync) comes from esp_app_get_description(),
+ * which ESP-IDF fills from version.txt at the project root (falls back to
+ * `git describe` if that file doesn't exist — see version.txt's own history
+ * for why this project keeps one). Coprocessor version is read live from the
+ * ESP32-C6 over the esp_hosted RPC link (esp_hosted_get_coprocessor_fwversion())
+ * — same source as the "coprocessor=X.Y.Z" line esp_hosted itself logs at
+ * boot when checking host/coprocessor compatibility. */
 static void push_device_info_to_ui(void) {
     char ip[16] = "", dns[16] = "", gw[16] = "";
     bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
+
+    char cp_version[24];
+    esp_hosted_coprocessor_fwver_t cp_ver;
+    if (esp_hosted_get_coprocessor_fwversion(&cp_ver) == ESP_OK) {
+        snprintf(cp_version, sizeof cp_version, "%lu.%lu.%lu",
+                 (unsigned long)cp_ver.major1, (unsigned long)cp_ver.minor1, (unsigned long)cp_ver.patch1);
+    } else {
+        snprintf(cp_version, sizeof cp_version, "-");
+    }
 
     /* s_last_success is the last successful *forecast* fetch, same value the
      * staleness check above uses — exactly "last update" from the design's
@@ -212,6 +228,7 @@ static void push_device_info_to_ui(void) {
         .device_name = "Weather Display",
         .hardware_version = "ESP32-P4 Rev 1.3",
         .firmware_version = esp_app_get_description()->version,
+        .coprocessor_version = cp_version,
         .online = online,
         .ip = online ? ip : NULL,
         .dns = online ? dns : NULL,
@@ -220,13 +237,14 @@ static void push_device_info_to_ui(void) {
          * last_update is not gated on being online. */
         .last_update = last_update,
         /* Copied verbatim from the design's deviceInfoNote field. Re-synced
-         * 2026-09-13 (second pass same day): "Claude." -> "Claude Code."
-         * again, and the "Licensed under" line merged into the "Using Data"
-         * line above it — the design's text is churning between syncs, so
-         * this is copied fresh each time rather than patched. */
+         * 2026-09-19: added "for non-commercial use" before the CC BY 4.0
+         * URL, and the URL's own line merged into the "Using Data" line
+         * above it (was its own third line) — the design's text keeps
+         * churning between syncs, so this is copied fresh each time rather
+         * than patched. */
         .note = "Created by M. Thomas using Claude Design and Claude Code.\n"
-        "Using Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0\n"
-        "(https://creativecommons.org/licenses/by/4.0/).",
+        "Using Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0 "
+        "for non-commercial use (https://creativecommons.org/licenses/by/4.0/).",
     };
     weather_ui_set_device_info(&info);
 
