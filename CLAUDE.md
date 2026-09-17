@@ -87,6 +87,12 @@ Protokollbehandlung oder Fehlerentscheidungen in `main/` schreiben willst, zieh
 sie stattdessen nach `app_logic` und lass `main/` nur die Adapter halten. Wenn
 das nicht geht, sag warum, bevor du es anders machst.
 
+**Kommentare im Quellcode sind immer auf Englisch** — unabhängig davon, dass
+diese Datei und viele Chat-Antworten auf Deutsch sind. Gilt für neue
+Kommentare und beim Überarbeiten bestehender Zeilen; ein bestehender
+deutscher Kommentar wird nicht extra gesucht und umgeschrieben, wenn die
+Datei sonst nicht angefasst wird.
+
 ## Grenzen der Testebenen
 
 Der Host-Test (Linux-Target) ist **keine P4-Simulation**. Er deckt nicht ab:
