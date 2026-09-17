@@ -520,6 +520,7 @@ static void defer(sim_action_t action, uint32_t delay_ms);
 /* Firmware update dialog's fake-progress simulation state — see
  * on_ota_start()'s ACT_OTA_TICK self-repost below. */
 static int s_ota_progress;
+static bool s_ota_cancelled;
 
 static void deferred_cb(lv_timer_t *timer)
 {
@@ -571,6 +572,7 @@ static void deferred_cb(lv_timer_t *timer)
         break;
 
     case ACT_OTA_TICK:
+        if (s_ota_cancelled) break; /* on_ota_cancel() fired since this tick was deferred */
         s_ota_progress += 20;
         if (s_ota_progress >= 100) {
             weather_ui_set_ota_state(WX_OTA_DONE, 100);
@@ -640,9 +642,12 @@ static void on_favorite_select(int slot_index)
 static void on_ota_start(void)
 {
     s_ota_progress = 0;
+    s_ota_cancelled = false;
     weather_ui_set_ota_state(WX_OTA_DOWNLOADING, 0);
     defer(ACT_OTA_TICK, SIM_LATENCY_MS / 2);
 }
+
+static void on_ota_cancel(void) { s_ota_cancelled = true; }
 
 static void on_ota_toggle_auto_update(bool on) { (void)on; }
 static void on_ota_toggle_update_coprocessor(bool on) { (void)on; }
@@ -1106,7 +1111,7 @@ int main(int argc, char **argv)
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
-    weather_ui_set_ota_callbacks(on_ota_start, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
+    weather_ui_set_ota_callbacks(on_ota_start, on_ota_cancel, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
     /* The simulator has no camera; render the adaptive switch the way a real
      * board with nothing on the MIPI-CSI connector would. */
     weather_ui_set_brightness_adaptive_available(false);

@@ -33,6 +33,17 @@
 
 static const char *TAG = "ota_update";
 
+/* Cooperative cancel flag — see ota_update_request_cancel()'s doc comment in
+ * ota_update.h. Single bool, one writer (the LVGL task's Cancel handler),
+ * one reader (this file's own run loop), so no lock is needed; `volatile`
+ * is enough to keep the compiler from caching the read across loop
+ * iterations. */
+static volatile bool s_cancel_requested;
+
+void ota_update_request_cancel(void) {
+    s_cancel_requested = true;
+}
+
 #define GITHUB_RELEASES_URL "https://api.github.com/repos/thomas-engineering/weather_display/releases/latest"
 #define OTA_USER_AGENT       "esp32-p4-weather-display"
 #define JSON_BUF_MAX         (32 * 1024)
@@ -237,6 +248,12 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
 
     int image_size = esp_https_ota_get_image_size(handle); /* -1 if chunked/unknown */
     for (;;) {
+        if (s_cancel_requested) {
+            ESP_LOGW(TAG, "P4 OTA cancelled");
+            esp_https_ota_abort(handle);
+            out.error = OTA_ERR_CANCELLED;
+            return out;
+        }
         err = esp_https_ota_perform(handle);
         if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) break;
         if (on_progress) {
@@ -286,17 +303,21 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
 }
 
 ota_outcome_t ota_update_run(ota_progress_cb_t on_progress, void *progress_ctx) {
+    s_cancel_requested = false; /* clear any stale request left over from a prior run */
+
     ota_manifest_t manifest;
     char p4_url[URL_MAX], c6_url[URL_MAX];
     if (!fetch_manifest_and_urls(&manifest, p4_url, sizeof p4_url, c6_url, sizeof c6_url)) {
         return (ota_outcome_t){ .status = OTA_RESULT_ERROR, .error = OTA_ERR_MANIFEST };
     }
+    if (s_cancel_requested) return (ota_outcome_t){ .status = OTA_RESULT_ERROR, .error = OTA_ERR_CANCELLED };
 
     const esp_app_desc_t *running = esp_app_get_description();
     if (!ota_is_newer(running->version, manifest.version)) {
         ESP_LOGI(TAG, "up to date: running %s, latest release %s", running->version, manifest.version);
         return (ota_outcome_t){ .status = OTA_RESULT_UP_TO_DATE, .error = OTA_ERR_NONE };
     }
+    if (s_cancel_requested) return (ota_outcome_t){ .status = OTA_RESULT_ERROR, .error = OTA_ERR_CANCELLED };
 
     ESP_LOGI(TAG, "updating P4 from %s to %s", running->version, manifest.version);
     return run_p4_update(p4_url, manifest.p4_sha256, on_progress, progress_ctx);

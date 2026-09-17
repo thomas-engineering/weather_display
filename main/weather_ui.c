@@ -155,6 +155,7 @@ typedef struct {
     weather_ui_favorite_select_cb_t on_favorite_select;
     weather_ui_favorite_remove_cb_t on_favorite_remove;
     weather_ui_ota_start_cb_t on_ota_start;
+    weather_ui_ota_cancel_cb_t on_ota_cancel;
     weather_ui_ota_toggle_auto_update_cb_t on_ota_toggle_auto_update;
     weather_ui_ota_toggle_update_coprocessor_cb_t on_ota_toggle_update_coprocessor;
 } weather_ui_t;
@@ -2038,6 +2039,17 @@ static void open_ota_cb(lv_event_t *e) {
 }
 static void close_ota_cb(lv_event_t *e) { LV_UNUSED(e); lv_obj_add_flag(ui.ota_backdrop, LV_OBJ_FLAG_HIDDEN); }
 
+/* The "Cancel" button, unlike close_ota_cb (backdrop tap / "X" icon): those
+ * just hide the dialog and let an in-flight check/download keep running in
+ * the background (safe now that it's off the LVGL/UI thread), while this
+ * one requests a real, cooperative abort — see weather_ui_ota_cancel_cb_t's
+ * doc comment in weather_ui.h. */
+static void ota_cancel_click_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    lv_obj_add_flag(ui.ota_backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (ui.on_ota_cancel) ui.on_ota_cancel();
+}
+
 static void ota_start_click_cb(lv_event_t *e) {
     LV_UNUSED(e);
     if (ui.on_ota_start) ui.on_ota_start();
@@ -2332,7 +2344,7 @@ static void build_ota_panel(lv_obj_t *parent) {
     lv_obj_set_style_pad_top(btn_row, 8, 0);
     lv_obj_remove_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
 
-    wifi_text_btn(btn_row, s->cancel, close_ota_cb, NULL);
+    wifi_text_btn(btn_row, s->cancel, ota_cancel_click_cb, NULL);
 
     ui.ota_start_btn = lv_obj_create(btn_row);
     lv_obj_remove_style_all(ui.ota_start_btn);
@@ -2884,11 +2896,24 @@ void weather_ui_set_favorite_callbacks(weather_ui_favorite_toggle_cb_t on_toggle
 }
 
 void weather_ui_set_ota_callbacks(weather_ui_ota_start_cb_t on_start,
+                                   weather_ui_ota_cancel_cb_t on_cancel,
                                    weather_ui_ota_toggle_auto_update_cb_t on_toggle_auto_update,
                                    weather_ui_ota_toggle_update_coprocessor_cb_t on_toggle_update_coprocessor) {
     ui.on_ota_start = on_start;
+    ui.on_ota_cancel = on_cancel;
     ui.on_ota_toggle_auto_update = on_toggle_auto_update;
     ui.on_ota_toggle_update_coprocessor = on_toggle_update_coprocessor;
+}
+
+bool weather_ui_is_modal_open(void) {
+    lv_obj_t *backdrops[] = {
+        ui.settings_backdrop, ui.wifi_backdrop, ui.wifi_forget_confirm_backdrop,
+        ui.device_info_backdrop, ui.detail_backdrop, ui.search_backdrop, ui.ota_backdrop,
+    };
+    for (size_t i = 0; i < sizeof backdrops / sizeof backdrops[0]; i++) {
+        if (backdrops[i] && !lv_obj_has_flag(backdrops[i], LV_OBJ_FLAG_HIDDEN)) return true;
+    }
+    return false;
 }
 
 void weather_ui_open_wifi_setup(void) {
@@ -3008,6 +3033,12 @@ void weather_ui_set_data_stale(bool stale) {
 void weather_ui_set_last_sync_ago(const char *text) {
     if (!ui.header_last_sync_lbl) return;
     lv_label_set_text(ui.header_last_sync_lbl, text ? text : "");
+}
+
+void weather_ui_set_clock(const char *time_str, const char *date_str) {
+    if (!ui.header_time_lbl || !ui.header_date_lbl) return;
+    lv_label_set_text(ui.header_time_lbl, time_str ? time_str : "");
+    lv_label_set_text(ui.header_date_lbl, date_str ? date_str : "");
 }
 
 /* ---- entry point ---------------------------------------------------------- */

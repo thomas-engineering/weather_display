@@ -104,8 +104,13 @@ typedef void (*weather_ui_favorite_remove_cb_t)(int slot_index);
  * what that actually does (main/ota_update.c) and drives the visible state
  * back in via weather_ui_set_ota_state()/weather_ui_set_ota_error(). The two
  * switches persist immediately on toggle, same one-way pattern as
- * brightness_adaptive. */
+ * brightness_adaptive. on_cancel fires only from the dialog's "Cancel"
+ * button (added 2026-09-17 alongside the real download/flash) — it requests
+ * a real, cooperative abort of an in-flight check/download, unlike tapping
+ * the backdrop or the "X" close icon, which just hide the dialog and let
+ * anything in flight keep running in the background. */
 typedef void (*weather_ui_ota_start_cb_t)(void);
+typedef void (*weather_ui_ota_cancel_cb_t)(void);
 typedef void (*weather_ui_ota_toggle_auto_update_cb_t)(bool on);
 typedef void (*weather_ui_ota_toggle_update_coprocessor_cb_t)(bool on);
 
@@ -122,6 +127,7 @@ void weather_ui_set_favorite_callbacks(weather_ui_favorite_toggle_cb_t on_toggle
                                         weather_ui_favorite_select_cb_t on_select,
                                         weather_ui_favorite_remove_cb_t on_remove);
 void weather_ui_set_ota_callbacks(weather_ui_ota_start_cb_t on_start,
+                                   weather_ui_ota_cancel_cb_t on_cancel,
                                    weather_ui_ota_toggle_auto_update_cb_t on_toggle_auto_update,
                                    weather_ui_ota_toggle_update_coprocessor_cb_t on_toggle_update_coprocessor);
 
@@ -161,11 +167,28 @@ void weather_ui_set_ota_error(const char *message);
  * than looping back through these. */
 void weather_ui_set_ota_auto_update(bool on);
 void weather_ui_set_ota_update_coprocessor(bool on);
+/* True while any modal dialog (Settings, Wi-Fi setup/forget-confirm, Device
+ * info, day detail, city search, or this dialog itself) is open. Added for
+ * the silent 12h OTA auto-check (see app_weather.c) to avoid rebooting into
+ * a freshly-flashed P4 image while the user is mid-interaction — e.g.
+ * typing a Wi-Fi password — with no visible warning. Call under
+ * bsp_display_lock() like any other weather_ui_* read from the worker
+ * task. */
+bool weather_ui_is_modal_open(void);
 
 /* Header "last synced" text, next to the online/offline indicator — pass ""
  * to hide it. The app owns the timing (recompute periodically, same as the
  * data_stale flag), this just displays whatever string it's given. */
 void weather_ui_set_last_sync_ago(const char *text);
+
+/* Just the header clock (top-right time/date labels) — added 2026-09-17 so
+ * the ~30s idle tick that exists purely to keep the clock live doesn't have
+ * to go through weather_ui_set_current(), which also tears down and
+ * rebuilds the current-conditions weather icon on every call even though
+ * the weather itself hasn't changed (found by firmware-auditor's Category G
+ * pass: this and weather_ui_set_days()/set_hourly()'s icon/chart rebuilds
+ * ran unconditionally on every render, all under bsp_display_lock). */
+void weather_ui_set_clock(const char *time_str, const char *date_str);
 
 void weather_ui_set_current(const weather_current_t *cur);
 void weather_ui_set_days(const weather_day_t days[WEATHER_UI_DAYS]);

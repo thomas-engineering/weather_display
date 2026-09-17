@@ -50,8 +50,11 @@ void app_light_set_adaptive(bool enabled);
 /* Stops sampling and releases the camera entirely (stream, buffers, the
  * esp_video subsystem, the sampling task). Not called anywhere today — this
  * app never intentionally shuts the camera off for good — but provided for a
- * future power-down path. Never call this from app_light's own sampling
- * task. */
+ * future power-down path. Blocks until the sampling task has actually torn
+ * the stream down and deleted itself (2026-09-17: this used to delete the
+ * task from the outside, which could kill it mid-ioctl and raced
+ * app_light_set_adaptive() reading the same task handle). Never call this
+ * from app_light's own sampling task. */
 void app_light_deinit(void);
 
 #endif

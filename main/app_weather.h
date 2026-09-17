@@ -42,14 +42,18 @@ void app_weather_wifi_connect(const char *ssid, const char *password);
 void app_weather_wifi_forget(void);
 
 /* Firmware update dialog (2026-09-19 sync, real download/flash added
- * 2026-09-16). app_weather_ota_start() runs the real check-and-update flow
- * from main/ota_update.c on the worker task and pushes progress/result back
- * via weather_ui_set_ota_state(); the two toggle functions persist
- * immediately via app_prefs. Call app_weather_ota_resume_after_boot() once
- * at startup, after Wi-Fi is up (see main/main.c) — it's a no-op unless this
- * boot follows a P4 update, in which case it optionally flashes the C6 and
- * marks the app valid. */
+ * 2026-09-16, moved off the shared weather worker task and given a real
+ * cancel path 2026-09-17 per lvgl-reviewer's findings). app_weather_ota_start()
+ * runs the real check-and-update flow from main/ota_update.c on its own
+ * dedicated task and pushes progress/result back via weather_ui_set_ota_state();
+ * the two toggle functions persist immediately via app_prefs.
+ * app_weather_ota_cancel() requests a cooperative abort of whatever's
+ * in-flight (a no-op if nothing is). Call app_weather_ota_resume_after_boot()
+ * once at startup, after Wi-Fi is up (see main/main.c) — it's a no-op unless
+ * this boot follows a P4 update, in which case it optionally flashes the C6
+ * and marks the app valid. */
 void app_weather_ota_start(void);
+void app_weather_ota_cancel(void);
 void app_weather_ota_toggle_auto_update(bool on);
 void app_weather_ota_toggle_update_coprocessor(bool on);
 void app_weather_ota_resume_after_boot(void);

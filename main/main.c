@@ -35,6 +35,7 @@ static void on_favorite_toggle(int result_index)  { app_weather_toggle_favorite(
 static void on_favorite_select(int slot_index)    { app_weather_select_favorite(slot_index); }
 static void on_favorite_remove(int slot_index)    { app_weather_remove_favorite(slot_index); }
 static void on_ota_start(void)                    { app_weather_ota_start(); }
+static void on_ota_cancel(void)                   { app_weather_ota_cancel(); }
 static void on_ota_toggle_auto_update(bool on)    { app_weather_ota_toggle_auto_update(on); }
 static void on_ota_toggle_update_coprocessor(bool on) { app_weather_ota_toggle_update_coprocessor(on); }
 
@@ -219,7 +220,7 @@ void app_main(void) {
     weather_ui_set_brightness_callback(on_brightness);
     weather_ui_set_brightness_adaptive_callback(on_brightness_adaptive);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
-    weather_ui_set_ota_callbacks(on_ota_start, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
+    weather_ui_set_ota_callbacks(on_ota_start, on_ota_cancel, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
     /* FIX: weather_ui_set_language()/weather_ui_set_units() both end by firing
      * the settings-changed callback (so language/unit-only edits from the UI
      * get persisted), which re-saves *every* field of app_prefs including

@@ -2,6 +2,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "esp_video_init.h"
@@ -43,6 +44,16 @@ static uint32_t s_buf_mem_type;
 static app_light_brightness_cb_t s_cb;
 static light_policy_t s_policy;
 static TaskHandle_t s_task;
+
+/* Guards s_task against the app_light_deinit()/app_light_set_adaptive() race
+ * documented on app_light_deinit() below: without this, set_adaptive() could
+ * read a non-NULL s_task and call xTaskNotifyGive() on it just as deinit's
+ * externally-issued vTaskDelete() was freeing the same handle. s_deinit_done
+ * lets deinit block until light_sensor_task has actually torn the stream
+ * down and deleted itself, rather than deleting it from outside mid-ioctl. */
+static SemaphoreHandle_t s_task_mutex;
+static SemaphoreHandle_t s_deinit_done;
+static volatile bool s_deinit_requested;
 
 /* RGB565, little-endian, sampled at a stride rather than every pixel — a
  * coarse ambient-brightness estimate doesn't need full-resolution accuracy. */
@@ -255,6 +266,20 @@ static void light_sensor_task(void *arg) {
          * the camera running for a flag nothing is reading anymore. */
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(SAMPLE_INTERVAL_MS));
 
+        if (s_deinit_requested) {
+            /* Tear down from inside this task, at a clean checkpoint between
+             * samples — never mid-ioctl — then delete ourselves. Deleting
+             * this task from the outside (the old app_light_deinit()
+             * behavior) risked killing it mid-VIDIOC_DQBUF/-QBUF, leaving
+             * the CSI driver's internal state mid-transaction. */
+            stop_streaming();
+            xSemaphoreTake(s_task_mutex, portMAX_DELAY);
+            s_task = NULL;
+            xSemaphoreGive(s_task_mutex);
+            xSemaphoreGive(s_deinit_done);
+            vTaskDelete(NULL);
+        }
+
         bool want = s_adaptive;
         if (want && !s_streaming) {
             if (!start_streaming()) {
@@ -326,6 +351,11 @@ bool app_light_init(i2c_master_bus_handle_t i2c_bus) {
     }
 
     light_policy_reset(&s_policy);
+    /* Created once; guarded so a hypothetical future deinit+reinit cycle
+     * doesn't leak a semaphore per cycle. */
+    if (!s_task_mutex) s_task_mutex = xSemaphoreCreateMutex();
+    if (!s_deinit_done) s_deinit_done = xSemaphoreCreateBinary();
+    s_deinit_requested = false;
     xTaskCreatePinnedToCore(light_sensor_task, "light_sensor", 4096, NULL, 3, &s_task, 0);
     return true;
 }
@@ -345,16 +375,32 @@ void app_light_set_adaptive(bool enabled) {
     }
     ESP_LOGI(TAG, "adaptive brightness %s", enabled ? "enabled" : "disabled");
     s_adaptive = enabled;
-    if (s_task) xTaskNotifyGive(s_task);
+    /* s_task_mutex serializes this read against light_sensor_task clearing
+     * s_task to NULL right before it deletes itself in app_light_deinit()'s
+     * path — without it, this could read a non-NULL handle just as that
+     * task (and the handle) is going away. */
+    xSemaphoreTake(s_task_mutex, portMAX_DELAY);
+    TaskHandle_t t = s_task;
+    xSemaphoreGive(s_task_mutex);
+    if (t) xTaskNotifyGive(t);
 }
 
 void app_light_deinit(void) {
+    /* Signal-and-wait instead of vTaskDelete()-from-outside: the old code
+     * deleted light_sensor_task from this caller's context and then ran
+     * stop_streaming() here too, which could kill the task mid-VIDIOC_DQBUF/
+     * -QBUF (leaving the CSI driver's internal state mid-transaction) and
+     * raced app_light_set_adaptive() reading the same handle right as it
+     * was being freed. Now the task tears itself down at a clean checkpoint
+     * and deletes itself; this just waits for that to finish. */
     if (s_task) {
+        s_deinit_requested = true;
+        xSemaphoreTake(s_task_mutex, portMAX_DELAY);
         TaskHandle_t t = s_task;
-        s_task = NULL;
-        vTaskDelete(t);
+        xSemaphoreGive(s_task_mutex);
+        if (t) xTaskNotifyGive(t);
+        xSemaphoreTake(s_deinit_done, portMAX_DELAY);
     }
-    stop_streaming();
     if (s_available) {
         esp_video_deinit();
         s_available = false;

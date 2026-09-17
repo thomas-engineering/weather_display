@@ -63,9 +63,12 @@ static bool  s_have_forecast;
 static int   s_utc_offset;
 
 /* Guards against a second "Check for update" tap (or the periodic
- * auto-check) firing while ota_update_run()/ota_update_resume_after_boot()
- * is already running on this same worker task — see app_weather_ota_start()'s
- * doc comment in app_weather.h. */
+ * auto-check, or CMD_OTA_RESUME) spawning a second ota_worker_task/
+ * ota_resume_task while one is already running — those run on their own
+ * dedicated tasks now (2026-09-17), not inline in weather_task, but only
+ * one may run at a time since they share ota_update.c's cancel flag and
+ * both talk to the same network/flash. Set when a task is spawned, cleared
+ * by that task right before it deletes itself. */
 static bool s_ota_active;
 static TickType_t s_last_ota_check;
 #define OTA_AUTO_CHECK_INTERVAL_MS (12 * 60 * 60 * 1000) /* matches the dialog's own hint text */
@@ -77,6 +80,17 @@ static int s_day_count;
 static weather_hourly_t s_hourly[WEATHER_UI_DAYS];
 static bool s_hourly_valid[WEATHER_UI_DAYS];
 static time_t s_last_success;      /* for the header's "data may be outdated" flag */
+
+/* Queried once at worker-task startup instead of on every Device Info push —
+ * found by firmware-auditor's Category G pass: esp_hosted_get_coprocessor_fwversion()
+ * is a synchronous cross-chip RPC (default 5s timeout), and push_device_info_to_ui()
+ * used to call it from inside every push_forecast_to_ui()/ui_error(), both
+ * already holding bsp_display_lock() — so a slow/stuck RPC blocked LVGL's
+ * renderer for up to 5s on every refresh. The coprocessor's version can only
+ * change via ota_update.c's C6 phase, which always esp_restart()s the P4
+ * afterward (see ota_update_resume_after_boot()), so a boot-time read is
+ * never stale. */
+static char s_cp_version[24] = "-";
 
 /* Sunrise/sunset/UV/air-quality row (2026-09-12 sync) — "today" only, same as
  * the design's current.sunriseStr/sunsetStr/uvValue. Air quality comes from a
@@ -201,22 +215,27 @@ static const char *jarr_str(const cJSON *o, const char *k, int i) {
  * version" before the 2026-09-18 sync) comes from esp_app_get_description(),
  * which ESP-IDF fills from version.txt at the project root (falls back to
  * `git describe` if that file doesn't exist — see version.txt's own history
- * for why this project keeps one). Coprocessor version is read live from the
- * ESP32-C6 over the esp_hosted RPC link (esp_hosted_get_coprocessor_fwversion())
- * — same source as the "coprocessor=X.Y.Z" line esp_hosted itself logs at
- * boot when checking host/coprocessor compatibility. */
+ * for why this project keeps one). Coprocessor version is read from s_cp_version,
+ * queried once from the ESP32-C6 over the esp_hosted RPC link
+ * (esp_hosted_get_coprocessor_fwversion() — same source as the
+ * "coprocessor=X.Y.Z" line esp_hosted itself logs at boot when checking
+ * host/coprocessor compatibility) at worker-task startup rather than on every
+ * call here: that RPC is synchronous with a 5s default timeout, and every
+ * call site below already holds bsp_display_lock() — see s_cp_version's own
+ * comment for why a boot-time read is never stale anyway. */
+/* Called once from weather_task()'s startup, off any display lock — see
+ * s_cp_version's own comment for why this doesn't need to run again. */
+static void query_coprocessor_version(void) {
+    esp_hosted_coprocessor_fwver_t cp_ver;
+    if (esp_hosted_get_coprocessor_fwversion(&cp_ver) == ESP_OK) {
+        snprintf(s_cp_version, sizeof s_cp_version, "%lu.%lu.%lu",
+                 (unsigned long)cp_ver.major1, (unsigned long)cp_ver.minor1, (unsigned long)cp_ver.patch1);
+    }
+}
+
 static void push_device_info_to_ui(void) {
     char ip[16] = "", dns[16] = "", gw[16] = "";
     bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
-
-    char cp_version[24];
-    esp_hosted_coprocessor_fwver_t cp_ver;
-    if (esp_hosted_get_coprocessor_fwversion(&cp_ver) == ESP_OK) {
-        snprintf(cp_version, sizeof cp_version, "%lu.%lu.%lu",
-                 (unsigned long)cp_ver.major1, (unsigned long)cp_ver.minor1, (unsigned long)cp_ver.patch1);
-    } else {
-        snprintf(cp_version, sizeof cp_version, "-");
-    }
 
     /* s_last_success is the last successful *forecast* fetch, same value the
      * staleness check above uses — exactly "last update" from the design's
@@ -241,7 +260,7 @@ static void push_device_info_to_ui(void) {
         .device_name = "Weather Display",
         .hardware_version = "ESP32-P4 Rev 1.3",
         .firmware_version = esp_app_get_description()->version,
-        .coprocessor_version = cp_version,
+        .coprocessor_version = s_cp_version,
         .online = online,
         .ip = online ? ip : NULL,
         .dns = online ? dns : NULL,
@@ -289,7 +308,19 @@ static void show_refresh_toast(bool ok) {
 }
 
 /* Renders the cached forecast in the current language/units. */
-static void push_forecast_to_ui(void) {
+/* `full`: true rebuilds everything (current conditions, 7-day row, hourly
+ * chart) — needed whenever the underlying forecast data or the display
+ * language actually changed. false only refreshes the header clock and the
+ * "updated N min ago"/stale/network bits, all of which are pure functions
+ * of wall-clock time. Split out 2026-09-17 (firmware-auditor Category G):
+ * the ~30s idle tick that exists solely to keep the clock live used to call
+ * this with full rebuilds every time even though nothing had changed —
+ * weather_ui_set_current()/set_days() tear down and rebuild every weather
+ * icon (1 + 7, each lv_obj_clean() + rebuilt from scratch) and
+ * weather_ui_set_hourly() rebuilds the whole chart (~40 objects, several
+ * lv_obj_update_layout() calls), all inside the same bsp_display_lock() the
+ * LVGL renderer task also needs. */
+static void push_forecast_to_ui(bool full) {
     if (!s_have_forecast) return;
     const app_prefs_t *p = app_prefs_get();
     weather_lang_t lang = p->lang;
@@ -301,11 +332,27 @@ static void push_forecast_to_ui(void) {
     struct tm lt;
     gmtime_r(&local, &lt);
 
+    char time_str[16], date_str[32]; /* match weather_current_t's time_str/date_str sizes exactly */
+    fmt_time(time_str, sizeof time_str, &lt, p->time_fmt);
+    fmt_date(date_str, sizeof date_str, &lt, lang);
+
+    bool stale = s_last_success == 0 || (now_utc - s_last_success) > STALE_AFTER_SEC;
+
+    if (!full) {
+        if (!bsp_display_lock(1000)) return;
+        weather_ui_set_clock(time_str, date_str);
+        weather_ui_set_network_status(app_wifi_is_connected() ? WX_NET_ONLINE : WX_NET_OFFLINE);
+        weather_ui_set_data_stale(stale);
+        push_device_info_to_ui();
+        bsp_display_unlock();
+        return;
+    }
+
     weather_current_t cur = {0};
     snprintf(cur.location_name, sizeof cur.location_name, "%s", p->name);
     snprintf(cur.location_country, sizeof cur.location_country, "%s", p->country);
-    fmt_time(cur.time_str, sizeof cur.time_str, &lt, p->time_fmt);
-    fmt_date(cur.date_str, sizeof cur.date_str, &lt, lang);
+    snprintf(cur.time_str, sizeof cur.time_str, "%s", time_str);
+    snprintf(cur.date_str, sizeof cur.date_str, "%s", date_str);
     cur.weather_code = s_cur_code;
     cur.temp_c = s_cur_temp;
     cur.feels_like_c = s_cur_feel;
@@ -343,8 +390,6 @@ static void push_forecast_to_ui(void) {
     const weather_hourly_t *day_ptrs[WEATHER_UI_DAYS];
     for (int i = 0; i < WEATHER_UI_DAYS; i++)
         day_ptrs[i] = s_hourly_valid[i] ? &s_hourly[i] : NULL;
-
-    bool stale = s_last_success == 0 || (now_utc - s_last_success) > STALE_AFTER_SEC;
 
     if (!bsp_display_lock(1000)) return;
     weather_ui_set_error(NULL);
@@ -484,7 +529,7 @@ static void do_refresh(bool is_manual) {
     s_last_success = time(NULL);
     s_have_forecast = true;
     ESP_LOGI(TAG, "forecast ok: %.1fC code=%d, %d days", s_cur_temp, s_cur_code, n);
-    push_forecast_to_ui();
+    push_forecast_to_ui(true);
     if (is_manual) show_refresh_toast(true);
 }
 
@@ -558,6 +603,75 @@ static void ota_on_progress(int percent, void *ctx) {
     if (!silent) push_ota_state_to_ui(WX_OTA_DOWNLOADING, percent);
 }
 
+/* Runs ota_update_run() on its own task instead of inline in weather_task —
+ * a multi-MB download can take tens of seconds to minutes, and weather_task
+ * is the only consumer of the command queue that also serves search,
+ * refresh, Wi-Fi and favorites; blocking it there silently starved those
+ * (found by lvgl-reviewer 2026-09-17). `arg` is a heap-allocated
+ * ota_task_args_t, freed here. */
+typedef struct { bool silent; } ota_task_args_t;
+
+static void ota_worker_task(void *arg) {
+    ota_task_args_t *args = (ota_task_args_t *)arg;
+    bool silent = args->silent;
+    free(args);
+
+    if (!silent) push_ota_state_to_ui(WX_OTA_DOWNLOADING, 0);
+
+    ota_outcome_t res = ota_update_run(ota_on_progress, &silent);
+    switch (res.status) {
+        case OTA_RESULT_UP_TO_DATE:
+            if (!silent) push_ota_state_to_ui(WX_OTA_IDLE, 0);
+            break;
+        case OTA_RESULT_UPDATED_REBOOTING:
+            push_ota_state_to_ui(WX_OTA_DONE, 100);
+            if (silent) {
+                /* A silent background check found and flashed an update —
+                 * don't reboot into it while the user is mid-interaction
+                 * (typing a Wi-Fi password, searching, ...) with no visible
+                 * warning (found by lvgl-reviewer 2026-09-17). Wait for no
+                 * modal to be open, but bounded: the rollback safety net
+                 * only starts once the new image actually boots, so this
+                 * can't be allowed to wait forever on a device that always
+                 * has something open. */
+                for (int waited_ms = 0; waited_ms < 5 * 60 * 1000; waited_ms += 5000) {
+                    bool busy = true;
+                    if (bsp_display_lock(1000)) {
+                        busy = weather_ui_is_modal_open();
+                        bsp_display_unlock();
+                    }
+                    if (!busy) break;
+                    vTaskDelay(pdMS_TO_TICKS(5000));
+                }
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(1500)); /* let the UI actually show "rebooting" */
+            }
+            esp_restart();
+            break; /* unreachable */
+        case OTA_RESULT_ERROR:
+            if (res.error == OTA_ERR_CANCELLED) {
+                push_ota_state_to_ui(WX_OTA_IDLE, 0);
+            } else if (!silent) {
+                push_ota_error_to_ui(res.error);
+            } else {
+                ESP_LOGW(TAG, "silent OTA auto-check failed (error %d)", res.error);
+            }
+            break;
+    }
+    s_ota_active = false;
+    vTaskDelete(NULL);
+}
+
+/* Companion to ota_worker_task, for CMD_OTA_RESUME — same reasoning: this
+ * runs a full manifest fetch and potentially the C6 flash + reboot, which
+ * must not block weather_task either. */
+static void ota_resume_task(void *arg) {
+    LV_UNUSED(arg);
+    ota_update_resume_after_boot(app_prefs_get()->ota_update_coprocessor);
+    s_ota_active = false;
+    vTaskDelete(NULL);
+}
+
 static void do_search(const char *query) {
     const app_prefs_t *p = app_prefs_get();
     if (!query || strlen(query) < 2) {
@@ -627,6 +741,7 @@ static void weather_task(void *arg) {
     TickType_t search_due = 0;
 
     TickType_t last_auto = xTaskGetTickCount();
+    query_coprocessor_version();
     push_favorites_to_ui();
     if (app_wifi_is_connected()) do_refresh(false);
 
@@ -654,7 +769,7 @@ static void weather_task(void *arg) {
                     last_auto = xTaskGetTickCount();
                     break;
                 case CMD_RELANG:
-                    push_forecast_to_ui();
+                    push_forecast_to_ui(true); /* language changed: day labels/captions must re-render */
                     break;
                 case CMD_WIFI_SCAN: {
                     wx_wifi_network_t nets[APP_WIFI_MAX_SCAN];
@@ -711,31 +826,27 @@ static void weather_task(void *arg) {
                     break;
                 case CMD_OTA_START: {
                     if (s_ota_active) break;
+                    ota_task_args_t *args = malloc(sizeof *args);
+                    if (!args) break;
+                    args->silent = cmd.ota_silent;
                     s_ota_active = true;
                     s_last_ota_check = xTaskGetTickCount();
-                    bool silent = cmd.ota_silent;
-                    if (!silent) push_ota_state_to_ui(WX_OTA_DOWNLOADING, 0);
-
-                    ota_outcome_t res = ota_update_run(ota_on_progress, &silent);
-                    switch (res.status) {
-                        case OTA_RESULT_UP_TO_DATE:
-                            if (!silent) push_ota_state_to_ui(WX_OTA_IDLE, 0);
-                            break;
-                        case OTA_RESULT_UPDATED_REBOOTING:
-                            push_ota_state_to_ui(WX_OTA_DONE, 100);
-                            vTaskDelay(pdMS_TO_TICKS(1500)); /* let the UI actually show "rebooting" */
-                            esp_restart();
-                            break; /* unreachable */
-                        case OTA_RESULT_ERROR:
-                            if (!silent) push_ota_error_to_ui(res.error);
-                            else ESP_LOGW(TAG, "silent OTA auto-check failed (error %d)", res.error);
-                            break;
+                    if (xTaskCreatePinnedToCore(ota_worker_task, "ota", 8192, args, 3, NULL, 0) != pdPASS) {
+                        free(args);
+                        s_ota_active = false;
+                        /* No dedicated "couldn't even start" category; OTA_ERR_FLASH
+                         * is the closest existing one and this should be vanishingly
+                         * rare (task-creation failure, e.g. out of memory). */
+                        if (!cmd.ota_silent) push_ota_error_to_ui(OTA_ERR_FLASH);
                     }
-                    s_ota_active = false;
                     break;
                 }
                 case CMD_OTA_RESUME:
-                    ota_update_resume_after_boot(app_prefs_get()->ota_update_coprocessor);
+                    if (s_ota_active) break;
+                    s_ota_active = true;
+                    if (xTaskCreatePinnedToCore(ota_resume_task, "ota_resume", 8192, NULL, 3, NULL, 0) != pdPASS) {
+                        s_ota_active = false;
+                    }
                     break;
             }
         }
@@ -758,7 +869,7 @@ static void weather_task(void *arg) {
             last_auto = now;
         } else if (s_have_forecast) {
             static int tick = 0;
-            if (++tick >= 60) { tick = 0; push_forecast_to_ui(); }  /* ~30 s */
+            if (++tick >= 60) { tick = 0; push_forecast_to_ui(false); }  /* ~30 s, clock-only */
         }
 
         /* Periodic silent OTA check, gated by the dialog's own auto-update
@@ -818,6 +929,15 @@ void app_weather_remove_favorite(int slot_index) {
 void app_weather_ota_start(void) {
     cmd_t c = { .kind = CMD_OTA_START };
     post(&c);
+}
+
+/* Fire-and-forget, no queue round-trip: sets ota_update.c's cooperative
+ * cancel flag directly, same reasoning as the toggle functions below — it's
+ * safe to call from any task (see ota_update_request_cancel()'s doc
+ * comment), and the OTA task polls it on its own between HTTP
+ * reads/esp_https_ota_perform() iterations. */
+void app_weather_ota_cancel(void) {
+    ota_update_request_cancel();
 }
 
 /* Persist immediately, same as app_prefs_save_brightness_adaptive() being

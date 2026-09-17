@@ -32,6 +32,7 @@ typedef enum {
     OTA_ERR_CHECKSUM,     /* downloaded P4 image's SHA-256 didn't match the manifest */
     OTA_ERR_FLASH,        /* esp_https_ota itself failed (bad image, flash write error, ...) */
     OTA_ERR_COPROCESSOR,  /* C6 phase failed (chunk checksum mismatch, RPC error, ...) */
+    OTA_ERR_CANCELLED,    /* ota_update_request_cancel() was called mid-run */
 } ota_error_t;
 
 typedef struct {
@@ -50,6 +51,16 @@ typedef void (*ota_progress_cb_t)(int percent, void *ctx);
  * carried through only to be echoed back by ota_update_resume_after_boot()
  * on the next boot; this call never touches the C6. */
 ota_outcome_t ota_update_run(ota_progress_cb_t on_progress, void *progress_ctx);
+
+/* Cooperative cancel: sets a flag that ota_update_run() polls between HTTP
+ * reads/esp_https_ota_perform() iterations. Safe to call from any task
+ * (single bool, one writer here, one reader inside ota_update_run()) — in
+ * practice always the LVGL task reacting to the dialog's "Cancel" button,
+ * while ota_update_run() itself runs on its own dedicated OTA task (see
+ * app_weather.c) so this never blocks. A cancel requested before or after a
+ * run (no run in progress) is simply cleared at the next ota_update_run()
+ * call, so callers don't need to pair every cancel with a run. */
+void ota_update_request_cancel(void);
 
 /* Call once at startup, after Wi-Fi is up, before anything else touches the
  * OTA subsystem. If the running partition is still pending verification
