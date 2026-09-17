@@ -13,6 +13,7 @@ idf_component_register(
         "app_light.c"
         "storage_backend_nvs.c"
         "save_debounce.c"
+        "ota_update.c"
         "weather_ui.c"
         "weather_chart.c"
         "weather_icons.c"
@@ -22,7 +23,8 @@ idf_component_register(
     REQUIRES esp32_p4_wifi6_touch_lcd_7b lvgl__lvgl
     PRIV_REQUIRES esp_wifi esp_driver_sdmmc nvs_flash esp_http_client esp-tls
                   espressif__cjson lwip esp_netif espressif__esp_video app_logic esp_timer
-                  esp_app_format espressif__esp_hosted)
+                  esp_app_format espressif__esp_hosted app_update esp_https_ota
+                  esp_partition mbedtls)
 
 # NOTE: no esp_hosted/SDMMC link workaround here. The Waveshare examples carry one
 # for esp_hosted 1.4.x, which relied on the IDF 5 umbrella driver's transitive SDMMC

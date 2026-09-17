@@ -1,5 +1,12 @@
-# Name,   Type, SubType, Offset,  Size, Flags
-nvs,      data, nvs,     0x9000,  0x6000,
-phy_init, data, phy,     0xf000,  0x1000,
-factory,  app,  factory, ,        8M,
-storage,  data, spiffs,  ,        7M,
+# Name,   Type, SubType,  Offset,  Size, Flags
+nvs,      data, nvs,      0x9000,  0x6000,
+phy_init, data, phy,      0xf000,  0x1000,
+# Two 8M OTA app slots + otadata replace the old single 8M "factory" slot, for
+# real OTA support (see main/ota_update.c and tmp/ota_update_plan.md). Added
+# in previously-free flash space (board is 32MB, only ~15MB was partitioned
+# before this) rather than shrinking anything, so "storage" below (unused by
+# any code today, per CLAUDE.md's testing-tier notes) needed no resizing.
+otadata,  data, ota,      ,        0x2000,
+ota_0,    app,  ota_0,    ,        8M,
+ota_1,    app,  ota_1,    ,        8M,
+storage,  data, spiffs,   ,        7M,

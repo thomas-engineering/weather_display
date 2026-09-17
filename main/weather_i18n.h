@@ -37,6 +37,16 @@ typedef struct {
     const char *auto_refresh, *auto_off, *auto_15, *auto_30, *auto_60;
     const char *forget_confirm_title, *forget_confirm_body;
     const char *favorites, *empty_favorite;
+    /* Firmware update dialog (2026-09-19 sync): "Update" opens it from the
+     * Settings screen's Network row, next to "Configure network". */
+    const char *update, *ota_title, *current_version, *ota_status;
+    const char *ota_up_to_date, *ota_downloading, *ota_done, *ota_start, *ota_hint;
+    const char *ota_auto_update, *ota_update_coprocessor;
+    /* Failure reasons for weather_ui_set_ota_error() — added alongside the
+     * real download/flash logic (main/ota_update.c); the design's own
+     * fake-progress dialog never needed these since it couldn't fail. */
+    const char *ota_error_network, *ota_error_manifest, *ota_error_checksum,
+               *ota_error_flash, *ota_error_coprocessor;
 } weather_strings_t;
 
 /* Weather condition text, indexed by WMO weather code buckets used elsewhere in this port

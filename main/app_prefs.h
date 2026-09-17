@@ -16,6 +16,10 @@ typedef struct {
     int brightness; /* 10-100, display backlight */
     bool brightness_adaptive; /* true: camera-driven, ignored if no camera was found */
     int auto_refresh_minutes; /* 0/15/30/60; 0 disables the periodic background refresh */
+    /* Firmware update dialog (2026-09-19 sync). Defaults match the design's
+     * own initial state (otaAutoUpdate: true, otaUpdateCoprocessor: false). */
+    bool ota_auto_update;
+    bool ota_update_coprocessor;
 } app_prefs_t;
 
 /* Loads prefs from storage (NVS today, see main/storage_backend_nvs.c),
@@ -35,6 +39,7 @@ void app_prefs_save_city(const char *name, const char *country, float lat, float
 void app_prefs_save_settings(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf, int auto_refresh_minutes);
 void app_prefs_save_brightness(int percent);
 void app_prefs_save_brightness_adaptive(bool enabled);
+void app_prefs_save_ota_settings(bool auto_update, bool update_coprocessor);
 
 /* Live copy, kept in sync by the save_* calls above. */
 const app_prefs_t *app_prefs_get(void);

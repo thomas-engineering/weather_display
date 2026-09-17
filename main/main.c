@@ -34,6 +34,9 @@ static void on_wifi_scan(void)                    { app_weather_wifi_scan(); }
 static void on_favorite_toggle(int result_index)  { app_weather_toggle_favorite(result_index); }
 static void on_favorite_select(int slot_index)    { app_weather_select_favorite(slot_index); }
 static void on_favorite_remove(int slot_index)    { app_weather_remove_favorite(slot_index); }
+static void on_ota_start(void)                    { app_weather_ota_start(); }
+static void on_ota_toggle_auto_update(bool on)    { app_weather_ota_toggle_auto_update(on); }
+static void on_ota_toggle_update_coprocessor(bool on) { app_weather_ota_toggle_update_coprocessor(on); }
 
 static void on_wifi_connect(const char *ssid, const char *password) {
     app_weather_wifi_connect(ssid, password);
@@ -216,6 +219,7 @@ void app_main(void) {
     weather_ui_set_brightness_callback(on_brightness);
     weather_ui_set_brightness_adaptive_callback(on_brightness_adaptive);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
+    weather_ui_set_ota_callbacks(on_ota_start, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
     /* FIX: weather_ui_set_language()/weather_ui_set_units() both end by firing
      * the settings-changed callback (so language/unit-only edits from the UI
      * get persisted), which re-saves *every* field of app_prefs including
@@ -227,6 +231,8 @@ void app_main(void) {
      * which this line does set correctly, just too late to matter to the
      * save that already fired. Setting it first avoids the whole race. */
     weather_ui_set_auto_refresh(prefs.auto_refresh_minutes);
+    weather_ui_set_ota_auto_update(prefs.ota_auto_update);
+    weather_ui_set_ota_update_coprocessor(prefs.ota_update_coprocessor);
     weather_ui_set_language(prefs.lang);
     weather_ui_set_units(prefs.temp_unit, prefs.wind_unit, prefs.time_fmt);
     weather_ui_set_brightness(prefs.brightness);
@@ -266,6 +272,12 @@ void app_main(void) {
      * and connect the setup screen triggers — so start it before opening that screen. */
     ESP_LOGI(TAG, "starting weather worker");
     app_weather_start();
+
+    /* No-op unless this boot follows a P4 OTA update (running partition still
+     * ESP_OTA_IMG_PENDING_VERIFY) — see ota_update_resume_after_boot(). Only
+     * meaningful with network up, and posted to the worker queue that
+     * app_weather_start() just created, so it must come after that call. */
+    if (online) app_weather_ota_resume_after_boot();
 
     if (!online) {
         /* Nothing stored, or the stored network is gone: put the setup screen up so

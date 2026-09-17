@@ -16,6 +16,13 @@ CONFIG_BOOTLOADER_LOG_LEVEL=2
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 
+# Real OTA (main/ota_update.c): roll back to the previous ota_x slot if the
+# new image is never marked valid (esp_ota_mark_app_valid_cancel_rollback(),
+# called from ota_update_resume_after_boot() once Wi-Fi/UI are confirmed up).
+# CONFIG_APP_ROLLBACK_ENABLE is a deprecated/no-op alias in this IDF version
+# (see components/bootloader/Kconfig.app_rollback) — this is the real switch.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
 # PSRAM: the triple-buffered 1024x600 framebuffers and the HTTP body live here.
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_SPEED_200M=y

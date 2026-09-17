@@ -110,6 +110,19 @@ typedef struct {
      * changed three times in one day. */
     char device_info_note[256];
 
+    lv_obj_t *ota_backdrop;
+    lv_obj_t *ota_current_version_val, *ota_status_val;
+    lv_obj_t *ota_progress_track, *ota_progress_fill;
+    lv_obj_t *ota_auto_sw, *ota_copro_sw;
+    lv_obj_t *ota_hint_lbl;
+    lv_obj_t *ota_start_btn, *ota_start_lbl;
+    wx_ota_status_t ota_status;
+    int ota_progress; /* 0-100, only meaningful while ota_status is WX_OTA_DOWNLOADING */
+    char ota_error_msg[64]; /* only meaningful while ota_status is WX_OTA_ERROR; re-applied
+                              * verbatim (not re-translated) by ota_rebuild() on a language
+                              * switch, same limitation as any other in-flight async state */
+    bool ota_auto_update, ota_update_coprocessor;
+
     lv_obj_t *search_backdrop, *search_ta, *search_kb, *search_results, *search_status_lbl, *search_cancel_lbl;
     lv_obj_t *favorites_caption_lbl, *favorites_row;
 
@@ -141,6 +154,9 @@ typedef struct {
     weather_ui_favorite_toggle_cb_t on_favorite_toggle;
     weather_ui_favorite_select_cb_t on_favorite_select;
     weather_ui_favorite_remove_cb_t on_favorite_remove;
+    weather_ui_ota_start_cb_t on_ota_start;
+    weather_ui_ota_toggle_auto_update_cb_t on_ota_toggle_auto_update;
+    weather_ui_ota_toggle_update_coprocessor_cb_t on_ota_toggle_update_coprocessor;
 } weather_ui_t;
 
 static weather_ui_t ui;
@@ -151,6 +167,10 @@ static void build_device_info_panel(lv_obj_t *parent);
 static void device_info_rebuild(bool keep_open);
 static void open_device_info_cb(lv_event_t *e);
 static void close_device_info_cb(lv_event_t *e);
+static void build_ota_panel(lv_obj_t *parent);
+static void ota_rebuild(bool keep_open);
+static void open_ota_cb(lv_event_t *e);
+static void close_ota_cb(lv_event_t *e);
 static void build_wifi_screen(lv_obj_t *parent);
 static void wifi_show_list(void);
 static void wifi_relabel(void);
@@ -1550,18 +1570,21 @@ static void settings_rebuild(bool keep_open) {
      * comment above build_device_info_panel) — without this a rebuild here
      * makes settings the newest (topmost) sibling and buries it underneath. */
     if (ui.device_info_backdrop) lv_obj_move_foreground(ui.device_info_backdrop);
+    if (ui.ota_backdrop) lv_obj_move_foreground(ui.ota_backdrop);
 }
 
 void weather_ui_set_language(weather_lang_t lang) {
     if (lang < 0 || lang >= LANG_COUNT) return;
     bool was_open = ui.settings_backdrop && !lv_obj_has_flag(ui.settings_backdrop, LV_OBJ_FLAG_HIDDEN);
     bool device_info_was_open = ui.device_info_backdrop && !lv_obj_has_flag(ui.device_info_backdrop, LV_OBJ_FLAG_HIDDEN);
+    bool ota_was_open = ui.ota_backdrop && !lv_obj_has_flag(ui.ota_backdrop, LV_OBJ_FLAG_HIDDEN);
     ui.lang = lang;
     /* FIX: the export's README listed re-localizing the settings panel's own captions
      * as a TODO — the panel built its labels once, so switching to e.g. German left
      * "Language / Temperature / Wind speed" in English. Rebuild it in place. */
     settings_rebuild(was_open);
     device_info_rebuild(device_info_was_open);
+    ota_rebuild(ota_was_open);
     wifi_relabel();
     wifi_forget_confirm_relabel();
     notify_settings_changed();
@@ -1580,6 +1603,60 @@ void weather_ui_set_auto_refresh(int minutes) {
     int idx = 2; /* default to 30 if an unexpected value ever arrives */
     for (int i = 0; i < 4; i++) if (k_auto_refresh_values[i] == minutes) idx = i;
     for (int i = 0; i < 4; i++) lv_obj_set_style_bg_opa(ui.seg_auto[i], i == idx ? LV_OPA_20 : LV_OPA_TRANSP, 0);
+}
+
+void weather_ui_set_ota_state(wx_ota_status_t status, int progress) {
+    ui.ota_status = status;
+    ui.ota_progress = progress < 0 ? 0 : progress > 100 ? 100 : progress;
+    if (!ui.ota_backdrop) return;
+    const weather_strings_t *s = &weather_strings[ui.lang];
+    if (status == WX_OTA_DOWNLOADING) {
+        char buf[32];
+        snprintf(buf, sizeof buf, "%s %d%%", s->ota_downloading, ui.ota_progress);
+        lv_label_set_text(ui.ota_status_val, buf);
+        lv_obj_remove_flag(ui.ota_progress_track, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(ui.ota_progress_fill, LV_PCT(ui.ota_progress));
+        lv_label_set_text(ui.ota_start_lbl, s->ota_downloading);
+        lv_obj_remove_flag(ui.ota_start_btn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(ui.ota_start_btn, LV_OPA_50, 0);
+    } else {
+        lv_obj_add_flag(ui.ota_progress_track, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ui.ota_start_btn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(ui.ota_start_btn, LV_OPA_COVER, 0);
+        if (status == WX_OTA_DONE) {
+            lv_label_set_text(ui.ota_status_val, s->ota_done);
+            lv_label_set_text(ui.ota_start_lbl, s->ota_done);
+        } else {
+            lv_label_set_text(ui.ota_status_val, s->ota_up_to_date);
+            lv_label_set_text(ui.ota_start_lbl, s->ota_start);
+        }
+    }
+}
+
+void weather_ui_set_ota_error(const char *message) {
+    ui.ota_status = WX_OTA_ERROR;
+    snprintf(ui.ota_error_msg, sizeof ui.ota_error_msg, "%s", message ? message : "");
+    if (!ui.ota_backdrop) return;
+    const weather_strings_t *s = &weather_strings[ui.lang];
+    lv_obj_add_flag(ui.ota_progress_track, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui.ota_start_btn, LV_OBJ_FLAG_CLICKABLE); /* re-enable: retry is allowed from an error */
+    lv_obj_set_style_opa(ui.ota_start_btn, LV_OPA_COVER, 0);
+    lv_label_set_text(ui.ota_status_val, message ? message : "");
+    lv_label_set_text(ui.ota_start_lbl, s->ota_start);
+}
+
+void weather_ui_set_ota_auto_update(bool on) {
+    ui.ota_auto_update = on;
+    if (!ui.ota_auto_sw) return;
+    if (on) lv_obj_add_state(ui.ota_auto_sw, LV_STATE_CHECKED);
+    else lv_obj_remove_state(ui.ota_auto_sw, LV_STATE_CHECKED);
+}
+
+void weather_ui_set_ota_update_coprocessor(bool on) {
+    ui.ota_update_coprocessor = on;
+    if (!ui.ota_copro_sw) return;
+    if (on) lv_obj_add_state(ui.ota_copro_sw, LV_STATE_CHECKED);
+    else lv_obj_remove_state(ui.ota_copro_sw, LV_STATE_CHECKED);
 }
 
 void weather_ui_set_brightness(int percent) {
@@ -1883,12 +1960,23 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_set_style_text_color(adaptive_lbl, C_TEXT, 0);
     lv_obj_set_style_text_font(adaptive_lbl, FONT_14, 0);
 
-    /* Network row — the entry point into the on-device Wi-Fi setup the design added. */
+    /* Network row — the entry point into the on-device Wi-Fi setup the design
+     * added, plus (2026-09-19 sync) "Update" next to it opening the firmware
+     * update dialog: design switched this from one full-width button to a
+     * row (configure-network flex:1, update flex:none). */
     lv_obj_t *fnet = field_wrap(ui.settings_panel, weather_strings[ui.lang].network);
-    lv_obj_t *net_btn = lv_obj_create(fnet);
+    lv_obj_t *net_row = lv_obj_create(fnet);
+    lv_obj_remove_style_all(net_row);
+    lv_obj_set_size(net_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(net_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(net_row, 10, 0);
+    lv_obj_remove_flag(net_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *net_btn = lv_obj_create(net_row);
     lv_obj_remove_style_all(net_btn);
+    lv_obj_set_flex_grow(net_btn, 1);
     /* Synced from Claude Design 2026-09-10: 36 -> 44px touch target. */
-    lv_obj_set_size(net_btn, LV_PCT(100), 44);
+    lv_obj_set_size(net_btn, 0, 44);
     lv_obj_set_style_border_width(net_btn, 1, 0);
     lv_obj_set_style_border_color(net_btn, C_DIVIDER, 0);
     lv_obj_set_style_radius(net_btn, R_MD, 0);
@@ -1900,6 +1988,22 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_set_style_text_color(net_btn_lbl, C_TEXT, 0);
     lv_obj_set_style_text_font(net_btn_lbl, FONT_14, 0);
     lv_obj_center(net_btn_lbl);
+
+    lv_obj_t *update_btn = lv_obj_create(net_row);
+    lv_obj_remove_style_all(update_btn);
+    lv_obj_set_size(update_btn, LV_SIZE_CONTENT, 44);
+    lv_obj_set_style_pad_hor(update_btn, 18, 0);
+    lv_obj_set_style_border_width(update_btn, 1, 0);
+    lv_obj_set_style_border_color(update_btn, C_DIVIDER, 0);
+    lv_obj_set_style_radius(update_btn, R_MD, 0);
+    lv_obj_add_flag(update_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(update_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(update_btn, open_ota_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *update_btn_lbl = lv_label_create(update_btn);
+    lv_label_set_text(update_btn_lbl, weather_strings[ui.lang].update);
+    lv_obj_set_style_text_color(update_btn_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(update_btn_lbl, FONT_14, 0);
+    lv_obj_center(update_btn_lbl);
 
     /* FIX: centering right after creating settings_panel used its pre-children
      * SIZE_CONTENT height (near 0), so it centered against a sliver and then grew
@@ -1924,6 +2028,36 @@ static void open_device_info_cb(lv_event_t *e) {
     lv_obj_move_foreground(ui.device_info_backdrop);
 }
 static void close_device_info_cb(lv_event_t *e) { LV_UNUSED(e); lv_obj_add_flag(ui.device_info_backdrop, LV_OBJ_FLAG_HIDDEN); }
+
+/* Firmware update dialog — stacks on top of Settings the same way Device
+ * Info does (opened via a button inside Settings, doesn't close it). */
+static void open_ota_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    lv_obj_remove_flag(ui.ota_backdrop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(ui.ota_backdrop);
+}
+static void close_ota_cb(lv_event_t *e) { LV_UNUSED(e); lv_obj_add_flag(ui.ota_backdrop, LV_OBJ_FLAG_HIDDEN); }
+
+static void ota_start_click_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    if (ui.on_ota_start) ui.on_ota_start();
+}
+
+/* lv_switch already flips its own LV_STATE_CHECKED before firing
+ * VALUE_CHANGED (same pattern as on_brightness_adaptive_sw) — just read it. */
+static void ota_toggle_auto_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    bool on = lv_obj_has_state(ui.ota_auto_sw, LV_STATE_CHECKED);
+    ui.ota_auto_update = on;
+    if (ui.on_ota_toggle_auto_update) ui.on_ota_toggle_auto_update(on);
+}
+
+static void ota_toggle_copro_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    bool on = lv_obj_has_state(ui.ota_copro_sw, LV_STATE_CHECKED);
+    ui.ota_update_coprocessor = on;
+    if (ui.on_ota_toggle_update_coprocessor) ui.on_ota_toggle_update_coprocessor(on);
+}
 
 static void build_device_info_panel(lv_obj_t *parent) {
     const weather_strings_t *s = &weather_strings[ui.lang];
@@ -2051,6 +2185,212 @@ static void device_info_rebuild(bool keep_open) {
     if (ui.detail_backdrop) lv_obj_move_foreground(ui.detail_backdrop);
     if (ui.wifi_backdrop)   lv_obj_move_foreground(ui.wifi_backdrop);
     if (ui.wifi_forget_confirm_backdrop) lv_obj_move_foreground(ui.wifi_forget_confirm_backdrop);
+    if (ui.ota_backdrop) lv_obj_move_foreground(ui.ota_backdrop);
+}
+
+/* Firmware update dialog (Settings > Network > "Update", 2026-09-19 sync) —
+ * stacks on top of Settings the same way Device Info does (see the "device
+ * info dialog" comment above build_device_info_panel). */
+static void build_ota_panel(lv_obj_t *parent) {
+    const weather_strings_t *s = &weather_strings[ui.lang];
+
+    ui.ota_backdrop = lv_obj_create(parent);
+    lv_obj_remove_style_all(ui.ota_backdrop);
+    lv_obj_set_size(ui.ota_backdrop, LV_PCT(100), LV_PCT(100));
+    lv_obj_add_flag(ui.ota_backdrop, LV_OBJ_FLAG_IGNORE_LAYOUT); /* see build_settings_panel's FIX comment */
+    lv_obj_set_style_bg_color(ui.ota_backdrop, C_NEUTRAL_900, 0);
+    lv_obj_set_style_bg_opa(ui.ota_backdrop, LV_OPA_50, 0);
+    lv_obj_add_flag(ui.ota_backdrop, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(ui.ota_backdrop, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(ui.ota_backdrop, close_ota_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *panel = lv_obj_create(ui.ota_backdrop);
+    lv_obj_remove_style_all(panel);
+    lv_obj_set_size(panel, 460, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_color(panel, C_SURFACE, 0);
+    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(panel, R_LG, 0);
+    lv_obj_set_style_pad_all(panel, 20, 0);
+    lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(panel, 12, 0);
+    lv_obj_add_flag(panel, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *title_row = lv_obj_create(panel);
+    lv_obj_remove_style_all(title_row);
+    lv_obj_set_size(title_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(title_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(title_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_remove_flag(title_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *title = lv_label_create(title_row);
+    lv_label_set_text(title, s->ota_title);
+    lv_obj_set_style_text_color(title, C_TEXT, 0);
+    lv_obj_set_style_text_font(title, FONT_20, 0);
+
+    lv_obj_t *close_btn = lv_obj_create(title_row);
+    lv_obj_remove_style_all(close_btn);
+    lv_obj_set_size(close_btn, 56, 56);
+    lv_obj_add_flag(close_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(close_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(close_btn, close_ota_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *close_lbl = lv_label_create(close_btn);
+    lv_label_set_text(close_lbl, LV_SYMBOL_CLOSE);
+    lv_obj_set_style_text_color(close_lbl, C_ACCENT, 0);
+    lv_obj_set_style_text_font(close_lbl, FONT_SYMBOL, 0);
+    lv_obj_center(close_lbl);
+
+    /* Current version reuses the same value weather_ui_set_device_info()
+     * already stores (ui.device_info_fw) — the design pulls both from the
+     * same deviceInfo.firmwareVersion field, no separate data source. */
+    ui.ota_current_version_val = info_row_create(panel, s->current_version);
+    ui.ota_status_val = info_row_create(panel, s->ota_status);
+
+    /* Progress bar — a plain bordered track with a filled inner bar sized
+     * by weather_ui_set_ota_state(), same "roll your own" approach as
+     * weather_chart.c rather than lv_bar (matches this file's styling-from-
+     * scratch convention elsewhere: no lv_theme, no stock widget chrome). */
+    ui.ota_progress_track = lv_obj_create(panel);
+    lv_obj_remove_style_all(ui.ota_progress_track);
+    lv_obj_set_size(ui.ota_progress_track, LV_PCT(100), 8);
+    lv_obj_set_style_radius(ui.ota_progress_track, R_MD / 2, 0);
+    lv_obj_set_style_bg_color(ui.ota_progress_track, C_SURFACE, 0);
+    lv_obj_set_style_bg_opa(ui.ota_progress_track, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(ui.ota_progress_track, 1, 0);
+    lv_obj_set_style_border_color(ui.ota_progress_track, C_DIVIDER, 0);
+    lv_obj_set_style_clip_corner(ui.ota_progress_track, true, 0);
+    lv_obj_remove_flag(ui.ota_progress_track, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(ui.ota_progress_track, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(ui.ota_progress_track, LV_OBJ_FLAG_HIDDEN); /* shown only while downloading */
+
+    ui.ota_progress_fill = lv_obj_create(ui.ota_progress_track);
+    lv_obj_remove_style_all(ui.ota_progress_fill);
+    lv_obj_set_size(ui.ota_progress_fill, 0, LV_PCT(100));
+    lv_obj_set_style_bg_color(ui.ota_progress_fill, C_ACCENT, 0);
+    lv_obj_set_style_bg_opa(ui.ota_progress_fill, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(ui.ota_progress_fill, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(ui.ota_progress_fill, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *auto_row = lv_obj_create(panel);
+    lv_obj_remove_style_all(auto_row);
+    lv_obj_set_size(auto_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(auto_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(auto_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(auto_row, 8, 0);
+    lv_obj_remove_flag(auto_row, LV_OBJ_FLAG_SCROLLABLE);
+    ui.ota_auto_sw = lv_switch_create(auto_row);
+    lv_obj_set_style_bg_color(ui.ota_auto_sw, C_NEUTRAL_800, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.ota_auto_sw, C_NEUTRAL_600, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.ota_auto_sw, C_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_border_width(ui.ota_auto_sw, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.ota_auto_sw, C_NEUTRAL_800, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(ui.ota_auto_sw, C_ACCENT_700, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(ui.ota_auto_sw, C_NEUTRAL_300, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(ui.ota_auto_sw, C_ACCENT_100, LV_PART_KNOB | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(ui.ota_auto_sw, ota_toggle_auto_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    if (ui.ota_auto_update) lv_obj_add_state(ui.ota_auto_sw, LV_STATE_CHECKED);
+    lv_obj_t *auto_lbl = lv_label_create(auto_row);
+    lv_label_set_text(auto_lbl, s->ota_auto_update);
+    lv_obj_set_style_text_color(auto_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(auto_lbl, FONT_14, 0);
+
+    lv_obj_t *copro_row = lv_obj_create(panel);
+    lv_obj_remove_style_all(copro_row);
+    lv_obj_set_size(copro_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(copro_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(copro_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(copro_row, 8, 0);
+    lv_obj_remove_flag(copro_row, LV_OBJ_FLAG_SCROLLABLE);
+    ui.ota_copro_sw = lv_switch_create(copro_row);
+    lv_obj_set_style_bg_color(ui.ota_copro_sw, C_NEUTRAL_800, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.ota_copro_sw, C_NEUTRAL_600, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.ota_copro_sw, C_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_border_width(ui.ota_copro_sw, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.ota_copro_sw, C_NEUTRAL_800, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(ui.ota_copro_sw, C_ACCENT_700, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(ui.ota_copro_sw, C_NEUTRAL_300, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(ui.ota_copro_sw, C_ACCENT_100, LV_PART_KNOB | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(ui.ota_copro_sw, ota_toggle_copro_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    if (ui.ota_update_coprocessor) lv_obj_add_state(ui.ota_copro_sw, LV_STATE_CHECKED);
+    lv_obj_t *copro_lbl = lv_label_create(copro_row);
+    lv_label_set_text(copro_lbl, s->ota_update_coprocessor);
+    lv_obj_set_style_text_color(copro_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(copro_lbl, FONT_14, 0);
+
+    ui.ota_hint_lbl = lv_label_create(panel);
+    lv_label_set_text(ui.ota_hint_lbl, s->ota_hint);
+    lv_label_set_long_mode(ui.ota_hint_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(ui.ota_hint_lbl, LV_PCT(100));
+    lv_obj_set_style_text_color(ui.ota_hint_lbl, C_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(ui.ota_hint_lbl, FONT_12, 0);
+
+    lv_obj_t *btn_row = lv_obj_create(panel);
+    lv_obj_remove_style_all(btn_row);
+    lv_obj_set_size(btn_row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(btn_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(btn_row, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(btn_row, 12, 0);
+    lv_obj_set_style_pad_top(btn_row, 8, 0);
+    lv_obj_remove_flag(btn_row, LV_OBJ_FLAG_SCROLLABLE);
+
+    wifi_text_btn(btn_row, s->cancel, close_ota_cb, NULL);
+
+    ui.ota_start_btn = lv_obj_create(btn_row);
+    lv_obj_remove_style_all(ui.ota_start_btn);
+    lv_obj_set_size(ui.ota_start_btn, LV_SIZE_CONTENT, 36);
+    lv_obj_set_style_pad_hor(ui.ota_start_btn, 14, 0);
+    lv_obj_set_style_bg_color(ui.ota_start_btn, C_ACCENT_800, 0);
+    lv_obj_set_style_bg_opa(ui.ota_start_btn, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(ui.ota_start_btn, 1, 0);
+    lv_obj_set_style_border_color(ui.ota_start_btn, C_ACCENT_700, 0);
+    lv_obj_set_style_radius(ui.ota_start_btn, R_MD, 0);
+    lv_obj_add_flag(ui.ota_start_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(ui.ota_start_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(ui.ota_start_btn, ota_start_click_cb, LV_EVENT_CLICKED, NULL);
+    ui.ota_start_lbl = lv_label_create(ui.ota_start_btn);
+    lv_label_set_text(ui.ota_start_lbl, s->ota_start);
+    lv_obj_set_style_text_color(ui.ota_start_lbl, C_ACCENT_100, 0);
+    lv_obj_set_style_text_font(ui.ota_start_lbl, FONT_14, 0);
+    lv_obj_center(ui.ota_start_lbl);
+
+    /* Re-apply current state after a rebuild (language change) — the panel
+     * is torn down and recreated from scratch, same reasoning as
+     * build_device_info_panel's matching block. */
+    lv_label_set_text(ui.ota_current_version_val, ui.device_info_fw);
+    lv_obj_t *status_lbl = ui.ota_status_val;
+    if (ui.ota_status == WX_OTA_DOWNLOADING) {
+        char buf[32];
+        snprintf(buf, sizeof buf, "%s %d%%", s->ota_downloading, ui.ota_progress);
+        lv_label_set_text(status_lbl, buf);
+        lv_obj_remove_flag(ui.ota_progress_track, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(ui.ota_progress_fill, LV_PCT(ui.ota_progress));
+        lv_label_set_text(ui.ota_start_lbl, s->ota_downloading);
+        lv_obj_remove_flag(ui.ota_start_btn, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_opa(ui.ota_start_btn, LV_OPA_50, 0);
+    } else if (ui.ota_status == WX_OTA_DONE) {
+        lv_label_set_text(status_lbl, s->ota_done);
+        lv_label_set_text(ui.ota_start_lbl, s->ota_done);
+    } else if (ui.ota_status == WX_OTA_ERROR) {
+        lv_label_set_text(status_lbl, ui.ota_error_msg);
+        lv_label_set_text(ui.ota_start_lbl, s->ota_start);
+    } else {
+        lv_label_set_text(status_lbl, s->ota_up_to_date);
+        lv_label_set_text(ui.ota_start_lbl, s->ota_start);
+    }
+
+    lv_obj_update_layout(panel);
+    lv_obj_center(panel);
+}
+
+static void ota_rebuild(bool keep_open) {
+    if (!ui.ota_backdrop) return;
+    lv_obj_delete(ui.ota_backdrop);
+    build_ota_panel(ui.root);
+    if (keep_open) lv_obj_remove_flag(ui.ota_backdrop, LV_OBJ_FLAG_HIDDEN);
+    if (ui.search_backdrop) lv_obj_move_foreground(ui.search_backdrop);
+    if (ui.detail_backdrop) lv_obj_move_foreground(ui.detail_backdrop);
+    if (ui.wifi_backdrop)   lv_obj_move_foreground(ui.wifi_backdrop);
+    if (ui.wifi_forget_confirm_backdrop) lv_obj_move_foreground(ui.wifi_forget_confirm_backdrop);
+    if (ui.device_info_backdrop) lv_obj_move_foreground(ui.device_info_backdrop);
 }
 
 void weather_ui_set_device_info(const weather_device_info_t *info) {
@@ -2066,6 +2406,11 @@ void weather_ui_set_device_info(const weather_device_info_t *info) {
     snprintf(ui.device_info_gw, sizeof ui.device_info_gw, "%s", info->gateway ? info->gateway : "");
     snprintf(ui.device_info_last_update, sizeof ui.device_info_last_update, "%s", info->last_update ? info->last_update : "");
     snprintf(ui.device_info_note, sizeof ui.device_info_note, "%s", info->note ? info->note : "");
+
+    /* OTA dialog's "Current version" reuses this same value (design: both
+     * read deviceInfo.firmwareVersion) — update it whenever it exists,
+     * independent of whether the device-info dialog itself is built yet. */
+    if (ui.ota_current_version_val) lv_label_set_text(ui.ota_current_version_val, ui.device_info_fw);
 
     if (!ui.device_info_backdrop) return;   /* not built yet; weather_ui_create() picks this up */
     lv_label_set_text(ui.device_info_name_val, ui.device_info_name);
@@ -2538,6 +2883,14 @@ void weather_ui_set_favorite_callbacks(weather_ui_favorite_toggle_cb_t on_toggle
     ui.on_favorite_remove = on_remove;
 }
 
+void weather_ui_set_ota_callbacks(weather_ui_ota_start_cb_t on_start,
+                                   weather_ui_ota_toggle_auto_update_cb_t on_toggle_auto_update,
+                                   weather_ui_ota_toggle_update_coprocessor_cb_t on_toggle_update_coprocessor) {
+    ui.on_ota_start = on_start;
+    ui.on_ota_toggle_auto_update = on_toggle_auto_update;
+    ui.on_ota_toggle_update_coprocessor = on_toggle_update_coprocessor;
+}
+
 void weather_ui_open_wifi_setup(void) {
     if (!ui.wifi_backdrop) return;
     wifi_show_list();
@@ -2698,6 +3051,7 @@ void weather_ui_create(lv_obj_t *parent) {
 
     build_settings_panel(ui.root);
     build_device_info_panel(ui.root);
+    build_ota_panel(ui.root);
     build_search_overlay(ui.root);
     build_detail_panel(ui.root);
     build_wifi_screen(ui.root);

@@ -18,6 +18,8 @@
 #include "mbedtls/error.h"
 #include "esp_app_desc.h"
 #include "esp_hosted.h"
+#include "esp_system.h"
+#include "ota_update.h"
 
 #include <math.h>
 #include <string.h>
@@ -30,7 +32,7 @@ static const char *TAG = "weather";
 #define SEARCH_DEBOUNCE_MS 450
 
 typedef enum { CMD_SEARCH, CMD_SELECT, CMD_REFRESH, CMD_RELANG, CMD_WIFI_SCAN, CMD_WIFI_CONNECT, CMD_WIFI_FORGET,
-               CMD_FAV_TOGGLE, CMD_FAV_SELECT, CMD_FAV_REMOVE } cmd_kind_t;
+               CMD_FAV_TOGGLE, CMD_FAV_SELECT, CMD_FAV_REMOVE, CMD_OTA_START, CMD_OTA_RESUME } cmd_kind_t;
 
 typedef struct {
     cmd_kind_t kind;
@@ -39,6 +41,9 @@ typedef struct {
     weather_lang_t lang;
     char ssid[33];
     char pass[65];
+    bool ota_silent; /* CMD_OTA_START only: true for the periodic auto-check, so a
+                       * WX_OTA_IDLE/DOWNLOADING flicker doesn't show up on a dialog
+                       * the user hasn't opened when nothing turns out to be new. */
 } cmd_t;
 
 typedef struct {
@@ -56,6 +61,14 @@ static int s_hit_count;
  * another round-trip. */
 static bool  s_have_forecast;
 static int   s_utc_offset;
+
+/* Guards against a second "Check for update" tap (or the periodic
+ * auto-check) firing while ota_update_run()/ota_update_resume_after_boot()
+ * is already running on this same worker task — see app_weather_ota_start()'s
+ * doc comment in app_weather.h. */
+static bool s_ota_active;
+static TickType_t s_last_ota_check;
+#define OTA_AUTO_CHECK_INTERVAL_MS (12 * 60 * 60 * 1000) /* matches the dialog's own hint text */
 static int   s_cur_code, s_cur_hum, s_cur_precip;
 static float s_cur_temp, s_cur_feel, s_cur_wind;
 static struct { char iso[12]; int code, precip; float tmax, tmin, fmax, fmin, wmax; } s_days[WEATHER_UI_DAYS];
@@ -513,6 +526,38 @@ static void push_favorites_to_ui(void) {
     }
 }
 
+static void push_ota_state_to_ui(wx_ota_status_t status, int progress) {
+    if (bsp_display_lock(1000)) {
+        weather_ui_set_ota_state(status, progress);
+        bsp_display_unlock();
+    }
+}
+
+static void push_ota_error_to_ui(ota_error_t err) {
+    const weather_strings_t *s = &weather_strings[app_prefs_get()->lang];
+    const char *msg;
+    switch (err) {
+        case OTA_ERR_NETWORK:     msg = s->ota_error_network; break;
+        case OTA_ERR_MANIFEST:    msg = s->ota_error_manifest; break;
+        case OTA_ERR_CHECKSUM:    msg = s->ota_error_checksum; break;
+        case OTA_ERR_COPROCESSOR: msg = s->ota_error_coprocessor; break;
+        case OTA_ERR_FLASH:
+        case OTA_ERR_NONE:
+        default:                  msg = s->ota_error_flash; break;
+    }
+    if (bsp_display_lock(1000)) {
+        weather_ui_set_ota_error(msg);
+        bsp_display_unlock();
+    }
+}
+
+/* ota_update_run()'s progress callback — `ctx` points at the bool guarding
+ * whether this run is the silent periodic auto-check (see cmd_t.ota_silent). */
+static void ota_on_progress(int percent, void *ctx) {
+    bool silent = *(bool *)ctx;
+    if (!silent) push_ota_state_to_ui(WX_OTA_DOWNLOADING, percent);
+}
+
 static void do_search(const char *query) {
     const app_prefs_t *p = app_prefs_get();
     if (!query || strlen(query) < 2) {
@@ -664,6 +709,34 @@ static void weather_task(void *arg) {
                     push_favorites_to_ui();
                     push_search_results_to_ui();
                     break;
+                case CMD_OTA_START: {
+                    if (s_ota_active) break;
+                    s_ota_active = true;
+                    s_last_ota_check = xTaskGetTickCount();
+                    bool silent = cmd.ota_silent;
+                    if (!silent) push_ota_state_to_ui(WX_OTA_DOWNLOADING, 0);
+
+                    ota_outcome_t res = ota_update_run(ota_on_progress, &silent);
+                    switch (res.status) {
+                        case OTA_RESULT_UP_TO_DATE:
+                            if (!silent) push_ota_state_to_ui(WX_OTA_IDLE, 0);
+                            break;
+                        case OTA_RESULT_UPDATED_REBOOTING:
+                            push_ota_state_to_ui(WX_OTA_DONE, 100);
+                            vTaskDelay(pdMS_TO_TICKS(1500)); /* let the UI actually show "rebooting" */
+                            esp_restart();
+                            break; /* unreachable */
+                        case OTA_RESULT_ERROR:
+                            if (!silent) push_ota_error_to_ui(res.error);
+                            else ESP_LOGW(TAG, "silent OTA auto-check failed (error %d)", res.error);
+                            break;
+                    }
+                    s_ota_active = false;
+                    break;
+                }
+                case CMD_OTA_RESUME:
+                    ota_update_resume_after_boot(app_prefs_get()->ota_update_coprocessor);
+                    break;
             }
         }
 
@@ -686,6 +759,20 @@ static void weather_task(void *arg) {
         } else if (s_have_forecast) {
             static int tick = 0;
             if (++tick >= 60) { tick = 0; push_forecast_to_ui(); }  /* ~30 s */
+        }
+
+        /* Periodic silent OTA check, gated by the dialog's own auto-update
+         * switch (app_prefs_get()->ota_auto_update — its hint text already
+         * promises "checks every 12 hours"). Posting a command here rather
+         * than calling ota_update_run() inline keeps CMD_OTA_START the only
+         * place that actually runs it, so a manual tap and the timer can't
+         * race each other (s_ota_active guards both). */
+        if (!s_ota_active && app_prefs_get()->ota_auto_update &&
+            (now - s_last_ota_check) >= pdMS_TO_TICKS(OTA_AUTO_CHECK_INTERVAL_MS)) {
+            cmd_t c = { .kind = CMD_OTA_START, .ota_silent = true };
+            if (s_q) xQueueSend(s_q, &c, 0);
+            s_last_ota_check = now; /* also set on entry to CMD_OTA_START; set here too so a
+                                      * slow-to-process queue doesn't fire this every loop tick */
         }
     }
 }
@@ -725,6 +812,27 @@ void app_weather_select_favorite(int slot_index) {
 
 void app_weather_remove_favorite(int slot_index) {
     cmd_t c = { .kind = CMD_FAV_REMOVE, .index = slot_index };
+    post(&c);
+}
+
+void app_weather_ota_start(void) {
+    cmd_t c = { .kind = CMD_OTA_START };
+    post(&c);
+}
+
+/* Persist immediately, same as app_prefs_save_brightness_adaptive() being
+ * called straight from the LVGL task's switch handler — no worker-queue
+ * round-trip needed for a plain settings write. */
+void app_weather_ota_toggle_auto_update(bool on) {
+    app_prefs_save_ota_settings(on, app_prefs_get()->ota_update_coprocessor);
+}
+
+void app_weather_ota_toggle_update_coprocessor(bool on) {
+    app_prefs_save_ota_settings(app_prefs_get()->ota_auto_update, on);
+}
+
+void app_weather_ota_resume_after_boot(void) {
+    cmd_t c = { .kind = CMD_OTA_RESUME };
     post(&c);
 }
 

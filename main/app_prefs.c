@@ -11,7 +11,7 @@
 static const char *TAG = "prefs";
 static const char *NS = "weather";
 #define RECORD_KEY "prefs"
-#define RECORD_VERSION 2 /* bumped for auto_refresh_minutes (2026-09-12 sync) */
+#define RECORD_VERSION 3 /* bumped for ota_auto_update/ota_update_coprocessor (2026-09-19 sync) */
 
 static app_prefs_t s_prefs;
 
@@ -33,6 +33,8 @@ typedef struct __attribute__((packed)) {
     uint8_t brightness;
     uint8_t brightness_adaptive;
     uint8_t auto_refresh_idx; /* 0=off,1=15,2=30,3=60 — index not minutes, so it fits a uint8 like its siblings */
+    uint8_t ota_auto_update;
+    uint8_t ota_update_coprocessor;
 } prefs_payload_t;
 
 /* RECORD_VERSION 1 layout, kept only so app_prefs_load() can migrate an
@@ -47,6 +49,18 @@ typedef struct __attribute__((packed)) {
     uint8_t brightness;
     uint8_t brightness_adaptive;
 } prefs_payload_v1_t;
+
+/* RECORD_VERSION 2 layout (pre-OTA-settings), kept only so app_prefs_load()
+ * can migrate an already-written v2 record — same reasoning as v1 above. */
+typedef struct __attribute__((packed)) {
+    char name[64];
+    char country[64];
+    float lat, lon;
+    uint8_t lang, temp_unit, wind_unit, time_fmt;
+    uint8_t brightness;
+    uint8_t brightness_adaptive;
+    uint8_t auto_refresh_idx;
+} prefs_payload_v2_t;
 
 static int auto_refresh_idx_to_minutes(uint8_t idx) {
     static const int minutes[4] = { 0, 15, 30, 60 };
@@ -118,9 +132,12 @@ void app_prefs_load(app_prefs_t *out) {
     s_prefs.brightness = 100;
     s_prefs.brightness_adaptive = false;
     s_prefs.auto_refresh_minutes = 30; /* matches the design's initial autoRefreshMinutes */
+    s_prefs.ota_auto_update = true; /* matches the design's initial otaAutoUpdate */
+    s_prefs.ota_update_coprocessor = false; /* matches the design's initial otaUpdateCoprocessor */
 
     prefs_payload_t p;
     prefs_payload_v1_t p1;
+    prefs_payload_v2_t p2;
     if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, RECORD_VERSION, &p, sizeof p)) {
         memcpy(s_prefs.name, p.name, sizeof p.name);
         memcpy(s_prefs.country, p.country, sizeof p.country);
@@ -133,12 +150,43 @@ void app_prefs_load(app_prefs_t *out) {
         s_prefs.brightness = p.brightness;
         s_prefs.brightness_adaptive = p.brightness_adaptive != 0;
         s_prefs.auto_refresh_minutes = auto_refresh_idx_to_minutes(p.auto_refresh_idx);
+        s_prefs.ota_auto_update = p.ota_auto_update != 0;
+        s_prefs.ota_update_coprocessor = p.ota_update_coprocessor != 0;
+    } else if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, 2, &p2, sizeof p2)) {
+        /* A device already on RECORD_VERSION 2 (pre-OTA-settings) — migrate
+         * its record instead of falling through to migrate_from_legacy_keys(),
+         * same reasoning as the v1 branch below. ota_auto_update/
+         * ota_update_coprocessor keep today's defaults (true/false). */
+        memcpy(s_prefs.name, p2.name, sizeof p2.name);
+        memcpy(s_prefs.country, p2.country, sizeof p2.country);
+        s_prefs.lat = p2.lat;
+        s_prefs.lon = p2.lon;
+        s_prefs.lang = (weather_lang_t)p2.lang;
+        s_prefs.temp_unit = (wx_temp_unit_t)p2.temp_unit;
+        s_prefs.wind_unit = (wx_wind_unit_t)p2.wind_unit;
+        s_prefs.time_fmt = (wx_time_fmt_t)p2.time_fmt;
+        s_prefs.brightness = p2.brightness;
+        s_prefs.brightness_adaptive = p2.brightness_adaptive != 0;
+        s_prefs.auto_refresh_minutes = auto_refresh_idx_to_minutes(p2.auto_refresh_idx);
+        prefs_payload_t np = {
+            .lat = s_prefs.lat, .lon = s_prefs.lon,
+            .lang = (uint8_t)s_prefs.lang, .temp_unit = (uint8_t)s_prefs.temp_unit,
+            .wind_unit = (uint8_t)s_prefs.wind_unit, .time_fmt = (uint8_t)s_prefs.time_fmt,
+            .brightness = (uint8_t)s_prefs.brightness,
+            .brightness_adaptive = s_prefs.brightness_adaptive ? 1 : 0,
+            .auto_refresh_idx = auto_refresh_minutes_to_idx(s_prefs.auto_refresh_minutes),
+            .ota_auto_update = s_prefs.ota_auto_update ? 1 : 0,
+            .ota_update_coprocessor = s_prefs.ota_update_coprocessor ? 1 : 0,
+        };
+        memcpy(np.name, s_prefs.name, sizeof np.name);
+        memcpy(np.country, s_prefs.country, sizeof np.country);
+        storage_record_save(&storage_backend_nvs, NS, RECORD_KEY, RECORD_VERSION, &np, sizeof np);
     } else if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, 1, &p1, sizeof p1)) {
         /* A device already on RECORD_VERSION 1 (pre-auto-refresh) — migrate its
          * record instead of falling through to migrate_from_legacy_keys(),
          * which only understands the older pre-record scalar keys and would
          * silently reset every setting on any device that had already
-         * upgraded once. auto_refresh_minutes keeps today's default (30). */
+         * upgraded once. auto_refresh_minutes/ota_* keep today's defaults. */
         memcpy(s_prefs.name, p1.name, sizeof p1.name);
         memcpy(s_prefs.country, p1.country, sizeof p1.country);
         s_prefs.lat = p1.lat;
@@ -156,6 +204,8 @@ void app_prefs_load(app_prefs_t *out) {
             .brightness = (uint8_t)s_prefs.brightness,
             .brightness_adaptive = s_prefs.brightness_adaptive ? 1 : 0,
             .auto_refresh_idx = auto_refresh_minutes_to_idx(s_prefs.auto_refresh_minutes),
+            .ota_auto_update = s_prefs.ota_auto_update ? 1 : 0,
+            .ota_update_coprocessor = s_prefs.ota_update_coprocessor ? 1 : 0,
         };
         memcpy(np.name, s_prefs.name, sizeof np.name);
         memcpy(np.country, s_prefs.country, sizeof np.country);
@@ -174,6 +224,8 @@ void app_prefs_load(app_prefs_t *out) {
             .brightness = (uint8_t)s_prefs.brightness,
             .brightness_adaptive = s_prefs.brightness_adaptive ? 1 : 0,
             .auto_refresh_idx = auto_refresh_minutes_to_idx(s_prefs.auto_refresh_minutes),
+            .ota_auto_update = s_prefs.ota_auto_update ? 1 : 0,
+            .ota_update_coprocessor = s_prefs.ota_update_coprocessor ? 1 : 0,
         };
         memcpy(np.name, s_prefs.name, sizeof np.name);
         memcpy(np.country, s_prefs.country, sizeof np.country);
@@ -214,6 +266,8 @@ static void persist_prefs_cb(void *arg) {
         .brightness = (uint8_t)s_prefs.brightness,
         .brightness_adaptive = s_prefs.brightness_adaptive ? 1 : 0,
         .auto_refresh_idx = auto_refresh_minutes_to_idx(s_prefs.auto_refresh_minutes),
+        .ota_auto_update = s_prefs.ota_auto_update ? 1 : 0,
+        .ota_update_coprocessor = s_prefs.ota_update_coprocessor ? 1 : 0,
     };
     memcpy(p.name, s_prefs.name, sizeof p.name);
     memcpy(p.country, s_prefs.country, sizeof p.country);
@@ -245,5 +299,11 @@ void app_prefs_save_brightness(int percent) {
 
 void app_prefs_save_brightness_adaptive(bool enabled) {
     s_prefs.brightness_adaptive = enabled;
+    request_save();
+}
+
+void app_prefs_save_ota_settings(bool auto_update, bool update_coprocessor) {
+    s_prefs.ota_auto_update = auto_update;
+    s_prefs.ota_update_coprocessor = update_coprocessor;
     request_save();
 }

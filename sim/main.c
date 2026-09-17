@@ -510,10 +510,16 @@ typedef enum {
     ACT_WIFI_CONNECT_RESULT,
     ACT_OPEN_SCREEN,
     ACT_CLICK_FAVORITE_STAR,
+    ACT_OTA_TICK,
 } sim_action_t;
 
 static void open_screen(void);
 static void click_favorite_star_in_search(void);
+static void defer(sim_action_t action, uint32_t delay_ms);
+
+/* Firmware update dialog's fake-progress simulation state — see
+ * on_ota_start()'s ACT_OTA_TICK self-repost below. */
+static int s_ota_progress;
 
 static void deferred_cb(lv_timer_t *timer)
 {
@@ -562,6 +568,16 @@ static void deferred_cb(lv_timer_t *timer)
          * SCREEN_FAVORITE_TAP below) — the result row this clicks doesn't
          * exist until that fires. */
         click_favorite_star_in_search();
+        break;
+
+    case ACT_OTA_TICK:
+        s_ota_progress += 20;
+        if (s_ota_progress >= 100) {
+            weather_ui_set_ota_state(WX_OTA_DONE, 100);
+        } else {
+            weather_ui_set_ota_state(WX_OTA_DOWNLOADING, s_ota_progress);
+            defer(ACT_OTA_TICK, SIM_LATENCY_MS / 2);
+        }
         break;
     }
 }
@@ -618,6 +634,18 @@ static void on_favorite_select(int slot_index)
     weather_ui_set_loading(true);
     defer(ACT_CITY_SELECTED, SIM_LATENCY_MS);
 }
+
+/* ---- Firmware update dialog (Gegenstueck zu app_weather_ota_*) ---------- */
+
+static void on_ota_start(void)
+{
+    s_ota_progress = 0;
+    weather_ui_set_ota_state(WX_OTA_DOWNLOADING, 0);
+    defer(ACT_OTA_TICK, SIM_LATENCY_MS / 2);
+}
+
+static void on_ota_toggle_auto_update(bool on) { (void)on; }
+static void on_ota_toggle_update_coprocessor(bool on) { (void)on; }
 
 static void on_favorite_remove(int slot_index)
 {
@@ -697,6 +725,8 @@ typedef enum {
     SCREEN_WIFI,
     SCREEN_WIFI_FORGET_CONFIRM,
     SCREEN_FAVORITE_TAP,
+    SCREEN_OTA,
+    SCREEN_OTA_DONE,
 } sim_screen_t;
 
 static sim_screen_t s_screen = SCREEN_MAIN;
@@ -902,6 +932,32 @@ static void open_screen(void)
         defer(ACT_CLICK_FAVORITE_STAR, SIM_LATENCY_MS + 200);
         break;
     }
+
+    case SCREEN_OTA: {
+        /* Settings > Network > "Update" (2026-09-19 sync) opens the
+         * firmware update dialog on top of Settings, same stacking as
+         * Device Info — open both in sequence like a real tap would. */
+        lv_obj_t *gear = find_label(root, LV_SYMBOL_SETTINGS);
+        if (gear == NULL || !click_owner_of(gear)) { warn_missing("Zahnrad im Header"); break; }
+        lv_obj_t *update_btn = find_label(root, weather_strings[s_lang].update);
+        if (update_btn == NULL || !click_owner_of(update_btn)) warn_missing("\"Update\"-Knopf im Einstellungsdialog");
+        break;
+    }
+
+    case SCREEN_OTA_DONE: {
+        /* Same path as SCREEN_OTA, then presses "Check for update" too —
+         * on_ota_start() -> ACT_OTA_TICK reposts every SIM_LATENCY_MS/2
+         * (350ms) reaching 100% well within the default 3s
+         * --screenshot-after, landing reliably in the "done" state rather
+         * than a timing-sensitive mid-progress frame. */
+        lv_obj_t *gear = find_label(root, LV_SYMBOL_SETTINGS);
+        if (gear == NULL || !click_owner_of(gear)) { warn_missing("Zahnrad im Header"); break; }
+        lv_obj_t *update_btn = find_label(root, weather_strings[s_lang].update);
+        if (update_btn == NULL || !click_owner_of(update_btn)) { warn_missing("\"Update\"-Knopf im Einstellungsdialog"); break; }
+        lv_obj_t *start_btn = find_label(root, weather_strings[s_lang].ota_start);
+        if (start_btn == NULL || !click_owner_of(start_btn)) warn_missing("\"Check for update\"-Knopf im Firmware-Update-Dialog");
+        break;
+    }
     }
 }
 
@@ -982,9 +1038,11 @@ int main(int argc, char **argv)
             else if (strcmp(name, "wifi")     == 0) s_screen = SCREEN_WIFI;
             else if (strcmp(name, "wifi-forget-confirm") == 0) s_screen = SCREEN_WIFI_FORGET_CONFIRM;
             else if (strcmp(name, "favorite-tap") == 0) s_screen = SCREEN_FAVORITE_TAP;
+            else if (strcmp(name, "ota") == 0) s_screen = SCREEN_OTA;
+            else if (strcmp(name, "ota-done") == 0) s_screen = SCREEN_OTA_DONE;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap\n", name);
+                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
@@ -1000,7 +1058,7 @@ int main(int argc, char **argv)
                     "                      main (Vorgabe), search, settings,\n"
                     "                      settings-adaptive-on, device-info, forecast-icon-tap,\n"
                     "                      refresh-toast, detail, wifi, wifi-forget-confirm,\n"
-                    "                      favorite-tap\n"
+                    "                      favorite-tap, ota, ota-done\n"
                     "                      refresh-toast braucht ein kurzes --screenshot-after\n"
                     "                      (z.B. 2000) — der Toast blendet sich nach 1s\n"
                     "                      wieder aus, der Standard-Wert (3000) verpasst ihn.\n"
@@ -1048,12 +1106,18 @@ int main(int argc, char **argv)
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
+    weather_ui_set_ota_callbacks(on_ota_start, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
     /* The simulator has no camera; render the adaptive switch the way a real
      * board with nothing on the MIPI-CSI connector would. */
     weather_ui_set_brightness_adaptive_available(false);
     weather_ui_set_language(s_lang);
     weather_ui_set_units(s_temp_unit, s_wind_unit, s_time_fmt);
     weather_ui_set_auto_refresh(30);
+    /* No fake prefs backend for these in the simulator — push the design's
+     * own initial state (otaAutoUpdate: true, otaUpdateCoprocessor: false)
+     * directly, same reasoning as the auto-refresh default above. */
+    weather_ui_set_ota_auto_update(true);
+    weather_ui_set_ota_update_coprocessor(false);
     push_favorites_to_ui_sim(); /* all-empty, s_favorites is zero-initialized like a fresh device */
 
     if (open_wifi_setup) {

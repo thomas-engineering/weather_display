@@ -98,6 +98,17 @@ typedef void (*weather_ui_favorite_toggle_cb_t)(int result_index);
 typedef void (*weather_ui_favorite_select_cb_t)(int slot_index);
 typedef void (*weather_ui_favorite_remove_cb_t)(int slot_index);
 
+/* Firmware update dialog (Settings > Network > "Update", 2026-09-19 sync,
+ * real download/flash added 2026-09-16). on_start fires the "Check for
+ * update"/"Downloading"/"Update complete — rebooting" button — the app owns
+ * what that actually does (main/ota_update.c) and drives the visible state
+ * back in via weather_ui_set_ota_state()/weather_ui_set_ota_error(). The two
+ * switches persist immediately on toggle, same one-way pattern as
+ * brightness_adaptive. */
+typedef void (*weather_ui_ota_start_cb_t)(void);
+typedef void (*weather_ui_ota_toggle_auto_update_cb_t)(bool on);
+typedef void (*weather_ui_ota_toggle_update_coprocessor_cb_t)(bool on);
+
 /* Builds the whole 1024x600 screen as a child of `parent` (typically lv_screen_active()). */
 void weather_ui_create(lv_obj_t *parent);
 
@@ -110,6 +121,9 @@ void weather_ui_set_brightness_adaptive_callback(weather_ui_brightness_adaptive_
 void weather_ui_set_favorite_callbacks(weather_ui_favorite_toggle_cb_t on_toggle,
                                         weather_ui_favorite_select_cb_t on_select,
                                         weather_ui_favorite_remove_cb_t on_remove);
+void weather_ui_set_ota_callbacks(weather_ui_ota_start_cb_t on_start,
+                                   weather_ui_ota_toggle_auto_update_cb_t on_toggle_auto_update,
+                                   weather_ui_ota_toggle_update_coprocessor_cb_t on_toggle_update_coprocessor);
 
 void weather_ui_set_language(weather_lang_t lang);
 void weather_ui_set_units(wx_temp_unit_t temp, wx_wind_unit_t wind, wx_time_fmt_t time_fmt);
@@ -129,6 +143,24 @@ void weather_ui_set_brightness_adaptive_available(bool available);
  * without firing on_settings_changed — call once at startup with the
  * persisted value, same one-way pattern as weather_ui_set_brightness(). */
 void weather_ui_set_auto_refresh(int minutes);
+
+/* Firmware update dialog state. WX_OTA_ERROR was added alongside the real
+ * download/flash logic (main/ota_update.c) — the design's own fidelity only
+ * had the three original states (no real network activity behind it), which
+ * can't fail this way. */
+typedef enum { WX_OTA_IDLE, WX_OTA_DOWNLOADING, WX_OTA_DONE, WX_OTA_ERROR } wx_ota_status_t;
+/* progress is 0-100, only meaningful (shown) while status is WX_OTA_DOWNLOADING. */
+void weather_ui_set_ota_state(wx_ota_status_t status, int progress);
+/* Puts the dialog in the WX_OTA_ERROR state with `message` as the status
+ * line (already localized by the caller — see weather_i18n.h's ota_error_*
+ * strings) and re-enables the start button so the user can retry. */
+void weather_ui_set_ota_error(const char *message);
+/* One-way sync for the two switches, same pattern as
+ * weather_ui_set_brightness_adaptive() — call once at startup with the
+ * persisted value; toggling in the UI fires the on_toggle_* callback rather
+ * than looping back through these. */
+void weather_ui_set_ota_auto_update(bool on);
+void weather_ui_set_ota_update_coprocessor(bool on);
 
 /* Header "last synced" text, next to the online/offline indicator — pass ""
  * to hide it. The app owns the timing (recompute periodically, same as the
