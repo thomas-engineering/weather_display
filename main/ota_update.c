@@ -72,18 +72,23 @@ void ota_update_request_cancel(void) {
  * a connection/redirect failure. Leaves the client open and positioned
  * right after fetch_headers() on success, same as a plain open()+
  * fetch_headers() call. */
+/* -1 signals "never got an HTTP status at all" (connect/redirect failure) —
+ * distinct from any real status code, which is always >= 100. A prior
+ * version returned negated esp_err_t values here, but ESP_FAIL is itself -1,
+ * so -ESP_FAIL came out as +1 and printed as the nonsensical "HTTP 1" in the
+ * caller's log line instead of a clear connection-failure message. */
 static int http_open_following_redirects(esp_http_client_handle_t c) {
     for (int redirects = 0; redirects < 5; redirects++) {
-        if (esp_http_client_open(c, 0) != ESP_OK) return -ESP_FAIL;
+        if (esp_http_client_open(c, 0) != ESP_OK) return -1;
         esp_http_client_fetch_headers(c);
         int status = esp_http_client_get_status_code(c);
         if (status < 300 || status >= 400) return status;
 
         esp_err_t err = esp_http_client_set_redirection(c);
         esp_http_client_close(c);
-        if (err != ESP_OK) return -err;
+        if (err != ESP_OK) return -1;
     }
-    return -ESP_ERR_HTTP_MAX_REDIRECT;
+    return -1;
 }
 
 /* ---- small HTTP GET helper, mirrors app_weather.c's http_get() but sized
@@ -105,7 +110,8 @@ static char *fetch_small(const char *url) {
     char *body = NULL;
     int status = http_open_following_redirects(c);
     if (status != 200) {
-        ESP_LOGE(TAG, "HTTP %d for %.100s", status, url);
+        if (status < 0) ESP_LOGE(TAG, "connection failed for %.100s", url);
+        else            ESP_LOGE(TAG, "HTTP %d for %.100s", status, url);
         goto done;
     }
     int64_t clen = esp_http_client_get_content_length(c);
@@ -345,7 +351,11 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
 
     bool ok = false;
     int status = http_open_following_redirects(c);
-    if (status != 200) { ESP_LOGE(TAG, "HTTP %d for %.100s", status, c6_url); goto done; }
+    if (status != 200) {
+        if (status < 0) ESP_LOGE(TAG, "connection failed for %.100s", c6_url);
+        else            ESP_LOGE(TAG, "HTTP %d for %.100s", status, c6_url);
+        goto done;
+    }
 
     if (esp_hosted_slave_ota_begin() != ESP_OK) { ESP_LOGE(TAG, "esp_hosted_slave_ota_begin failed"); goto done; }
 

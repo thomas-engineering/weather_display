@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "cJSON.h"
 #include "mbedtls/error.h"
 #include "esp_app_desc.h"
@@ -54,6 +55,20 @@ typedef struct {
 } geo_hit_t;
 
 static QueueHandle_t s_q;
+
+/* Serializes do_refresh()/CMD_WIFI_SCAN/CMD_WIFI_CONNECT (all on weather_task)
+ * against the OTA tasks (ota_worker_task/ota_resume_task, running
+ * independently since 2026-09-17's concurrency fix). Before that fix, OTA
+ * ran inline in weather_task, so it could never overlap with this task's own
+ * network calls; now that it deliberately doesn't block weather_task, an OTA
+ * check and a forecast auto-refresh can coincide and both try to use the
+ * ESP32-C6's SDIO link at once. Found on hardware: repeated "mempool OOM
+ * (RX)" warnings from esp-hosted's SDIO transport cascading into a full
+ * connection timeout on the manifest fetch — its RX buffer pool is shared
+ * and fixed-size, not per-connection. This mutex keeps at most one real
+ * network operation running at a time, regardless of which task requested
+ * it, trading a brief wait for one of them over risking both failing. */
+static SemaphoreHandle_t s_network_mutex;
 static geo_hit_t s_hits[APP_WEATHER_MAX_RESULTS];
 static int s_hit_count;
 
@@ -410,7 +425,7 @@ static void push_forecast_to_ui(bool full) {
  * added for this — periodic auto-refresh, city selection and the post-Wi-Fi-
  * connect refresh all call this same function but stay silent, matching the
  * design's own refresh() handler being the only place refreshToast is set. */
-static void do_refresh(bool is_manual) {
+static void do_refresh_body(bool is_manual) {
     const app_prefs_t *p = app_prefs_get();
 
     if (bsp_display_lock(1000)) { weather_ui_set_loading(true); bsp_display_unlock(); }
@@ -533,6 +548,16 @@ static void do_refresh(bool is_manual) {
     if (is_manual) show_refresh_toast(true);
 }
 
+/* Serializes do_refresh_body() against the OTA tasks (see s_network_mutex's
+ * own comment) — do_refresh_body() has several early returns, so wrapping it
+ * here rather than taking/releasing inline at each one avoids a forgotten
+ * release on some future edit. */
+static void do_refresh(bool is_manual) {
+    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
+    do_refresh_body(is_manual);
+    xSemaphoreGive(s_network_mutex);
+}
+
 /* ---- geocoding ----------------------------------------------------------- */
 
 /* Re-renders the search-results list from s_hits/s_hit_count, recomputing
@@ -618,7 +643,12 @@ static void ota_worker_task(void *arg) {
 
     if (!silent) push_ota_state_to_ui(WX_OTA_DOWNLOADING, 0);
 
+    /* Held only for the actual network/flash work, not the reboot-idle-wait
+     * below — see s_network_mutex's own comment for why this exists. */
+    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
     ota_outcome_t res = ota_update_run(ota_on_progress, &silent);
+    xSemaphoreGive(s_network_mutex);
+
     switch (res.status) {
         case OTA_RESULT_UP_TO_DATE:
             if (!silent) push_ota_state_to_ui(WX_OTA_IDLE, 0);
@@ -667,7 +697,9 @@ static void ota_worker_task(void *arg) {
  * must not block weather_task either. */
 static void ota_resume_task(void *arg) {
     LV_UNUSED(arg);
+    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
     ota_update_resume_after_boot(app_prefs_get()->ota_update_coprocessor);
+    xSemaphoreGive(s_network_mutex);
     s_ota_active = false;
     vTaskDelete(NULL);
 }
@@ -772,8 +804,10 @@ static void weather_task(void *arg) {
                     push_forecast_to_ui(true); /* language changed: day labels/captions must re-render */
                     break;
                 case CMD_WIFI_SCAN: {
+                    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
                     wx_wifi_network_t nets[APP_WIFI_MAX_SCAN];
                     int n = app_wifi_scan(nets, APP_WIFI_MAX_SCAN);
+                    xSemaphoreGive(s_network_mutex);
                     if (bsp_display_lock(1000)) {
                         weather_ui_set_wifi_scan_results(nets, n);
                         bsp_display_unlock();
@@ -781,7 +815,9 @@ static void weather_task(void *arg) {
                     break;
                 }
                 case CMD_WIFI_CONNECT: {
+                    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
                     bool ok = app_wifi_connect_with(cmd.ssid, cmd.pass);
+                    xSemaphoreGive(s_network_mutex);
                     if (bsp_display_lock(1000)) {
                         weather_ui_set_wifi_connect_result(ok);
                         weather_ui_set_network_status(ok ? WX_NET_ONLINE : WX_NET_OFFLINE);
@@ -896,6 +932,7 @@ static void post(cmd_t *c) {
 
 void app_weather_start(void) {
     s_q = xQueueCreate(8, sizeof(cmd_t));
+    s_network_mutex = xSemaphoreCreateMutex();
     /* TLS needs a roomy stack; the JSON parse runs on this task too. */
     xTaskCreatePinnedToCore(weather_task, "weather", 8192, NULL, 4, NULL, 0);
 }
