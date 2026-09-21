@@ -20,6 +20,7 @@ void test_weather_forecast_parse_run(void);
 void test_favorites_run(void);
 void test_ota_manifest_parse_run(void);
 void test_ota_version_compare_run(void);
+void test_network_status_policy_run(void);
 
 void app_main(void) {
     UNITY_BEGIN();
@@ -29,5 +30,6 @@ void app_main(void) {
     test_favorites_run();
     test_ota_manifest_parse_run();
     test_ota_version_compare_run();
+    test_network_status_policy_run();
     exit(UNITY_END());
 }

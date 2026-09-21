@@ -3,7 +3,7 @@
 # the firmware and the emulator build like any other component.
 idf_component_register(
     SRCS "light_policy.c" "storage_record.c" "weather_forecast_parse.c" "favorites.c"
-         "ota_manifest_parse.c" "ota_version_compare.c"
+         "ota_manifest_parse.c" "ota_version_compare.c" "network_status_policy.c"
     INCLUDE_DIRS "include"
     PRIV_REQUIRES espressif__cjson
 )
