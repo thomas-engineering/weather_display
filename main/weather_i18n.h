@@ -18,7 +18,7 @@ typedef struct {
     const char *network, *configure_network, *forget_network, *wifi_title, *scan, *scanning, *no_networks, *secured, *open_net;
     const char *enter_password, *connect, *back, *connecting, *connected, *show, *hide;
     const char *enter_manually, *enter_ssid, *next, *cancel2;
-    const char *online, *offline, *data_outdated, *data_updated;
+    const char *online, *offline, *reconnecting, *data_outdated, *data_updated;
     const char *device_info, *device_name, *hardware_version, *firmware_version;
     /* "Coprocessor version" (2026-09-18 sync): the ESP32-C6's own esp_hosted
      * firmware version, added right after firmware_version ("Application

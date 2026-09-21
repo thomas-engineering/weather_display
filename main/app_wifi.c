@@ -8,6 +8,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 #include "nvs.h"
 #include "storage_record.h"
@@ -33,9 +34,18 @@ typedef struct __attribute__((packed)) {
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
+/* Once the fast disconnect-triggered retry burst (CONFIG_WEATHER_WIFI_MAX_RETRY
+ * attempts, back-to-back) is exhausted, keep trying at this slower cadence
+ * indefinitely instead of giving up — an outage that outlasts the burst (a
+ * router reboot, a longer drop) would otherwise strand the device until a
+ * human reconnects it by hand. */
+#define WIFI_RECONNECT_INTERVAL_US (15 * 1000 * 1000)
+
 static EventGroupHandle_t s_events;
 static esp_netif_t *s_sta_netif;
+static esp_timer_handle_t s_reconnect_timer;
 static int  s_retries;
+static int  s_reconnect_attempts;
 static bool s_connected;
 static bool s_want_reconnect = true;
 /* Only auto-connect from the STA_START event when we actually have a network to
@@ -44,6 +54,29 @@ static bool s_connect_on_start;
 
 static char s_ssid[33];
 static char s_pass[65];
+
+/* esp_timer callback: runs in the esp_timer task, not an ISR, so calling
+ * esp_wifi_connect() from here is fine. */
+static void reconnect_timer_cb(void *arg) {
+    (void)arg;
+    if (!s_want_reconnect || !s_ssid[0] || s_connected) return;
+    s_reconnect_attempts++;
+    ESP_LOGW(TAG, "periodic reconnect attempt %d", s_reconnect_attempts);
+    esp_wifi_connect();
+}
+
+static void arm_reconnect_timer(void) {
+    if (s_reconnect_timer && !esp_timer_is_active(s_reconnect_timer)) {
+        esp_timer_start_periodic(s_reconnect_timer, WIFI_RECONNECT_INTERVAL_US);
+    }
+}
+
+static void disarm_reconnect_timer(void) {
+    if (s_reconnect_timer && esp_timer_is_active(s_reconnect_timer)) {
+        esp_timer_stop(s_reconnect_timer);
+    }
+    s_reconnect_attempts = 0;
+}
 
 static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *data) {
     (void)arg;
@@ -58,10 +91,12 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
             ESP_LOGW(TAG, "retry %d/%d", s_retries, CONFIG_WEATHER_WIFI_MAX_RETRY);
         } else {
             xEventGroupSetBits(s_events, WIFI_FAIL_BIT);
+            arm_reconnect_timer();
         }
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
         ESP_LOGI(TAG, "got ip " IPSTR, IP2STR(&e->ip_info.ip));
+        disarm_reconnect_timer();
         s_retries = 0;
         s_connected = true;
         xEventGroupSetBits(s_events, WIFI_CONNECTED_BIT);
@@ -125,6 +160,12 @@ void app_wifi_init(void) {
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &any_id));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL, &got_ip));
 
+    const esp_timer_create_args_t timer_args = {
+        .callback = &reconnect_timer_cb,
+        .name = "wifi_reconnect",
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &s_reconnect_timer));
+
     load_credentials();
     s_connect_on_start = (s_ssid[0] != '\0');
 
@@ -142,6 +183,15 @@ void app_wifi_init(void) {
 
 bool app_wifi_have_credentials(void) { return s_ssid[0] != '\0'; }
 bool app_wifi_is_connected(void) { return s_connected; }
+
+/* True whenever there's a network to rejoin and the driver hasn't given up on
+ * it yet — covers both the fast disconnect-triggered retry burst and the
+ * slower periodic retry that follows. False once connected, and also false
+ * with nothing to reconnect to (no stored credentials, or the user forgot
+ * the network via app_wifi_forget()). */
+bool app_wifi_is_reconnecting(void) {
+    return !s_connected && s_want_reconnect && s_ssid[0] != '\0';
+}
 
 /* For the Settings > Device information dialog (Claude Design, 2026-09-10).
  * Buffers must be at least 16 bytes (IPSTR is "%d.%d.%d.%d"). Returns false
@@ -166,6 +216,7 @@ static bool connect_locked(const char *ssid, const char *pass) {
     s_want_reconnect = true;
     s_connect_on_start = true;
     s_retries = 0;
+    disarm_reconnect_timer();
     xEventGroupClearBits(s_events, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
 
     wifi_config_t wc = { 0 };
@@ -218,6 +269,7 @@ void app_wifi_forget(void) {
     s_pass[0] = '\0';
     s_connect_on_start = false;
     s_want_reconnect = false;
+    disarm_reconnect_timer();
     esp_wifi_disconnect();
     s_connected = false;
     ESP_LOGI(TAG, "forgot stored network");

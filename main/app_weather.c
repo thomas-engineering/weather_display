@@ -21,6 +21,7 @@
 #include "esp_hosted.h"
 #include "esp_system.h"
 #include "ota_update.h"
+#include "network_status_policy.h"
 
 #include <math.h>
 #include <string.h>
@@ -76,6 +77,11 @@ static int s_hit_count;
  * another round-trip. */
 static bool  s_have_forecast;
 static int   s_utc_offset;
+
+/* Decides the header error bar / refresh toast state from fetch outcomes —
+ * see components/app_logic/network_status_policy.h for why this can't just
+ * be "if (is_manual) show a toast" at each call site. */
+static network_status_policy_t s_net_status;
 
 /* Guards against a second "Check for update" tap (or the periodic
  * auto-check, or CMD_OTA_RESUME) spawning a second ota_worker_task/
@@ -305,21 +311,41 @@ static void push_device_info_to_ui(void) {
     weather_ui_set_last_sync_ago(ago);
 }
 
-static void ui_error(const char *msg) {
-    bool stale = s_last_success == 0 || (time(NULL) - s_last_success) > STALE_AFTER_SEC;
+/* Maps the Wi-Fi driver's connection state to the header indicator's three
+ * states: connected, actively retrying (fast burst or the slower periodic
+ * retry that follows it — see app_wifi_is_reconnecting()), or nothing left
+ * to retry (no credentials, or the network was forgotten). */
+static wx_net_status_t net_status(void) {
+    if (app_wifi_is_connected()) return WX_NET_ONLINE;
+    return app_wifi_is_reconnecting() ? WX_NET_RECONNECTING : WX_NET_OFFLINE;
+}
+
+/* Applies s_net_status.toast to the UI. Must be called right after every
+ * network_status_policy_on_fetch(), never on its own — NSP_TOAST_SUCCESS/
+ * ERROR are one-shot transitions, not steady states, so replaying a stale
+ * value later would re-show a toast nothing just triggered. */
+static void apply_toast_state(void) {
     if (!bsp_display_lock(1000)) return;
-    weather_ui_set_loading(false);
-    weather_ui_set_error(msg);
-    weather_ui_set_network_status(app_wifi_is_connected() ? WX_NET_ONLINE : WX_NET_OFFLINE);
-    weather_ui_set_data_stale(stale);
-    push_device_info_to_ui();
+    switch (s_net_status.toast) {
+        case NSP_TOAST_SUCCESS: weather_ui_show_refresh_toast(true); break;
+        case NSP_TOAST_ERROR:   weather_ui_show_refresh_toast(false); break;
+        case NSP_TOAST_HIDDEN:  weather_ui_hide_refresh_toast(); break;
+    }
     bsp_display_unlock();
 }
 
-static void show_refresh_toast(bool ok) {
-    if (!bsp_display_lock(1000)) return;
-    weather_ui_show_refresh_toast(ok);
-    bsp_display_unlock();
+static void ui_error(const char *msg, bool is_manual) {
+    network_status_policy_on_fetch(&s_net_status, false, is_manual);
+    bool stale = s_last_success == 0 || (time(NULL) - s_last_success) > STALE_AFTER_SEC;
+    if (bsp_display_lock(1000)) {
+        weather_ui_set_loading(false);
+        weather_ui_set_error(msg);
+        weather_ui_set_network_status(net_status());
+        weather_ui_set_data_stale(stale);
+        push_device_info_to_ui();
+        bsp_display_unlock();
+    }
+    apply_toast_state();
 }
 
 /* Renders the cached forecast in the current language/units. */
@@ -356,7 +382,7 @@ static void push_forecast_to_ui(bool full) {
     if (!full) {
         if (!bsp_display_lock(1000)) return;
         weather_ui_set_clock(time_str, date_str);
-        weather_ui_set_network_status(app_wifi_is_connected() ? WX_NET_ONLINE : WX_NET_OFFLINE);
+        weather_ui_set_network_status(net_status());
         weather_ui_set_data_stale(stale);
         push_device_info_to_ui();
         bsp_display_unlock();
@@ -411,7 +437,7 @@ static void push_forecast_to_ui(bool full) {
     weather_ui_set_current(&cur);
     weather_ui_set_days(days);
     weather_ui_set_hourly(day_ptrs[0], day_ptrs);
-    weather_ui_set_network_status(app_wifi_is_connected() ? WX_NET_ONLINE : WX_NET_OFFLINE);
+    weather_ui_set_network_status(net_status());
     weather_ui_set_data_stale(stale);
     weather_ui_set_loading(false);
     push_device_info_to_ui();
@@ -444,18 +470,17 @@ static void do_refresh_body(bool is_manual) {
              p->lat, p->lon, WEATHER_UI_DAYS);
 
     char *body = http_get(url);
-    if (!body) { ui_error(weather_strings[p->lang].error); if (is_manual) show_refresh_toast(false); return; }
+    if (!body) { ui_error(weather_strings[p->lang].error, is_manual); return; }
 
     cJSON *root = cJSON_Parse(body);
     free(body);
-    if (!root) { ui_error(weather_strings[p->lang].error); if (is_manual) show_refresh_toast(false); return; }
+    if (!root) { ui_error(weather_strings[p->lang].error, is_manual); return; }
 
     const cJSON *cur = cJSON_GetObjectItemCaseSensitive(root, "current");
     const cJSON *daily = cJSON_GetObjectItemCaseSensitive(root, "daily");
     if (!cJSON_IsObject(cur) || !cJSON_IsObject(daily)) {
         cJSON_Delete(root);
-        ui_error(weather_strings[p->lang].error);
-        if (is_manual) show_refresh_toast(false);
+        ui_error(weather_strings[p->lang].error, is_manual);
         return;
     }
 
@@ -545,7 +570,8 @@ static void do_refresh_body(bool is_manual) {
     s_have_forecast = true;
     ESP_LOGI(TAG, "forecast ok: %.1fC code=%d, %d days", s_cur_temp, s_cur_code, n);
     push_forecast_to_ui(true);
-    if (is_manual) show_refresh_toast(true);
+    network_status_policy_on_fetch(&s_net_status, true, is_manual);
+    apply_toast_state();
 }
 
 /* Serializes do_refresh_body() against the OTA tasks (see s_network_mutex's
@@ -775,7 +801,8 @@ static void weather_task(void *arg) {
     TickType_t last_auto = xTaskGetTickCount();
     query_coprocessor_version();
     push_favorites_to_ui();
-    if (app_wifi_is_connected()) do_refresh(false);
+    bool wifi_was_connected = app_wifi_is_connected();
+    if (wifi_was_connected) do_refresh(false);
 
     for (;;) {
         TickType_t wait = pdMS_TO_TICKS(500);
@@ -820,7 +847,10 @@ static void weather_task(void *arg) {
                     xSemaphoreGive(s_network_mutex);
                     if (bsp_display_lock(1000)) {
                         weather_ui_set_wifi_connect_result(ok);
-                        weather_ui_set_network_status(ok ? WX_NET_ONLINE : WX_NET_OFFLINE);
+                        /* Not a plain `ok ? ONLINE : OFFLINE`: a failed manual attempt
+                         * may still have left the driver's own retry burst/timer armed
+                         * (see app_wifi_is_reconnecting()), which net_status() reflects. */
+                        weather_ui_set_network_status(net_status());
                         bsp_display_unlock();
                     }
                     if (ok) {
@@ -892,6 +922,24 @@ static void weather_task(void *arg) {
             do_search(pending_search.query);
         }
 
+        /* Wi-Fi came back on its own (app_wifi.c's own retry burst/periodic timer,
+         * not a user action here) — refresh right away instead of waiting for the
+         * next scheduled auto-refresh or clock tick, and update the header
+         * immediately either way so "Reconnecting..."/"Offline" isn't stale for up
+         * to ~30s (the idle clock tick's own cadence). */
+        bool wifi_now_connected = app_wifi_is_connected();
+        if (wifi_now_connected != wifi_was_connected) {
+            if (bsp_display_lock(1000)) {
+                weather_ui_set_network_status(net_status());
+                bsp_display_unlock();
+            }
+            if (wifi_now_connected) {
+                do_refresh(false);
+                last_auto = xTaskGetTickCount();
+            }
+            wifi_was_connected = wifi_now_connected;
+        }
+
         /* Periodic refresh, and a per-minute clock tick so the header stays live.
          * Synced from Claude Design 2026-09-12: the interval is now the user's
          * auto_refresh_minutes setting (Settings > Auto-refresh), not the fixed
@@ -933,6 +981,7 @@ static void post(cmd_t *c) {
 void app_weather_start(void) {
     s_q = xQueueCreate(8, sizeof(cmd_t));
     s_network_mutex = xSemaphoreCreateMutex();
+    network_status_policy_reset(&s_net_status);
     /* TLS needs a roomy stack; the JSON parse runs on this task too. */
     xTaskCreatePinnedToCore(weather_task, "weather", 8192, NULL, 4, NULL, 0);
 }

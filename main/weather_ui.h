@@ -63,7 +63,7 @@ typedef struct {
     int hour[WEATHER_UI_CHART_POINTS];            /* 0-23, local time */
 } weather_hourly_t;
 
-typedef enum { WX_NET_ONLINE, WX_NET_OFFLINE } wx_net_status_t;
+typedef enum { WX_NET_ONLINE, WX_NET_OFFLINE, WX_NET_RECONNECTING } wx_net_status_t;
 
 typedef struct {
     char ssid[33];
@@ -203,9 +203,16 @@ void weather_ui_set_error(const char *msg_or_null); /* NULL hides the error bar 
  * false shows the same message as weather_ui_set_error() and stays until
  * tapped away. Periodic/background refreshes don't call this. */
 void weather_ui_show_refresh_toast(bool ok);
+/* Dismisses a stuck error toast once a later, silent refresh (one that never
+ * calls weather_ui_show_refresh_toast() itself) resolves the error it was
+ * reporting. Driven by network_status_policy's NSP_TOAST_HIDDEN transition. */
+void weather_ui_hide_refresh_toast(void);
 
 /* Header indicators. `stale` should be true once more than ~1 hour has passed
- * without a successful weather fetch — the app owns that timing, this just displays it. */
+ * without a successful weather fetch — the app owns that timing, this just displays it.
+ * WX_NET_RECONNECTING covers a Wi-Fi outage the driver is still actively retrying
+ * (see app_wifi_is_reconnecting()), distinct from WX_NET_OFFLINE, which means it has
+ * given up (no stored credentials, or the user forgot the network). */
 void weather_ui_set_network_status(wx_net_status_t status);
 void weather_ui_set_data_stale(bool stale);
 

@@ -1748,6 +1748,12 @@ void weather_ui_set_error(const char *msg_or_null) {
     }
 }
 
+void weather_ui_hide_refresh_toast(void) {
+    if (!ui.refresh_toast) return;
+    if (ui.refresh_toast_timer) { lv_timer_delete(ui.refresh_toast_timer); ui.refresh_toast_timer = NULL; }
+    lv_obj_add_flag(ui.refresh_toast, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void build_settings_panel(lv_obj_t *parent) {
     ui.settings_backdrop = lv_obj_create(parent);
     lv_obj_remove_style_all(ui.settings_backdrop);
@@ -3016,12 +3022,19 @@ void weather_ui_set_hourly(const weather_hourly_t *today, const weather_hourly_t
 
 void weather_ui_set_network_status(wx_net_status_t status) {
     if (!ui.header_net_lbl) return;
-    bool online = (status == WX_NET_ONLINE);
-    lv_label_set_text(ui.header_net_lbl, online ? weather_strings[ui.lang].online
-                                                : weather_strings[ui.lang].offline);
+    const char *text;
+    lv_color_t dot;
+    switch (status) {
+        case WX_NET_ONLINE:        text = weather_strings[ui.lang].online;        dot = C_ACCENT; break;
+        case WX_NET_RECONNECTING:  text = weather_strings[ui.lang].reconnecting;   dot = C_WARN; break;
+        case WX_NET_OFFLINE:
+        default:                   text = weather_strings[ui.lang].offline;       dot = C_TEXT_MUTED; break;
+    }
+    lv_label_set_text(ui.header_net_lbl, text);
     /* FIX: netDotColor in the design is var(--color-accent) / --color-neutral-500;
-     * C_GOOD was a green this design system does not carry. */
-    lv_obj_set_style_bg_color(ui.header_net_dot, online ? C_ACCENT : C_TEXT_MUTED, 0);
+     * C_GOOD was a green this design system does not carry. Reconnecting reuses
+     * C_WARN, the same amber the stale-data badge uses. */
+    lv_obj_set_style_bg_color(ui.header_net_dot, dot, 0);
 }
 
 void weather_ui_set_data_stale(bool stale) {

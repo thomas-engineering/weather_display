@@ -43,6 +43,15 @@ int app_wifi_scan(wx_wifi_network_t *out, int max);
 /* True while the station holds an IP. */
 bool app_wifi_is_connected(void);
 
+/* True whenever there's a network to rejoin and the driver hasn't given up on
+ * it yet — covers both the fast disconnect-triggered retry burst and the
+ * slower periodic retry that follows once that burst is exhausted (see
+ * app_wifi.c). False once connected, and also false with nothing to
+ * reconnect to (no stored credentials, or the network was forgotten). Lets
+ * the UI show a distinct "reconnecting" state during a longer outage instead
+ * of just "offline". */
+bool app_wifi_is_reconnecting(void);
+
 /* Fills ip/dns/gw (each must be >=16 bytes, IPSTR is "%d.%d.%d.%d") for the
  * Settings > Device information dialog. Returns false, buffers untouched, if
  * not connected or the netif has no address yet. */
