@@ -13,7 +13,7 @@ typedef struct {
     wx_temp_unit_t temp_unit;
     wx_wind_unit_t wind_unit;
     wx_time_fmt_t  time_fmt;
-    int brightness; /* 10-100, display backlight */
+    int brightness; /* 7-100, display backlight */
     bool brightness_adaptive; /* true: camera-driven, ignored if no camera was found */
     int auto_refresh_minutes; /* 0/15/30/60; 0 disables the periodic background refresh */
     /* Firmware update dialog (2026-09-19 sync). Defaults match the design's

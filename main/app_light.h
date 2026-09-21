@@ -32,7 +32,7 @@ bool app_light_init(i2c_master_bus_handle_t i2c_bus);
  * board's fixed peripherals. */
 bool app_light_available(void);
 
-/* Percent is 10-100, the same range and meaning as the manual brightness
+/* Percent is 7-100, the same range and meaning as the manual brightness
  * slider. Only fires while adaptive mode is on and a camera is available. */
 typedef void (*app_light_brightness_cb_t)(int percent);
 void app_light_set_callback(app_light_brightness_cb_t cb);

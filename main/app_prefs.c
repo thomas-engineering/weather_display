@@ -241,7 +241,7 @@ void app_prefs_load(app_prefs_t *out) {
     if (s_prefs.temp_unit > WX_UNIT_F) s_prefs.temp_unit = WX_UNIT_C;
     if (s_prefs.wind_unit > WX_WIND_MS) s_prefs.wind_unit = WX_WIND_KMH;
     if (s_prefs.time_fmt > WX_TIME_12) s_prefs.time_fmt = WX_TIME_24;
-    if (s_prefs.brightness < 10 || s_prefs.brightness > 100) s_prefs.brightness = 100;
+    if (s_prefs.brightness < 7 || s_prefs.brightness > 100) s_prefs.brightness = 100;
     if (s_prefs.auto_refresh_minutes != 0 && s_prefs.auto_refresh_minutes != 15 &&
         s_prefs.auto_refresh_minutes != 30 && s_prefs.auto_refresh_minutes != 60) s_prefs.auto_refresh_minutes = 30;
 

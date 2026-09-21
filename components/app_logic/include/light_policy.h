@@ -9,7 +9,7 @@
  * this is just the arithmetic, so it can run and be tested on the host
  * (./scripts/host-test.sh) instead of only being verifiable by reflashing. */
 
-#define LIGHT_POLICY_BRIGHTNESS_MIN 10
+#define LIGHT_POLICY_BRIGHTNESS_MIN 7
 #define LIGHT_POLICY_BRIGHTNESS_MAX 100
 
 /* The OV5647's own AEC/AGC keeps the sensor's own exposure roughly correct for
