@@ -21,5 +21,11 @@
       "Bash(esp-emu:*)",
       "Bash(esptool.py:*)"
     ]
+  },
+
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh"
   }
 }
+
