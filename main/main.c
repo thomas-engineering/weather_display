@@ -20,6 +20,7 @@
 #include "app_prefs.h"
 #include "app_favorites.h"
 #include "app_light.h"
+#include "task_heartbeat.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "app";
@@ -45,16 +46,46 @@ static void on_wifi_connect(const char *ssid, const char *password) {
 
 static void on_wifi_forget(void) { app_weather_wifi_forget(); }
 
-/* Applies immediately (cheap PWM duty write) on every drag tick; only persists to
- * NVS once the drag settles, so dragging the slider doesn't wear out flash. */
+/* Applies immediately on every drag tick; only persists to NVS once the drag
+ * settles, so dragging the slider doesn't wear out flash.
+ *
+ * bsp_display_brightness_set() itself is a cheap PWM duty write, but the BSP
+ * function wrapping it also logs an ESP_LOGI line on every call (managed
+ * component, not ours to edit) — LVGL's indev poll fires a
+ * LV_EVENT_VALUE_CHANGED roughly every 30ms while dragging, so that used to
+ * mean ~33 blocking UART writes/s from inside lv_timer_handler()'s own event
+ * dispatch, on the same task that also polls the touch controller (found by
+ * firmware-auditor Category G). Skipping the call when the percent hasn't
+ * actually changed cuts that to one write per percentage point crossed. */
 static void on_brightness(int percent, bool final) {
-    bsp_display_brightness_set(percent);
+    static int s_last_applied = -1;
+    if (percent != s_last_applied) {
+        bsp_display_brightness_set(percent);
+        s_last_applied = percent;
+    }
     if (final) app_prefs_save_brightness(percent);
 }
 
 static void on_brightness_adaptive(bool on) {
     app_prefs_save_brightness_adaptive(on);
     app_light_set_adaptive(on);
+}
+
+/* Runs on light_sensor_task, not the LVGL task — see app_light.h's doc
+ * comment on app_light_unavailable_cb_t. Mirrors a user turning the switch
+ * off themselves: persist it so it doesn't come back on at the next boot,
+ * and reflect it in both the switch's checked state and its enabled state
+ * (a camera that just proved it can't stream shouldn't invite retrying from
+ * the UI either). */
+static void on_light_unavailable(void) {
+    app_prefs_save_brightness_adaptive(false);
+    if (bsp_display_lock(1000)) {
+        weather_ui_set_brightness_adaptive(false);
+        weather_ui_set_brightness_adaptive_available(false);
+        bsp_display_unlock();
+    } else {
+        ESP_LOGW(TAG, "display lock timed out, adaptive switch will show stale state until next interaction");
+    }
 }
 
 /* Runs on app_light's own sensor task, not the LVGL task — bsp_display_brightness_set()
@@ -114,7 +145,15 @@ static void touch_probe_cb(lv_timer_t *t) {
  * it just makes stalls visible in the log instead of only in a finger. Left
  * on permanently rather than behind CONFIG_WEATHER_TOUCH_DEBUG: the cost is
  * one integer subtraction every 20ms plus an ESP_LOGW on the rare tick that's
- * actually late. */
+ * actually late.
+ *
+ * This alone can't say *why* a gap happened — lock wait, a slow widget
+ * callback, and genuine flush/PPA cost all produce the same number (found by
+ * firmware-auditor Category G). display_lock_probe.c's WARN line (emitted at
+ * the moment a slow bsp_display_lock() hold is released) is correlatable by
+ * timestamp against a warning here: if one lands within the same lvgl_stall
+ * window, the lock wait explains it; if not, look at flush/PPA or a widget
+ * callback instead. */
 static void lvgl_stall_probe_cb(lv_timer_t *t) {
     LV_UNUSED(t);
     static int64_t last_us;
@@ -130,6 +169,15 @@ static void lvgl_stall_probe_cb(lv_timer_t *t) {
         }
     }
     last_us = now_us;
+}
+
+/* Periodic liveness check for this project's own tasks — see
+ * task_heartbeat.h for why CONFIG_ESP_TASK_WDT_INIT alone doesn't cover this.
+ * Runs in the esp_timer task, well away from any of the tasks it's checking,
+ * so a hang in one of them can't also stop this from firing. */
+static void heartbeat_check_cb(void *arg) {
+    (void)arg;
+    task_heartbeat_check();
 }
 
 /* Investigated using ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE + a hardware panel
@@ -169,6 +217,13 @@ void app_main(void) {
     app_prefs_load(&prefs);
     app_favorites_load();
 
+    /* The BSP's own "ESP32_P4_EV" tag logs an INFO line on every
+     * bsp_display_brightness_set() call (managed component, not ours to
+     * edit) — without this, that line would still fire from inside
+     * on_brightness()'s LVGL-task duty write whenever the deduplication
+     * above lets a call through (found by firmware-auditor Category G). */
+    esp_log_level_set("ESP32_P4_EV", ESP_LOG_WARN);
+
     /* Panel + touch. Rotation and touch mirroring match the vendor's own LVGL
      * example for this board (09_lvgl_demo_v9). TRIPLE_PARTIAL is the known
      * tradeoff here: it occasionally stalled the LVGL/touch task for up to
@@ -191,11 +246,20 @@ void app_main(void) {
     };
     /* ESP_LV_ADAPTER_DEFAULT_CONFIG() leaves this at -1 (no affinity), which lets
      * the scheduler run LVGL — and its touch-indev polling — on core 0, the same
-     * core app_light.c pins its sensor task to. The two also share the I2C bus
-     * (GT911 touch, OV5647 SCCB), and a touch read has to wait out an in-flight
-     * I2C transaction from the camera regardless of task priority, since a bus
-     * mutex isn't preemptible. Pinning LVGL to core 1 removes that contention
-     * entirely instead of chasing it through priorities. */
+     * core app_light.c pins its sensor task to. Pinning LVGL to core 1 removes
+     * the *CPU* contention between the two (no more fighting over core 0 time
+     * slices) instead of chasing it through priorities.
+     *
+     * It does NOT remove the *bus* contention: the two also share the I2C bus
+     * (GT911 touch, OV5647 SCCB), and the I2C master's bus mutex isn't
+     * preemptible or core-aware — a touch read on core 1 still waits out an
+     * in-flight SCCB transaction the camera is running on core 0, same as if
+     * both were on the same core. In practice this costs little: SCCB traffic
+     * only bursts during start_streaming()'s VIDIOC_S_FMT (app_light.c) and its
+     * retries, not per captured frame, but an earlier version of this comment
+     * claimed the contention was "entirely removed", which isn't true and let
+     * a real (if usually small) latency source go unmeasured (found by
+     * firmware-auditor Category G). */
     cfg.lv_adapter_cfg.task_core_id = 1;
     lv_display_t *display = bsp_display_start_with_config(&cfg);
     ESP_ERROR_CHECK(display != NULL ? ESP_OK : ESP_FAIL);
@@ -211,7 +275,13 @@ void app_main(void) {
      * could ever fire it — no dependence on the sample interval being long
      * enough to win the race. */
     app_light_set_callback(on_ambient_brightness);
+    app_light_set_unavailable_callback(on_light_unavailable);
     bool have_light_sensor = app_light_init(bsp_i2c_get_handle());
+
+    esp_timer_handle_t hb_timer;
+    const esp_timer_create_args_t hb_timer_args = { .callback = &heartbeat_check_cb, .name = "hb_check" };
+    ESP_ERROR_CHECK(esp_timer_create(&hb_timer_args, &hb_timer));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(hb_timer, 5 * 1000 * 1000));
 
     ESP_ERROR_CHECK(bsp_display_lock(-1) ? ESP_OK : ESP_ERR_TIMEOUT);
     weather_ui_create(lv_screen_active());
@@ -254,36 +324,44 @@ void app_main(void) {
 
     app_wifi_init();
 
-    bool online = false;
-    if (app_wifi_have_credentials()) {
-        online = app_wifi_connect();
-        if (online) app_wifi_sync_time(15000);
-    }
-
+    /* The initial connect attempt (and, on success, the SNTP sync) used to
+     * block right here — up to ~30s for the connect timeout plus 15s for
+     * SNTP — before the Wi-Fi setup screen or anything else on this screen
+     * became reachable at all, on every boot where the stored network was
+     * merely out of range (the common case, not the exception, once
+     * CONFIG_WEATHER_WIFI_MAX_RETRY's disconnect-triggered burst is spent).
+     * Moved into weather_task's own startup (main/app_weather.c) instead,
+     * which already owns every other blocking network call and already goes
+     * through s_network_mutex's finite timeout — found by firmware-auditor
+     * Category K. */
+    bool have_creds = app_wifi_have_credentials();
     if (bsp_display_lock(1000)) {
-        weather_ui_set_network_status(online ? WX_NET_ONLINE : WX_NET_OFFLINE);
-        if (!online) {
+        weather_ui_set_network_status(have_creds ? WX_NET_RECONNECTING : WX_NET_OFFLINE);
+        if (!have_creds) {
             weather_ui_set_loading(false);
             weather_ui_set_error(weather_strings[prefs.lang].error);
         }
         bsp_display_unlock();
     }
 
-    /* The worker owns every blocking call from here on, including the Wi-Fi scan
-     * and connect the setup screen triggers — so start it before opening that screen. */
     ESP_LOGI(TAG, "starting weather worker");
     app_weather_start();
 
     /* No-op unless this boot follows a P4 OTA update (running partition still
-     * ESP_OTA_IMG_PENDING_VERIFY) — see ota_update_resume_after_boot(). Only
-     * meaningful with network up, and posted to the worker queue that
-     * app_weather_start() just created, so it must come after that call. */
-    if (online) app_weather_ota_resume_after_boot();
+     * ESP_OTA_IMG_PENDING_VERIFY) — see ota_update_resume_after_boot(). Posted
+     * to the worker queue app_weather_start() just created regardless of
+     * Wi-Fi state; that queue is FIFO, and the worker's own startup code
+     * (its initial connect attempt) runs before it ever gets to processing
+     * this command, so it still only reaches the network once Wi-Fi is up
+     * or that attempt has given up. */
+    app_weather_ota_resume_after_boot();
 
-    if (!online) {
-        /* Nothing stored, or the stored network is gone: put the setup screen up so
-         * the display can be joined to a network with nothing but the touchscreen. */
-        ESP_LOGI(TAG, "no connection; opening Wi-Fi setup");
+    if (!have_creds) {
+        /* Nothing stored: put the setup screen up so the display can be joined
+         * to a network with nothing but the touchscreen. A stored-but-gone
+         * network is handled by weather_task's own initial connect attempt
+         * instead (it opens this same screen itself if that attempt fails). */
+        ESP_LOGI(TAG, "no stored network; opening Wi-Fi setup");
         if (bsp_display_lock(1000)) {
             weather_ui_open_wifi_setup();
             bsp_display_unlock();

@@ -62,6 +62,14 @@ ota_outcome_t ota_update_run(ota_progress_cb_t on_progress, void *progress_ctx);
  * call, so callers don't need to pair every cancel with a run. */
 void ota_update_request_cancel(void);
 
+/* Clears any pending cancel request. Callers must call this when a run is
+ * *accepted* (e.g. the command that will spawn the OTA task), not inside
+ * ota_update_run() itself — clearing it there raced a Cancel tap that landed
+ * while the caller was still waiting on the network mutex: the flag was wiped
+ * right as ota_update_run() started, discarding a cancel that arrived before
+ * the run's own first check of it (found by firmware-auditor Category K). */
+void ota_update_reset_cancel(void);
+
 /* Call once at startup, after Wi-Fi is up, before anything else touches the
  * OTA subsystem. If the running partition is still pending verification
  * (i.e. this is the first boot after ota_update_run() flashed a new P4

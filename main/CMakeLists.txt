@@ -14,6 +14,8 @@ idf_component_register(
         "storage_backend_nvs.c"
         "save_debounce.c"
         "ota_update.c"
+        "task_heartbeat.c"
+        "display_lock_probe.c"
         "weather_ui.c"
         "weather_chart.c"
         "weather_icons.c"

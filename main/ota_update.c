@@ -16,6 +16,7 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 /* SHA-256 via the PSA Crypto API, not the classic mbedtls_sha256_* context
  * functions — this IDF version's mbedtls (tf-psa-crypto) no longer exposes
  * mbedtls/sha256.h as a public header; psa/crypto.h is the supported path
@@ -44,6 +45,10 @@ void ota_update_request_cancel(void) {
     s_cancel_requested = true;
 }
 
+void ota_update_reset_cancel(void) {
+    s_cancel_requested = false;
+}
+
 #define GITHUB_RELEASES_URL "https://api.github.com/repos/thomas-engineering/weather_display/releases/latest"
 #define OTA_USER_AGENT       "esp32-p4-weather-display"
 #define JSON_BUF_MAX         (32 * 1024)
@@ -53,6 +58,14 @@ void ota_update_request_cancel(void) {
  * eh_host_feat_rpc_ext_v2_types.h — not a public include path, so mirrored
  * here as a plain constant rather than pulled in). */
 #define C6_OTA_CHUNK_SIZE 1536
+
+/* Neither download loop below has a natural upper bound of its own — both run
+ * until the server sends EOF or errors, and only the single socket read is
+ * timed (timeout_ms above). A server that dribbles a few bytes every 14s
+ * would keep either loop, and the s_network_mutex it runs under (see
+ * app_weather.c), alive indefinitely (firmware-auditor Category K). */
+#define OTA_TOTAL_BUDGET_US ((int64_t)10 * 60 * 1000000)
+#define OTA_STALL_BUDGET_US ((int64_t)60 * 1000000)
 
 /* esp_http_client's request-line tx buffer defaults to 512 B
  * (DEFAULT_HTTP_BUF_SIZE), sized for a short path — every URL fetched in
@@ -253,6 +266,9 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
     if (err != ESP_OK) { ESP_LOGE(TAG, "esp_https_ota_begin: %s", esp_err_to_name(err)); out.error = OTA_ERR_NETWORK; return out; }
 
     int image_size = esp_https_ota_get_image_size(handle); /* -1 if chunked/unknown */
+    int64_t start_us = esp_timer_get_time();
+    int64_t last_progress_us = start_us;
+    int last_read = 0;
     for (;;) {
         if (s_cancel_requested) {
             ESP_LOGW(TAG, "P4 OTA cancelled");
@@ -260,10 +276,26 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
             out.error = OTA_ERR_CANCELLED;
             return out;
         }
+        int64_t now_us = esp_timer_get_time();
+        if (now_us - start_us > OTA_TOTAL_BUDGET_US) {
+            ESP_LOGE(TAG, "P4 OTA exceeded total budget (%lld s), aborting",
+                     (long long)(OTA_TOTAL_BUDGET_US / 1000000));
+            esp_https_ota_abort(handle);
+            out.error = OTA_ERR_NETWORK;
+            return out;
+        }
+        if (now_us - last_progress_us > OTA_STALL_BUDGET_US) {
+            ESP_LOGE(TAG, "P4 OTA stalled (no progress for %lld s), aborting",
+                     (long long)(OTA_STALL_BUDGET_US / 1000000));
+            esp_https_ota_abort(handle);
+            out.error = OTA_ERR_NETWORK;
+            return out;
+        }
         err = esp_https_ota_perform(handle);
         if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) break;
+        int read = esp_https_ota_get_image_len_read(handle);
+        if (read > last_read) { last_read = read; last_progress_us = now_us; }
         if (on_progress) {
-            int read = esp_https_ota_get_image_len_read(handle);
             int percent = (image_size > 0 && read >= 0) ? (int)((int64_t)read * 100 / image_size) : 50;
             if (percent > 99) percent = 99;
             on_progress(percent, progress_ctx);
@@ -309,8 +341,6 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
 }
 
 ota_outcome_t ota_update_run(ota_progress_cb_t on_progress, void *progress_ctx) {
-    s_cancel_requested = false; /* clear any stale request left over from a prior run */
-
     ota_manifest_t manifest;
     char p4_url[URL_MAX], c6_url[URL_MAX];
     if (!fetch_manifest_and_urls(&manifest, p4_url, sizeof p4_url, c6_url, sizeof c6_url)) {
@@ -365,19 +395,33 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
 
     uint8_t chunk[C6_OTA_CHUNK_SIZE];
     bool write_failed = false;
+    bool cancelled = false;
+    bool stalled_or_over_budget = false;
+    int64_t start_us = esp_timer_get_time();
+    int64_t last_progress_us = start_us;
     for (;;) {
+        if (s_cancel_requested) { cancelled = true; break; }
+        int64_t now_us = esp_timer_get_time();
+        if (now_us - start_us > OTA_TOTAL_BUDGET_US || now_us - last_progress_us > OTA_STALL_BUDGET_US) {
+            stalled_or_over_budget = true;
+            break;
+        }
         int r = esp_http_client_read(c, (char *)chunk, sizeof chunk);
         if (r < 0) { write_failed = true; break; }
         if (r == 0) break;
+        last_progress_us = now_us;
         if (esp_hosted_slave_ota_write(chunk, (uint32_t)r) != ESP_OK ||
             psa_hash_update(&sha, chunk, (size_t)r) != PSA_SUCCESS) { write_failed = true; break; }
     }
 
     uint8_t digest[32];
     size_t digest_len = 0;
-    bool hash_ok = !write_failed && psa_hash_finish(&sha, digest, sizeof digest, &digest_len) == PSA_SUCCESS;
+    bool hash_ok = !write_failed && !cancelled && !stalled_or_over_budget &&
+                   psa_hash_finish(&sha, digest, sizeof digest, &digest_len) == PSA_SUCCESS;
     if (!hash_ok) psa_hash_abort(&sha);
 
+    if (cancelled) { ESP_LOGW(TAG, "C6 OTA cancelled"); goto done; }
+    if (stalled_or_over_budget) { ESP_LOGE(TAG, "C6 image download stalled or exceeded total budget, aborting"); goto done; }
     if (write_failed) { ESP_LOGE(TAG, "C6 image download/write failed"); goto done; }
     if (!hash_ok) { ESP_LOGE(TAG, "could not compute C6 image hash"); goto done; }
     if (esp_hosted_slave_ota_end() != ESP_OK) { ESP_LOGE(TAG, "esp_hosted_slave_ota_end failed"); goto done; }

@@ -22,6 +22,8 @@
 #include "esp_system.h"
 #include "ota_update.h"
 #include "network_status_policy.h"
+#include "task_heartbeat.h"
+#include "display_lock_probe.h"
 
 #include <math.h>
 #include <string.h>
@@ -70,6 +72,12 @@ static QueueHandle_t s_q;
  * network operation running at a time, regardless of which task requested
  * it, trading a brief wait for one of them over risking both failing. */
 static SemaphoreHandle_t s_network_mutex;
+/* Finite instead of portMAX_DELAY: an OTA task holding this mutex for a
+ * genuinely stuck download (SDIO/RPC wedge) used to block every other
+ * network-shaped command (refresh, Wi-Fi scan/connect) forever, with no
+ * feedback to the UI (found by firmware-auditor Category K). 60s is well
+ * above any legitimate single network operation guarded by this mutex. */
+#define NETWORK_MUTEX_TIMEOUT_MS 60000
 static geo_hit_t s_hits[APP_WEATHER_MAX_RESULTS];
 static int s_hit_count;
 
@@ -254,10 +262,15 @@ static void query_coprocessor_version(void) {
     }
 }
 
-static void push_device_info_to_ui(void) {
-    char ip[16] = "", dns[16] = "", gw[16] = "";
-    bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
-
+/* ip/dns/gw/online are gathered by the caller *before* taking
+ * bsp_display_lock() — app_wifi_get_ip_info() -> esp_netif_get_dns_info() is
+ * an IPC call to the TCP/IP task with no timeout on this project's lwip
+ * config (CONFIG_LWIP_TCPIP_CORE_LOCKING is off), the same shape of bug as
+ * the esp_hosted RPC call this file's own comment already flagged and moved
+ * off the display lock once before. Every call site below now does the same
+ * (found by firmware-auditor Category G): only lv_ and weather_ui_ calls
+ * happen while the lock is held. */
+static void push_device_info_to_ui(bool online, const char *ip, const char *dns, const char *gw) {
     /* s_last_success is the last successful *forecast* fetch, same value the
      * staleness check above uses — exactly "last update" from the design's
      * own lastFetchSuccessAt. Formatted with the same date/time helpers the
@@ -337,13 +350,15 @@ static void apply_toast_state(void) {
 static void ui_error(const char *msg, bool is_manual) {
     network_status_policy_on_fetch(&s_net_status, false, is_manual);
     bool stale = s_last_success == 0 || (time(NULL) - s_last_success) > STALE_AFTER_SEC;
-    if (bsp_display_lock(1000)) {
+    char ip[16] = "", dns[16] = "", gw[16] = "";
+    bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
+    if (display_lock_timed(1000, "ui_error")) {
         weather_ui_set_loading(false);
         weather_ui_set_error(msg);
         weather_ui_set_network_status(net_status());
         weather_ui_set_data_stale(stale);
-        push_device_info_to_ui();
-        bsp_display_unlock();
+        push_device_info_to_ui(online, ip, dns, gw);
+        display_unlock_timed();
     }
     apply_toast_state();
 }
@@ -378,14 +393,16 @@ static void push_forecast_to_ui(bool full) {
     fmt_date(date_str, sizeof date_str, &lt, lang);
 
     bool stale = s_last_success == 0 || (now_utc - s_last_success) > STALE_AFTER_SEC;
+    char ip[16] = "", dns[16] = "", gw[16] = "";
+    bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
 
     if (!full) {
-        if (!bsp_display_lock(1000)) return;
+        if (!display_lock_timed(1000, "push_forecast_to_ui/!full")) return;
         weather_ui_set_clock(time_str, date_str);
         weather_ui_set_network_status(net_status());
         weather_ui_set_data_stale(stale);
-        push_device_info_to_ui();
-        bsp_display_unlock();
+        push_device_info_to_ui(online, ip, dns, gw);
+        display_unlock_timed();
         return;
     }
 
@@ -432,7 +449,7 @@ static void push_forecast_to_ui(bool full) {
     for (int i = 0; i < WEATHER_UI_DAYS; i++)
         day_ptrs[i] = s_hourly_valid[i] ? &s_hourly[i] : NULL;
 
-    if (!bsp_display_lock(1000)) return;
+    if (!display_lock_timed(1000, "push_forecast_to_ui/full")) return;
     weather_ui_set_error(NULL);
     weather_ui_set_current(&cur);
     weather_ui_set_days(days);
@@ -440,8 +457,8 @@ static void push_forecast_to_ui(bool full) {
     weather_ui_set_network_status(net_status());
     weather_ui_set_data_stale(stale);
     weather_ui_set_loading(false);
-    push_device_info_to_ui();
-    bsp_display_unlock();
+    push_device_info_to_ui(online, ip, dns, gw);
+    display_unlock_timed();
 }
 
 /* ---- forecast ------------------------------------------------------------ */
@@ -579,7 +596,11 @@ static void do_refresh_body(bool is_manual) {
  * here rather than taking/releasing inline at each one avoids a forgotten
  * release on some future edit. */
 static void do_refresh(bool is_manual) {
-    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
+    if (xSemaphoreTake(s_network_mutex, pdMS_TO_TICKS(NETWORK_MUTEX_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "network mutex busy for %ds, skipping refresh", NETWORK_MUTEX_TIMEOUT_MS / 1000);
+        ui_error(weather_strings[app_prefs_get()->lang].error, is_manual);
+        return;
+    }
     do_refresh_body(is_manual);
     xSemaphoreGive(s_network_mutex);
 }
@@ -650,6 +671,7 @@ static void push_ota_error_to_ui(ota_error_t err) {
 /* ota_update_run()'s progress callback — `ctx` points at the bool guarding
  * whether this run is the silent periodic auto-check (see cmd_t.ota_silent). */
 static void ota_on_progress(int percent, void *ctx) {
+    task_heartbeat_touch(HB_OTA);
     bool silent = *(bool *)ctx;
     if (!silent) push_ota_state_to_ui(WX_OTA_DOWNLOADING, percent);
 }
@@ -666,14 +688,20 @@ static void ota_worker_task(void *arg) {
     ota_task_args_t *args = (ota_task_args_t *)arg;
     bool silent = args->silent;
     free(args);
+    task_heartbeat_touch(HB_OTA);
 
     if (!silent) push_ota_state_to_ui(WX_OTA_DOWNLOADING, 0);
 
     /* Held only for the actual network/flash work, not the reboot-idle-wait
      * below — see s_network_mutex's own comment for why this exists. */
-    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
-    ota_outcome_t res = ota_update_run(ota_on_progress, &silent);
-    xSemaphoreGive(s_network_mutex);
+    ota_outcome_t res;
+    if (xSemaphoreTake(s_network_mutex, pdMS_TO_TICKS(NETWORK_MUTEX_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "network mutex busy for %ds, aborting OTA check", NETWORK_MUTEX_TIMEOUT_MS / 1000);
+        res = (ota_outcome_t){ .status = OTA_RESULT_ERROR, .error = OTA_ERR_NETWORK };
+    } else {
+        res = ota_update_run(ota_on_progress, &silent);
+        xSemaphoreGive(s_network_mutex);
+    }
 
     switch (res.status) {
         case OTA_RESULT_UP_TO_DATE:
@@ -691,6 +719,7 @@ static void ota_worker_task(void *arg) {
                  * can't be allowed to wait forever on a device that always
                  * has something open. */
                 for (int waited_ms = 0; waited_ms < 5 * 60 * 1000; waited_ms += 5000) {
+                    task_heartbeat_touch(HB_OTA);
                     bool busy = true;
                     if (bsp_display_lock(1000)) {
                         busy = weather_ui_is_modal_open();
@@ -714,6 +743,7 @@ static void ota_worker_task(void *arg) {
             }
             break;
     }
+    task_heartbeat_mark_idle(HB_OTA);
     s_ota_active = false;
     vTaskDelete(NULL);
 }
@@ -723,9 +753,15 @@ static void ota_worker_task(void *arg) {
  * must not block weather_task either. */
 static void ota_resume_task(void *arg) {
     LV_UNUSED(arg);
-    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
-    ota_update_resume_after_boot(app_prefs_get()->ota_update_coprocessor);
-    xSemaphoreGive(s_network_mutex);
+    task_heartbeat_touch(HB_OTA_RESUME);
+    if (xSemaphoreTake(s_network_mutex, pdMS_TO_TICKS(NETWORK_MUTEX_TIMEOUT_MS)) == pdTRUE) {
+        ota_update_resume_after_boot(app_prefs_get()->ota_update_coprocessor);
+        xSemaphoreGive(s_network_mutex);
+    } else {
+        ESP_LOGE(TAG, "network mutex busy for %ds, skipping post-update coprocessor check",
+                 NETWORK_MUTEX_TIMEOUT_MS / 1000);
+    }
+    task_heartbeat_mark_idle(HB_OTA_RESUME);
     s_ota_active = false;
     vTaskDelete(NULL);
 }
@@ -801,10 +837,38 @@ static void weather_task(void *arg) {
     TickType_t last_auto = xTaskGetTickCount();
     query_coprocessor_version();
     push_favorites_to_ui();
+
+    /* Initial connect attempt, moved here from a blocking call in app_main()
+     * (main/main.c) — see that call site's own comment. Uses the same
+     * mutex/timeout as every other network op this task runs, so a wedged
+     * OTA task can delay this by at most NETWORK_MUTEX_TIMEOUT_MS instead of
+     * blocking it forever. */
+    if (app_wifi_have_credentials() && !app_wifi_is_connected()) {
+        bool connect_ok = false;
+        if (xSemaphoreTake(s_network_mutex, pdMS_TO_TICKS(NETWORK_MUTEX_TIMEOUT_MS)) == pdTRUE) {
+            connect_ok = app_wifi_connect();
+            xSemaphoreGive(s_network_mutex);
+        } else {
+            ESP_LOGE(TAG, "network mutex busy for %ds, skipping initial Wi-Fi connect",
+                     NETWORK_MUTEX_TIMEOUT_MS / 1000);
+        }
+        if (bsp_display_lock(1000)) {
+            weather_ui_set_network_status(net_status());
+            bsp_display_unlock();
+        }
+        if (connect_ok) {
+            app_wifi_sync_time(15000);
+        } else if (bsp_display_lock(1000)) {
+            weather_ui_open_wifi_setup();
+            bsp_display_unlock();
+        }
+    }
+
     bool wifi_was_connected = app_wifi_is_connected();
     if (wifi_was_connected) do_refresh(false);
 
     for (;;) {
+        task_heartbeat_touch(HB_WEATHER);
         TickType_t wait = pdMS_TO_TICKS(500);
         if (xQueueReceive(s_q, &cmd, wait) == pdTRUE) {
             switch (cmd.kind) {
@@ -831,7 +895,10 @@ static void weather_task(void *arg) {
                     push_forecast_to_ui(true); /* language changed: day labels/captions must re-render */
                     break;
                 case CMD_WIFI_SCAN: {
-                    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
+                    if (xSemaphoreTake(s_network_mutex, pdMS_TO_TICKS(NETWORK_MUTEX_TIMEOUT_MS)) != pdTRUE) {
+                        ESP_LOGE(TAG, "network mutex busy for %ds, skipping Wi-Fi scan", NETWORK_MUTEX_TIMEOUT_MS / 1000);
+                        break;
+                    }
                     wx_wifi_network_t nets[APP_WIFI_MAX_SCAN];
                     int n = app_wifi_scan(nets, APP_WIFI_MAX_SCAN);
                     xSemaphoreGive(s_network_mutex);
@@ -842,7 +909,14 @@ static void weather_task(void *arg) {
                     break;
                 }
                 case CMD_WIFI_CONNECT: {
-                    xSemaphoreTake(s_network_mutex, portMAX_DELAY);
+                    if (xSemaphoreTake(s_network_mutex, pdMS_TO_TICKS(NETWORK_MUTEX_TIMEOUT_MS)) != pdTRUE) {
+                        ESP_LOGE(TAG, "network mutex busy for %ds, skipping Wi-Fi connect", NETWORK_MUTEX_TIMEOUT_MS / 1000);
+                        if (bsp_display_lock(1000)) {
+                            weather_ui_set_wifi_connect_result(false);
+                            bsp_display_unlock();
+                        }
+                        break;
+                    }
                     bool ok = app_wifi_connect_with(cmd.ssid, cmd.pass);
                     xSemaphoreGive(s_network_mutex);
                     if (bsp_display_lock(1000)) {
@@ -897,6 +971,11 @@ static void weather_task(void *arg) {
                     args->silent = cmd.ota_silent;
                     s_ota_active = true;
                     s_last_ota_check = xTaskGetTickCount();
+                    /* Clear here, at acceptance, not inside ota_update_run(): a
+                     * Cancel tap arriving while a prior run was still waiting on
+                     * the network mutex must survive to be seen by that run's
+                     * own s_cancel_requested check (firmware-auditor Category K). */
+                    ota_update_reset_cancel();
                     if (xTaskCreatePinnedToCore(ota_worker_task, "ota", 8192, args, 3, NULL, 0) != pdPASS) {
                         free(args);
                         s_ota_active = false;

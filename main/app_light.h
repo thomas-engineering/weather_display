@@ -37,6 +37,15 @@ bool app_light_available(void);
 typedef void (*app_light_brightness_cb_t)(int percent);
 void app_light_set_callback(app_light_brightness_cb_t cb);
 
+/* Fires (from light_sensor_task, not the LVGL task — same rules as
+ * app_light_brightness_cb_t) when the camera stops responding to stream
+ * start after many consecutive attempts and adaptive mode has been turned
+ * back off internally as a result. The caller should reflect that in the UI
+ * (disable the adaptive switch) and persist it, same as a user-initiated
+ * toggle-off. */
+typedef void (*app_light_unavailable_cb_t)(void);
+void app_light_set_unavailable_callback(app_light_unavailable_cb_t cb);
+
 /* Enables/disables periodic sampling. A no-op (and stays reported as off) if
  * app_light_available() is false — callers don't need to check both.
  *

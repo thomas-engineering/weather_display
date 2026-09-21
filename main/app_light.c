@@ -9,6 +9,7 @@
 #include "esp_video_device.h"
 #include "light_policy.h"
 #include "linux/videodev2.h"
+#include "task_heartbeat.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -42,6 +43,18 @@ static size_t s_buf_len[BUF_COUNT];
 static int s_buf_mapped_count;   /* how many of s_buf[] are valid mmap()s, for cleanup */
 static uint32_t s_buf_mem_type;
 static app_light_brightness_cb_t s_cb;
+static app_light_unavailable_cb_t s_unavailable_cb;
+
+/* Consecutive start_streaming() failures. A camera that responds to
+ * VIDIOC_QUERYCAP but never manages to stream (bad negotiation, stuck sensor)
+ * used to retry unconditionally every SAMPLE_INTERVAL_MS forever, each attempt
+ * a full open/mmap/close cycle plus a WARN line — harmless once, a permanent
+ * log flood and needless LDO/CSI churn on a device that runs for months
+ * (found by firmware-auditor Category K). Staggers the retry interval and
+ * gives up (turns adaptive mode back off) after enough failures in a row. */
+static int s_stream_fail_count;
+static int s_stream_retry_skip_ticks;
+#define STREAM_GIVEUP_FAILS 40
 static light_policy_t s_policy;
 static TaskHandle_t s_task;
 
@@ -259,6 +272,7 @@ static void stop_streaming(void) {
 static void light_sensor_task(void *arg) {
     (void)arg;
     for (;;) {
+        task_heartbeat_touch(HB_LIGHT_SENSOR);
         /* Waits up to one sample interval, but app_light_set_adaptive() wakes
          * this immediately via a task notification — so turning the switch
          * on doesn't wait up to SAMPLE_INTERVAL_MS for the first reading, and
@@ -282,10 +296,30 @@ static void light_sensor_task(void *arg) {
 
         bool want = s_adaptive;
         if (want && !s_streaming) {
+            if (s_stream_retry_skip_ticks > 0) { s_stream_retry_skip_ticks--; continue; }
             if (!start_streaming()) {
-                ESP_LOGW(TAG, "failed to start capture stream, will retry next tick");
+                s_stream_fail_count++;
+                if (s_stream_fail_count >= STREAM_GIVEUP_FAILS) {
+                    ESP_LOGE(TAG, "capture stream failed to start %d times in a row, giving up on adaptive brightness",
+                             s_stream_fail_count);
+                    s_stream_fail_count = 0;
+                    s_stream_retry_skip_ticks = 0;
+                    s_adaptive = false;
+                    if (s_unavailable_cb) s_unavailable_cb();
+                    continue;
+                }
+                /* Stagger: every tick for the first 5 failures (~25s), every
+                 * 6th tick up to 15 (~30s apart), every 60th tick after that
+                 * (~5min apart) until giving up entirely. */
+                s_stream_retry_skip_ticks = (s_stream_fail_count <= 5) ? 0
+                                          : (s_stream_fail_count <= 15) ? 5
+                                          : 59;
+                ESP_LOGW(TAG, "failed to start capture stream (%d in a row), next retry in ~%ds",
+                         s_stream_fail_count, (s_stream_retry_skip_ticks + 1) * (SAMPLE_INTERVAL_MS / 1000));
                 continue;
             }
+            s_stream_fail_count = 0;
+            s_stream_retry_skip_ticks = 0;
         } else if (!want && s_streaming) {
             stop_streaming();
             continue;
@@ -363,6 +397,8 @@ bool app_light_init(i2c_master_bus_handle_t i2c_bus) {
 bool app_light_available(void) { return s_available; }
 
 void app_light_set_callback(app_light_brightness_cb_t cb) { s_cb = cb; }
+
+void app_light_set_unavailable_callback(app_light_unavailable_cb_t cb) { s_unavailable_cb = cb; }
 
 void app_light_set_adaptive(bool enabled) {
     if (!s_available) {
