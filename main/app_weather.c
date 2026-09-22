@@ -22,6 +22,7 @@
 #include "esp_system.h"
 #include "ota_update.h"
 #include "network_status_policy.h"
+#include "link_health_policy.h"
 #include "task_heartbeat.h"
 #include "display_lock_probe.h"
 
@@ -90,6 +91,13 @@ static int   s_utc_offset;
  * see components/app_logic/network_status_policy.h for why this can't just
  * be "if (is_manual) show a toast" at each call site. */
 static network_status_policy_t s_net_status;
+
+/* Escalation for the failure mode no Wi-Fi event reports: associated, with an
+ * address, and every request failing anyway (half-open association, wedged
+ * SDIO/RPC path). See components/app_logic/link_health_policy.h — the header
+ * error bar alone used to be the *entire* response to that, so the device
+ * could sit in "Online, nothing works" until someone rebooted it. */
+static link_health_policy_t s_link_health;
 
 /* Guards against a second "Check for update" tap (or the periodic
  * auto-check, or CMD_OTA_RESUME) spawning a second ota_worker_task/
@@ -468,7 +476,7 @@ static void push_forecast_to_ui(bool full) {
  * added for this — periodic auto-refresh, city selection and the post-Wi-Fi-
  * connect refresh all call this same function but stay silent, matching the
  * design's own refresh() handler being the only place refreshToast is set. */
-static void do_refresh_body(bool is_manual) {
+static bool do_refresh_body(bool is_manual) {
     const app_prefs_t *p = app_prefs_get();
 
     if (bsp_display_lock(1000)) { weather_ui_set_loading(true); bsp_display_unlock(); }
@@ -487,18 +495,18 @@ static void do_refresh_body(bool is_manual) {
              p->lat, p->lon, WEATHER_UI_DAYS);
 
     char *body = http_get(url);
-    if (!body) { ui_error(weather_strings[p->lang].error, is_manual); return; }
+    if (!body) { ui_error(weather_strings[p->lang].error, is_manual); return false; }
 
     cJSON *root = cJSON_Parse(body);
     free(body);
-    if (!root) { ui_error(weather_strings[p->lang].error, is_manual); return; }
+    if (!root) { ui_error(weather_strings[p->lang].error, is_manual); return false; }
 
     const cJSON *cur = cJSON_GetObjectItemCaseSensitive(root, "current");
     const cJSON *daily = cJSON_GetObjectItemCaseSensitive(root, "daily");
     if (!cJSON_IsObject(cur) || !cJSON_IsObject(daily)) {
         cJSON_Delete(root);
         ui_error(weather_strings[p->lang].error, is_manual);
-        return;
+        return false;
     }
 
     s_utc_offset = (int)jnum(root, "utc_offset_seconds", 0);
@@ -589,6 +597,7 @@ static void do_refresh_body(bool is_manual) {
     push_forecast_to_ui(true);
     network_status_policy_on_fetch(&s_net_status, true, is_manual);
     apply_toast_state();
+    return true;
 }
 
 /* Serializes do_refresh_body() against the OTA tasks (see s_network_mutex's
@@ -601,8 +610,26 @@ static void do_refresh(bool is_manual) {
         ui_error(weather_strings[app_prefs_get()->lang].error, is_manual);
         return;
     }
-    do_refresh_body(is_manual);
+    bool ok = do_refresh_body(is_manual);
     xSemaphoreGive(s_network_mutex);
+
+    /* Escalate a run of failures that Wi-Fi itself never reported. Both
+     * actions are cheap and run outside the mutex above: app_wifi's own
+     * worker task owns the blocking part. */
+    switch (link_health_policy_on_fetch(&s_link_health, ok, app_wifi_is_connected())) {
+    case LHP_ACT_VERIFY_LINK:
+        ESP_LOGW(TAG, "%d failed fetches while Wi-Fi reports Online; checking the link",
+                 s_link_health.consecutive_failures);
+        app_wifi_verify_link();
+        break;
+    case LHP_ACT_FORCE_RECONNECT:
+        ESP_LOGE(TAG, "link still dead after a check; forcing a reconnect (escalation %d)",
+                 s_link_health.escalations);
+        app_wifi_force_reconnect();
+        break;
+    case LHP_ACT_NONE:
+        break;
+    }
 }
 
 /* ---- geocoding ----------------------------------------------------------- */
@@ -1061,6 +1088,7 @@ void app_weather_start(void) {
     s_q = xQueueCreate(8, sizeof(cmd_t));
     s_network_mutex = xSemaphoreCreateMutex();
     network_status_policy_reset(&s_net_status);
+    link_health_policy_init(&s_link_health, LINK_HEALTH_VERIFY_AFTER, LINK_HEALTH_RECONNECT_AFTER);
     /* TLS needs a roomy stack; the JSON parse runs on this task too. */
     xTaskCreatePinnedToCore(weather_task, "weather", 8192, NULL, 4, NULL, 0);
 }
