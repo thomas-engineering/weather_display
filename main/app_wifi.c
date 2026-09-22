@@ -14,6 +14,10 @@
 #include "storage_record.h"
 #include "storage_backend_nvs.h"
 #include "wifi_reconnect_policy.h"
+#include "coprocessor_health_policy.h"
+#include "task_heartbeat.h"
+#include "esp_system.h"
+#include "esp_timer.h"
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
@@ -90,6 +94,95 @@ static void policy_event(wifi_reconnect_event_t ev) {
     if (a.connect && s_wake) xSemaphoreGive(s_wake);
 }
 
+/* ---- Co-processor liveness ------------------------------------------------
+ *
+ * The layer above wifi_reconnect_policy and link_health_policy: what to do
+ * when the calls those two rely on stop coming back at all. See
+ * components/app_logic/coprocessor_health_policy.h for why this is separate
+ * and why it is deliberately slow to act.
+ *
+ * The recovery action is a restart of the P4. That is not a workaround for
+ * lacking a softer option so much as the one reset of the C6 this board is
+ * known to perform reliably: every boot drives its reset line
+ * (`eh_sdio: Reset co-processor using GPIO[54]`). esp_hosted_deinit() +
+ * esp_hosted_init() would be gentler, but deinit talks to the co-processor,
+ * which is precisely what is not working at that point — and an unattended
+ * recovery path that can block forever is worse than none. */
+static coproc_health_policy_t s_coproc;
+static int s_coproc_persisted;   /* what is currently in NVS */
+#define COPROC_RECOVERY_KEY "cprec"
+
+static int load_coproc_recoveries(void) {
+    nvs_handle_t h;
+    uint8_t v = 0;
+    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return 0;
+    if (nvs_get_u8(h, COPROC_RECOVERY_KEY, &v) != ESP_OK) v = 0;
+    nvs_close(h);
+    return v;
+}
+
+static void save_coproc_recoveries(int n) {
+    nvs_handle_t h;
+    if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
+    if (nvs_set_u8(h, COPROC_RECOVERY_KEY, (uint8_t)(n < 0 ? 0 : (n > 255 ? 255 : n))) == ESP_OK)
+        nvs_commit(h);
+    nvs_close(h);
+}
+
+static void coproc_recover(void) {
+    /* An update in flight outranks this. The policy has already started its
+     * cooldown, so the next attempt is minutes away — which is the right
+     * trade against rebooting in the middle of writing a firmware image. */
+    if (task_heartbeat_is_active(HB_OTA) || task_heartbeat_is_active(HB_OTA_RESUME)) {
+        ESP_LOGW(TAG, "coprocessor unresponsive, but an update is running -- not restarting");
+        return;
+    }
+    ESP_LOGE(TAG, "coprocessor has not answered for minutes; restarting to reset it");
+    /* Let the line reach the UART before the reset takes the log with it. */
+    vTaskDelay(pdMS_TO_TICKS(200));
+    esp_restart();
+}
+
+static void coproc_event(coproc_health_event_t ev) {
+    policy_lock();
+    coproc_health_action_t a = coproc_health_policy_observe(&s_coproc, ev,
+                                                            esp_timer_get_time() / 1000);
+    int recoveries = coproc_health_policy_recoveries(&s_coproc);
+    policy_unlock();
+
+    /* Persist before acting: the action is a restart, and a count that is only
+     * in RAM would be back to zero on the other side of it. */
+    if (recoveries != s_coproc_persisted) {
+        s_coproc_persisted = recoveries;
+        save_coproc_recoveries(recoveries);
+    }
+
+    switch (a) {
+    case CHP_ACT_RECOVER:
+        coproc_recover();
+        break;
+    case CHP_ACT_GIVE_UP:
+        ESP_LOGE(TAG, "coprocessor still unresponsive after %d restarts; giving up "
+                      "-- the device stays up so the failure is visible", recoveries);
+        break;
+    case CHP_ACT_NONE:
+        break;
+    }
+}
+
+/* Maps a driver return code onto co-processor liveness. Deliberately narrow:
+ * during an ordinary outage these calls *succeed* and the association fails
+ * through events instead, so only a transport-shaped error is evidence. A
+ * Wi-Fi-level code (no SSID configured, not associated, ...) says nothing
+ * about the channel and must not count either way. */
+static void coproc_rpc_result(esp_err_t err) {
+    if (err == ESP_OK) {
+        coproc_event(CHP_EV_RPC_OK);
+    } else if (err == ESP_FAIL || err == ESP_ERR_TIMEOUT) {
+        coproc_event(CHP_EV_RPC_FAILED);
+    }
+}
+
 static void wifi_worker_task(void *arg) {
     (void)arg;
     for (;;) {
@@ -107,6 +200,7 @@ static void wifi_worker_task(void *arg) {
 
         if (want_connect) {
             esp_err_t err = esp_wifi_connect();
+            coproc_rpc_result(err);
             if (err != ESP_OK) {
                 /* No STA_DISCONNECTED event follows a refused connect, so
                  * without telling the policy the retry chain would simply end
@@ -117,6 +211,7 @@ static void wifi_worker_task(void *arg) {
             }
         } else if (!woken) {
             policy_event(WRP_EV_TIMER_TICK);
+            coproc_event(CHP_EV_TICK);
         }
     }
 }
@@ -162,6 +257,7 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
             ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
             ESP_LOGI(TAG, "got ip " IPSTR, IP2STR(&e->ip_info.ip));
             policy_event(WRP_EV_GOT_IP);
+            coproc_event(CHP_EV_LINK_UP);
             break;
         }
         case IP_EVENT_STA_LOST_IP:
@@ -232,6 +328,12 @@ void app_wifi_init(void) {
      * good credentials in NVS and the AP in range. */
     load_credentials();
     wifi_reconnect_policy_init(&s_policy, CONFIG_WEATHER_WIFI_MAX_RETRY, s_ssid[0] != '\0');
+    s_coproc_persisted = load_coproc_recoveries();
+    coproc_health_policy_init(&s_coproc, s_coproc_persisted);
+    if (s_coproc_persisted > 0) {
+        ESP_LOGW(TAG, "%d coprocessor recovery restart(s) on record; %d left before giving up",
+                 s_coproc_persisted, CHP_MAX_RECOVERIES - s_coproc_persisted);
+    }
 
     if (!ok_or_done(esp_netif_init())) { ESP_LOGE(TAG, "esp_netif_init failed"); return; }
     if (!ok_or_done(esp_event_loop_create_default())) { ESP_LOGE(TAG, "event loop failed"); return; }
@@ -309,6 +411,7 @@ bool app_wifi_get_ip_info(char *ip, size_t ip_len, char *dns, size_t dns_len, ch
 bool app_wifi_verify_link(void) {
     wifi_ap_record_t ap;
     esp_err_t err = esp_wifi_sta_get_ap_info(&ap);
+    coproc_rpc_result(err);
     if (err == ESP_OK) return true;
 
     /* ESP_ERR_WIFI_NOT_CONNECT here means the driver knows we are not
@@ -403,6 +506,7 @@ int app_wifi_scan(wx_wifi_network_t *out, int max) {
     policy_event(WRP_EV_SCAN_BEGIN);
     wifi_scan_config_t scfg = { .show_hidden = false };
     esp_err_t err = esp_wifi_scan_start(&scfg, true);
+    coproc_rpc_result(err);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "scan failed: %s", esp_err_to_name(err));
         policy_event(WRP_EV_SCAN_END);

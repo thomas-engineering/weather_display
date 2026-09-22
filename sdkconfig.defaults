@@ -30,6 +30,22 @@ CONFIG_SPIRAM_XIP_FROM_PSRAM=y
 CONFIG_CACHE_L2_CACHE_256KB=y
 CONFIG_CACHE_L2_CACHE_LINE_128B=y
 
+# Keep internal RAM free for DMA. On the P4, PSRAM carries no MALLOC_CAP_DMA,
+# so the only memory the ESP-Hosted SDIO link to the C6 can use is the ~384 KiB
+# of internal RAM — and it allocates one 1536-byte buffer per packet, in both
+# directions, from the ordinary heap. At the IDF default of 16384 every malloc
+# up to 16 KiB goes to internal RAM first (heap_caps_malloc_default()), so
+# lwip pbufs, mbedtls buffers and HTTP buffers all compete for exactly that
+# memory. They fall back to PSRAM when it runs out; a MALLOC_CAP_DMA request
+# cannot, it just fails and the packet is dropped — which is how a stalled OTA
+# download ended up wedging the RPC channel to the co-processor.
+# See review/ota-sdio-buffer-2026-09-22.md.
+# 1024 is deliberately below a typical ~1.5 KB pbuf. Safe here because the
+# Wi-Fi driver itself runs on the C6: the host needs internal DMA memory only
+# for the SDIO buffers, which lwip copies into anyway.
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=1024
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=65536
+
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=10240
 CONFIG_FREERTOS_HZ=1000
 
@@ -37,6 +53,11 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_TLS_USING_MBEDTLS=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+# mbedtls allocates from PSRAM, for the same reason as the SPIRAM settings
+# above: its session buffers (CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN is 16 KiB) are
+# the largest single consumer during an OTA download, and every byte of them
+# in internal RAM is a byte the SDIO link cannot have.
+CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC=y
 
 # LVGL
 CONFIG_LV_USE_CLIB_MALLOC=y

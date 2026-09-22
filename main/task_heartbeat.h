@@ -1,6 +1,8 @@
 #ifndef TASK_HEARTBEAT_H
 #define TASK_HEARTBEAT_H
 
+#include <stdbool.h>
+
 /* Liveness monitor for this project's own long-running tasks — a
  * complement to CONFIG_ESP_TASK_WDT_INIT, which here only ever watches the
  * two idle tasks (esp_task_wdt_add() is never called on any task this
@@ -31,6 +33,13 @@ void task_heartbeat_touch(task_heartbeat_id_t id);
  * instead of flagging a task that isn't supposed to be alive right now
  * (the OTA tasks only exist for the duration of one check/download). */
 void task_heartbeat_mark_idle(task_heartbeat_id_t id);
+
+/* Whether `id` is currently marked as running — the OTA ids are the useful
+ * ones, since they are the only tasks that come and go. Lets a caller hold
+ * off on something disruptive (main/app_wifi.c defers a recovery restart)
+ * while an update is in flight, without inventing a second piece of
+ * bookkeeping for the same fact. */
+bool task_heartbeat_is_active(task_heartbeat_id_t id);
 
 void task_heartbeat_check(void);
 
