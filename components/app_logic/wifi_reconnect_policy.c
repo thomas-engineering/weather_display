@@ -154,9 +154,20 @@ wifi_reconnect_action_t wifi_reconnect_policy_event(wifi_reconnect_policy_t *p, 
     case WRP_EV_TIMER_TICK:
         if (p->connected || !p->want_reconnect || !p->have_credentials) {
             disarm_timer(p, &a);
-        } else if (!p->scanning && !p->connect_in_flight) {
-            /* Skipping the tick while an attempt is already in flight keeps
-             * the timer from stacking a second connect on top of the burst. */
+        } else if (!p->scanning) {
+            /* esp_wifi_connect() is a synchronous RPC call made from the same
+             * worker task that later produces this tick, so by the time a
+             * tick is being handled at all, that call has already returned —
+             * connect_in_flight still being true here can only mean the
+             * driver accepted the attempt but never followed up with
+             * DISCONNECTED, CONNECT_REJECTED or GOT_IP within a whole timer
+             * period, many times longer than the RPC's own ~5s timeout. That
+             * is the same "accepted the call and then went silent" failure
+             * WRP_EV_CONNECT_REJECTED exists for, just one stage later and
+             * with no event to report it — so treat it the same way: give up
+             * on the stale attempt and issue a fresh one, rather than sitting
+             * on a tick forever because nothing will ever clear the flag. */
+            p->connect_in_flight = false;
             issue_connect(p, &a);
         }
         break;

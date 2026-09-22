@@ -181,15 +181,24 @@ static void test_burst_exhausts_into_the_timer_then_recovers(void) {
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, p.retries, "burst budget was not restored after recovery");
 }
 
-static void test_timer_tick_does_not_stack_onto_an_in_flight_connect(void) {
+static void test_timer_tick_recovers_a_connect_the_driver_never_answered(void) {
+    /* Regression for the HIL outage test on 2026-09-22: esp_wifi_connect()
+     * can be accepted by the driver and then never produce a matching
+     * DISCONNECTED, CONNECT_REJECTED or GOT_IP — the co-processor's RPC
+     * swallowed the outcome the same way it can swallow an outright refusal.
+     * connect_in_flight stayed true forever, and because a tick used to
+     * refuse to reissue while it was set, the device sat there waking up
+     * every WIFI_RECONNECT_INTERVAL_MS and doing nothing — observed on
+     * hardware as a ~100s silent gap that only ended when an unrelated
+     * IP_EVENT_STA_LOST_IP happened to reset connect_in_flight itself. */
     wifi_reconnect_policy_t p;
     bring_up(&p);
 
-    step(&p, WRP_EV_DISCONNECTED); /* connect now in flight */
+    step(&p, WRP_EV_DISCONNECTED); /* connect issued, driver accepts, then silence */
     p.timer_armed = true;          /* as it would be after an earlier outage */
 
     wifi_reconnect_action_t a = step(&p, WRP_EV_TIMER_TICK);
-    TEST_ASSERT_FALSE_MESSAGE(a.connect, "timer fired a second connect over a live one");
+    TEST_ASSERT_TRUE_MESSAGE(a.connect, "stale in-flight connect left the periodic retry with nothing to do");
 }
 
 static void test_forgotten_network_stops_trying(void) {
@@ -293,7 +302,7 @@ void test_wifi_reconnect_policy_run(void) {
     RUN_TEST(test_scan_that_ends_while_offline_reconnects);
     RUN_TEST(test_manual_connect_does_not_burn_a_retry_on_its_own_disconnect);
     RUN_TEST(test_burst_exhausts_into_the_timer_then_recovers);
-    RUN_TEST(test_timer_tick_does_not_stack_onto_an_in_flight_connect);
+    RUN_TEST(test_timer_tick_recovers_a_connect_the_driver_never_answered);
     RUN_TEST(test_forgotten_network_stops_trying);
     RUN_TEST(test_manual_connect_while_connected_drops_the_online_state);
     RUN_TEST(test_self_inflicted_disconnect_after_a_refused_connect_still_recovers);

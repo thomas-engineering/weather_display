@@ -134,6 +134,25 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
             policy_event(WRP_EV_DISCONNECTED);
             break;
         }
+        case WIFI_EVENT_STA_CONNECTED:
+            /* The netif's DHCP client can still believe it holds the lease
+             * from before a drop and just wait out its own renew/rebind
+             * timers instead of asking again — that turned a Wi-Fi-level
+             * reconnect within seconds into a stall of a minute or more
+             * before IP_EVENT_STA_GOT_IP ever followed. Force a fresh
+             * negotiation on every association instead of trusting the old
+             * lease is still good. */
+            if (s_sta_netif) {
+                esp_err_t derr = esp_netif_dhcpc_stop(s_sta_netif);
+                if (derr != ESP_OK && derr != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+                    ESP_LOGW(TAG, "dhcpc stop failed: %s", esp_err_to_name(derr));
+                }
+                derr = esp_netif_dhcpc_start(s_sta_netif);
+                if (derr != ESP_OK && derr != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED) {
+                    ESP_LOGW(TAG, "dhcpc start failed: %s", esp_err_to_name(derr));
+                }
+            }
+            break;
         default:
             break;
         }
