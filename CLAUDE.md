@@ -12,6 +12,7 @@ ESP32-P4 auf diesem board ist noch Hardware-Vesion 1.3>
 | `main/**`, Treiber, Startup, sdkconfig | `./scripts/emu-test.sh` | ~60 s |
 | UI-Darstellung (`main/weather_ui.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, `main/fonts/**`) | `./scripts/sim.sh --screen <name> --screenshot <datei.bmp>` und den Screenshot ansehen; `--shots <verzeichnis>` nimmt alle sechs Zustände auf | ~5 s pro Screen, ~20 s für alle |
 | Peripherie-Anbindung (Display, Kamera, SDMMC, ESP-Hosted) | `./scripts/hw-flash.sh [/dev/ttyACM0]` — baut, flasht und liest den Boot-Log mit Timeout; Log liegt in `.logs/hw.log` | ~30 s |
+| WLAN-Wiederherstellung (`app_wifi.c`, `wifi_reconnect_policy`, `link_health_policy`) | `./scripts/hil-outage-test.sh [/dev/ttyACM0]` — beobachtet den Log und prueft, ob jede Trennung wieder in einem `got ip` endet; den Ausfall loest ein Mensch aus (Gast-WLAN aus, Board abschirmen) | Dauer nach `--seconds` |
 
 Nach jeder inhaltlichen Änderung mindestens `./scripts/host-test.sh` laufen
 lassen, bevor du die Aufgabe als erledigt meldest. Beide Skripte beenden sich
