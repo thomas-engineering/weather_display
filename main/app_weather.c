@@ -108,7 +108,26 @@ static link_health_policy_t s_link_health;
  * by that task right before it deletes itself. */
 static bool s_ota_active;
 static TickType_t s_last_ota_check;
+static bool s_ota_checked_once;
 #define OTA_AUTO_CHECK_INTERVAL_MS (12 * 60 * 60 * 1000) /* matches the dialog's own hint text */
+
+/* First check shortly after boot, then on the long interval. The comparison
+ * below is against an uptime that starts at zero, so without this the first
+ * check would be a full interval away and a device switched off overnight
+ * would never check at all. */
+#define OTA_FIRST_CHECK_DELAY_MS (2 * 60 * 1000)
+
+/* pdMS_TO_TICKS() casts to TickType_t *before* multiplying by the tick rate,
+ * so at 1000 Hz anything past ~71 minutes silently wraps. The 12 hours above
+ * came out as 4.17 minutes, and the device really did check that often --
+ * measured on hardware at 250s intervals, which is also why the OTA that
+ * exposed the SDIO buffer starvation appears in the logs as a "silent
+ * auto-check" nobody had asked for (review/ota-sdio-buffer-2026-09-22.md).
+ * Doing the multiplication in 64 bits is the whole fix. */
+#define APP_MS_TO_TICKS(ms) ((TickType_t)(((uint64_t)(ms) * configTICK_RATE_HZ) / 1000ULL))
+
+_Static_assert(APP_MS_TO_TICKS(OTA_AUTO_CHECK_INTERVAL_MS) >= 3600ULL * configTICK_RATE_HZ,
+               "auto-check interval collapsed to under an hour -- tick conversion overflowed");
 static int   s_cur_code, s_cur_hum, s_cur_precip;
 static float s_cur_temp, s_cur_feel, s_cur_wind;
 static struct { char iso[12]; int code, precip; float tmax, tmin, fmax, fmin, wmax; } s_days[WEATHER_UI_DAYS];
@@ -1054,7 +1073,10 @@ static void weather_task(void *arg) {
          * N min ago" text live either way). */
         TickType_t now = xTaskGetTickCount();
         int auto_refresh_min = app_prefs_get()->auto_refresh_minutes;
-        if (auto_refresh_min > 0 && (now - last_auto) >= pdMS_TO_TICKS(auto_refresh_min * 60 * 1000)) {
+        /* APP_MS_TO_TICKS, not pdMS_TO_TICKS: 60 minutes is only 19% below the
+         * value where the stock macro wraps, so adding a longer option to the
+         * Settings dialog would silently shorten the interval instead. */
+        if (auto_refresh_min > 0 && (now - last_auto) >= APP_MS_TO_TICKS(auto_refresh_min * 60 * 1000)) {
             do_refresh(false);
             last_auto = now;
         } else if (s_have_forecast) {
@@ -1068,10 +1090,14 @@ static void weather_task(void *arg) {
          * than calling ota_update_run() inline keeps CMD_OTA_START the only
          * place that actually runs it, so a manual tap and the timer can't
          * race each other (s_ota_active guards both). */
+        TickType_t ota_check_due = s_ota_checked_once
+                ? APP_MS_TO_TICKS(OTA_AUTO_CHECK_INTERVAL_MS)
+                : APP_MS_TO_TICKS(OTA_FIRST_CHECK_DELAY_MS);
         if (!s_ota_active && app_prefs_get()->ota_auto_update &&
-            (now - s_last_ota_check) >= pdMS_TO_TICKS(OTA_AUTO_CHECK_INTERVAL_MS)) {
+            (now - s_last_ota_check) >= ota_check_due) {
             cmd_t c = { .kind = CMD_OTA_START, .ota_silent = true };
             if (s_q) xQueueSend(s_q, &c, 0);
+            s_ota_checked_once = true;
             s_last_ota_check = now; /* also set on entry to CMD_OTA_START; set here too so a
                                       * slow-to-process queue doesn't fire this every loop tick */
         }

@@ -397,9 +397,25 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
         goto done;
     }
 
+    /* The body length the server promised, so a short read can be recognised
+     * as one. Without this the loop below cannot tell "the image ends here"
+     * from "the connection gave up", and both look like a clean EOF. */
+    int64_t c6_content_length = esp_http_client_get_content_length(c);
+
     app_heap_probe_log_now("ota c6 begin");
 
-    if (esp_hosted_slave_ota_begin() != ESP_OK) { ESP_LOGE(TAG, "esp_hosted_slave_ota_begin failed"); goto done; }
+    /* Every one of these returns the co-processor's *own* esp_err_t: the
+     * slave-side handler puts the result of its esp_ota_* call into the RPC
+     * response payload and the host layer returns it unchanged. Discarding it
+     * cost a whole debugging round -- the first real run of this path failed
+     * at end() and the only thing in the log was "failed", while the reason
+     * sat in the value being thrown away. The slave logs it too, but on its
+     * own UART, which nothing here can read. */
+    esp_err_t c6err = esp_hosted_slave_ota_begin();
+    if (c6err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_hosted_slave_ota_begin failed: %s (0x%x)", esp_err_to_name(c6err), c6err);
+        goto done;
+    }
 
     psa_crypto_init();
     psa_hash_operation_t sha = PSA_HASH_OPERATION_INIT;
@@ -407,6 +423,7 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
 
     uint8_t chunk[C6_OTA_CHUNK_SIZE];
     bool write_failed = false;
+    int written = 0;   /* bytes accepted by the co-processor, for the error above */
     bool cancelled = false;
     bool stalled_or_over_budget = false;
     int64_t start_us = esp_timer_get_time();
@@ -423,8 +440,15 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
         if (r < 0) { write_failed = true; break; }
         if (r == 0) break;
         last_progress_us = now_us;
-        if (esp_hosted_slave_ota_write(chunk, (uint32_t)r) != ESP_OK ||
-            psa_hash_update(&sha, chunk, (size_t)r) != PSA_SUCCESS) { write_failed = true; break; }
+        esp_err_t werr = esp_hosted_slave_ota_write(chunk, (uint32_t)r);
+        if (werr != ESP_OK) {
+            ESP_LOGE(TAG, "esp_hosted_slave_ota_write(%d) failed at %d bytes: %s (0x%x)",
+                     r, written, esp_err_to_name(werr), werr);
+            write_failed = true;
+            break;
+        }
+        written += r;
+        if (psa_hash_update(&sha, chunk, (size_t)r) != PSA_SUCCESS) { write_failed = true; break; }
     }
 
     uint8_t digest[32];
@@ -437,16 +461,48 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
     if (stalled_or_over_budget) { ESP_LOGE(TAG, "C6 image download stalled or exceeded total budget, aborting"); goto done; }
     if (write_failed) { ESP_LOGE(TAG, "C6 image download/write failed"); goto done; }
     if (!hash_ok) { ESP_LOGE(TAG, "could not compute C6 image hash"); goto done; }
-    if (esp_hosted_slave_ota_end() != ESP_OK) { ESP_LOGE(TAG, "esp_hosted_slave_ota_end failed"); goto done; }
+
+    ESP_LOGI(TAG, "C6 image streamed: %d of %lld bytes", written, (long long)c6_content_length);
+
+    /* Both checks below used to sit *after* esp_hosted_slave_ota_end(), which
+     * made them useless: the co-processor had already been told to finalise
+     * whatever it had received, and a truncated or corrupted image reached
+     * esp_ota_end() presented as complete. Verify first, finalise second.
+     *
+     * This ordering also cost a diagnosis. The first real run of this path
+     * failed at end(), and "hash_ok" was read as "the image matched the
+     * manifest" — it never meant that, only that psa_hash_finish() had
+     * succeeded. The comparison that would have said whether the image was
+     * intact came afterwards and never ran. */
+    if (c6_content_length > 0 && written != (int)c6_content_length) {
+        ESP_LOGE(TAG, "C6 image truncated: got %d of %lld bytes -- not finalising",
+                 written, (long long)c6_content_length);
+        goto done;
+    }
 
     char actual_sha256[65];
     bytes_to_hex(digest, digest_len, actual_sha256);
     if (!hex_equal_ci(actual_sha256, expected_sha256)) {
-        ESP_LOGE(TAG, "C6 image SHA-256 mismatch: got %s, manifest says %s", actual_sha256, expected_sha256);
+        ESP_LOGE(TAG, "C6 image SHA-256 mismatch: got %s, manifest says %s -- not finalising",
+                 actual_sha256, expected_sha256);
         goto done;
     }
 
-    if (esp_hosted_slave_ota_activate() != ESP_OK) { ESP_LOGE(TAG, "esp_hosted_slave_ota_activate failed"); goto done; }
+    c6err = esp_hosted_slave_ota_end();
+    if (c6err != ESP_OK) {
+        /* Reached only with a verified image, so this is the co-processor
+         * refusing something it received intact -- its own partition, its own
+         * validation, or the session. ESP_ERR_OTA_VALIDATE_FAILED is 0x1503. */
+        ESP_LOGE(TAG, "esp_hosted_slave_ota_end failed on a verified image: %s (0x%x)",
+                 esp_err_to_name(c6err), c6err);
+        goto done;
+    }
+
+    c6err = esp_hosted_slave_ota_activate();
+    if (c6err != ESP_OK) {
+        ESP_LOGE(TAG, "esp_hosted_slave_ota_activate failed: %s (0x%x)", esp_err_to_name(c6err), c6err);
+        goto done;
+    }
     ok = true;
 
 done:
