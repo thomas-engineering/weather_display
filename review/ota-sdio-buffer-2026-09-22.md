@@ -296,3 +296,82 @@ ausloest: 90 s Betrieb inklusive Boot, Verbindungsaufbau und
 herbeifuehren; die einzige bekannte Methode, es zu versuchen, ist ein
 grosser OTA-Download — und der braucht wieder ein Release neuer als die
 installierte Version.
+
+## Der Beweis — A/B auf Hardware, 2026-09-22
+
+Release v0.0.5 aus dem Branch `ota-sdio-buffer` gebaut (der Patch-Schritt im
+Workflow greift, das `grep` auf die Binary bestaetigt ihn im Image). Danach
+zwei Durchlaeufe von je 20 Minuten, identische Bedingungen: dieselbe
+Firmware-Version 0.0.4 auf dem Board, derselbe Auto-Check, der sich von
+selbst meldet. Logs: `.logs/ota-baseline-prefix-20260922.log` und
+`.logs/ota-fixed-20260922.log`.
+
+| | Baseline (vor Stufe 1-3) | mit Stufe 1-3 |
+|---|---|---|
+| Verbindung zu api.github.com | Timeout, 4x in Folge | steht |
+| `dma_free` waehrend des Handshakes | 4 319 | 43 083 |
+| groesster freier Block | 1 408 | 31 744 |
+| Tiefstwert ueber den Lauf | 76 | 23 712 |
+| `mempool OOM`-Zeilen | Dauerzyklus | 0 |
+| Download | kam nie zustande | 30,5 s fuer 2,1 MB (~69 KB/s) |
+| Ergebnis | nichts | 0.0.4 -> 0.0.5 geflasht, Reboot, laeuft |
+
+Der Baseline-Lauf korrigiert die urspruengliche Analyse in einem Punkt: es
+ist nicht erst der grosse Download, der den Speicher erschoepft. Schon der
+**TLS-Handshake allein** drueckt das DMA-faehige interne RAM auf 4,3 KiB und
+den groessten Block auf 1 408 Byte — also unter die 1 536, die ein
+SDIO-Puffer braucht. Deshalb beginnt exakt mit dem Handshake das
+`mempool OOM (RX)`: der Link kann keine Pakete mehr annehmen, und der
+Handshake scheitert daran, dass keine Pakete mehr ankommen. Das Geraet
+konnte auf diesem Stand nicht einmal *pruefen*, ob ein Update existiert.
+Dass der gescheiterte Versuch vom Mittag ueberhaupt bis zum Download kam,
+war die guenstigere Haelfte eines Muenzwurfs.
+
+Im Fix-Lauf blieb `dma_min` waehrend des gesamten Downloads bei 23 712 — der
+Tiefstwert stammt noch vom Handshake davor, der Download hat ihn nicht
+einmal beruehrt. Der Reserve-Pool wurde nie angefasst (keine
+`spilling to the heap`-Warnung), 8 Bloecke reichen also mit Abstand. Damit
+ist auch Stufe 3 im Fehlerfall nicht belegt: es gab keinen Fehlerfall mehr.
+
+## Der C6-Pfad ist zum ersten Mal gelaufen — und scheitert am Abschluss
+
+Der Boot nach dem erfolgreichen P4-Update hat den nie getesteten
+Coprozessor-Pfad ausgefuehrt (der Schalter war an):
+
+    I (12769) ota_update: first boot after a P4 update; ... checking coprocessor
+    I (18172) heap: ota c6 begin: dma_free=38647 dma_largest=26624
+    E (25838) ota_update: esp_hosted_slave_ota_end failed
+    E (25839) ota_update: C6 update failed; keeping the coprocessor's current firmware
+
+Entscheidend ist die Reihenfolge in `run_c6_update()`: `write_failed`, das
+Stall-/Gesamtbudget **und die SHA-256-Pruefung** liegen alle vor
+`esp_hosted_slave_ota_end()`. Das Image wurde also vollstaendig uebertragen
+und stimmte gegen den Manifest-Hash (~1,19 MB in rund 7,7 s); gescheitert
+ist erst der Abschluss-Schritt auf der Slave-Seite.
+
+Und es ist **gutartig** gescheitert: der Coprozessor behielt 2.6.7, das
+Board blieb online, Wetterabruf und der naechste Update-Check danach liefen
+normal. Genau das Risiko, das vorher als "koennte das Board ohne WLAN
+zuruecklassen" markiert war, ist eingetreten und hat sich harmlos verhalten.
+
+Offen: warum `esp_hosted_slave_ota_end()` fehlschlaegt. Kandidaten, die noch
+niemand geprueft hat — eine Groessen-/Partitionsgrenze auf dem C6, ein
+RPC-Timeout im Abschluss (der laenger dauern kann als die uebrigen Aufrufe),
+oder eine Inkompatibilitaet zwischen dem 2.6.7-Slave und einem
+3.0.7-Image. Der Rueckgabewert wird bisher nicht ausgewertet, nur auf
+"!= ESP_OK" geprueft; ihn zu loggen waere der erste Schritt.
+
+## Nebenbefund: der 12-Stunden-Check laeuft alle 4,2 Minuten
+
+`main/app_weather.c:1072` vergleicht gegen
+`pdMS_TO_TICKS(OTA_AUTO_CHECK_INTERVAL_MS)`. Das Makro castet **vor** der
+Multiplikation auf `TickType_t` (uint32):
+
+    43.200.000 ms x 1000 Hz = 43.200.000.000 -> als uint32: 250.327.040
+    -> / 1000 = 250.327 Ticks = 4,17 Minuten
+
+Der Hinweistext im Dialog verspricht 12 Stunden. Beide Messlaeufe zeigen den
+Check sauber alle ~250 s (250, 519, 769, 1020). Das erklaert auch, warum der
+gescheiterte Versuch vom Mittag als `silent OTA auto-check` bei 21 Minuten
+Uptime im Log steht. Noch nicht behoben — waehrend der Messungen war es die
+einzige Moeglichkeit, einen Download ohne Fingertipp am Geraet auszuloesen.
