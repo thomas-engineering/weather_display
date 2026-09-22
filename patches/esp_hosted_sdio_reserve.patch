@@ -1,0 +1,358 @@
+--- a/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/src/eh_host_bus_sdio.c
++++ b/managed_components/espressif__esp_hosted/host/mcu/eh_host_mcu_transport/src/eh_host_bus_sdio.c
+@@ -26,6 +26,23 @@
+ #include "eh_common_log.h"
+ #include "eh_check.h"
+ 
++/* LOCAL PATCH (weather_display, 2026-09-22) — diagnostics only, no behaviour
++ * change. The OOM lines below used to carry no numbers, which made it
++ * impossible to tell an exhausted DMA heap from a merely fragmented one, or
++ * to see how many packets an episode cost. See
++ * review/ota-sdio-buffer-2026-09-22.md and patches/esp_hosted_sdio_oom_diag.patch;
++ * managed_components/ is not in git, so this has to be reapplied after a
++ * dependency refresh. */
++#ifdef ESP_PLATFORM
++#include "esp_heap_caps.h"
++#define SDIO_OOM_CAPS      (MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL)
++#define SDIO_OOM_FREE()    ((unsigned)heap_caps_get_free_size(SDIO_OOM_CAPS))
++#define SDIO_OOM_LARGEST() ((unsigned)heap_caps_get_largest_free_block(SDIO_OOM_CAPS))
++#else
++#define SDIO_OOM_FREE()    0u
++#define SDIO_OOM_LARGEST() 0u
++#endif
++
+ #if EH_HOST_TRANSPORT_BUS_SDIO
+ 
+ #include <string.h>
+@@ -240,6 +257,25 @@
+ 
+ static bool mempool_oom_logged = false;
+ 
++/* LOCAL PATCH: packets thrown away because no DMA buffer was available.
++ * A dropped TX packet can be a TCP segment (the peer retransmits, slowly) or
++ * an RPC request to the C6 (nothing retransmits that — it just never gets an
++ * answer), so the two directions are counted apart. */
++static uint32_t sdio_oom_tx_drops;
++static uint32_t sdio_oom_rx_drops;
++
++#define SDIO_OOM_LOG_START(dir) \
++	ESP_LOGW(TAG, "mempool OOM start (" dir ") dma_free=%u dma_largest=%u need=%u", \
++	         SDIO_OOM_FREE(), SDIO_OOM_LARGEST(), (unsigned)MAX_SDIO_BUFFER_SIZE)
++
++#define SDIO_OOM_LOG_END() \
++	ESP_LOGW(TAG, "mempool OOM end dma_free=%u dma_largest=%u " \
++	              "(dropped tx=%lu rx=%lu, reserve %lu/%u free, min %lu, overflows %lu)", \
++	         SDIO_OOM_FREE(), SDIO_OOM_LARGEST(), \
++	         (unsigned long)sdio_oom_tx_drops, (unsigned long)sdio_oom_rx_drops, \
++	         (unsigned long)sdio_reserve_avail, (unsigned)SDIO_RESERVE_BLOCKS, \
++	         (unsigned long)sdio_reserve_min_avail, (unsigned long)sdio_reserve_overflows)
++
+ static bool sdio_start_write_thread = false;
+ 
+ /* Double-buffer: read_task writes one buf while xfer_task drains the other. */
+@@ -301,6 +337,8 @@
+ static void sdio_process_rx_task(void *pvParameters);
+ static void sdio_rx_free_buffer(uint8_t *buf);
+ 
++static void sdio_reserve_init(void);   /* LOCAL PATCH, defined below */
++
+ static inline void sdio_mempool_create(int tx_q_size, int rx_q_size)
+ {
+ #if EH_HOST_USE_MEMPOOL
+@@ -317,7 +355,11 @@
+ 	};
+ 	buf_mp_g = hosted_mempool_create(&config);
+ 	assert(buf_mp_g);
++#else
++	(void)tx_q_size;
++	(void)rx_q_size;
+ #endif
++	sdio_reserve_init();   /* LOCAL PATCH */
+ }
+ 
+ static inline void sdio_mempool_destroy(void)
+@@ -329,12 +371,138 @@
+ #endif
+ }
+ 
++/* ---- LOCAL PATCH (weather_display, 2026-09-22): reserve pool -------------
++ *
++ * A slab of SDIO_RESERVE_BLOCKS buffers, claimed once at init — before the
++ * application has had any chance to fill internal RAM — and used as the
++ * transport's primary allocator, with the heap kept as the overflow path for
++ * bursts deeper than the slab. Two things follow from that order. The link,
++ * and with it the RPC channel to the co-processor, keeps moving even when the
++ * heap is dry, instead of going silent until someone pulls the plug. And
++ * ordinary packet traffic stops churning the general heap at all, which is
++ * what was fragmenting it underneath the TLS session it shares memory with.
++ *
++ * Serving the slab *last* was tried first and measured worse: packets kept
++ * cycling through the general heap, and its low-water mark during the TLS
++ * handshake fell to 11.5 KiB, because the slab had been carved out of the
++ * very pool the handshake needed.
++ *
++ * Deliberately small: at 1536 bytes a block this is internal DMA-capable RAM
++ * that nothing else can use again, and the whole DMA heap on this board has
++ * only ~62 KiB free at idle and dipped to 34 KiB during the TLS handshake
++ * before the slab existed (review/ota-sdio-buffer-2026-09-22.md). 16 blocks
++ * left just 8-11 KiB for everything else at that moment, which is thinner
++ * than the 2560-byte RX staging buffer has already failed at once; 8 blocks
++ * keeps ~22 KiB and still covers the case this is for — an RPC request and
++ * its answer plus a few frames, not sustained throughput. Deep bursts spill
++ * to the heap as before. Resize with the `reserve ... min` figure from a run
++ * under real load, not by guessing.
++ *
++ * The slab is never freed: a buffer handed to an upper layer can come back
++ * long after a transport restart (esp_hosted_deinit() during the C6 OTA does
++ * exactly that), and a reserve that survives the restart is both safer and
++ * more useful than one that has to be rebuilt from a heap that may be full. */
++#define SDIO_RESERVE_BLOCKS  8
++
++static uint8_t *sdio_reserve_slab;
++static uint8_t *sdio_reserve_slab_end;
++static void    *sdio_reserve_head;      /* freelist, next pointer inside the block */
++static eh_host_port_mutex_t *sdio_reserve_lock;
++static uint32_t sdio_reserve_avail;
++static uint32_t sdio_reserve_min_avail; /* low-water mark, diagnostics */
++static uint32_t sdio_reserve_overflows; /* allocations the slab could not serve */
++static bool     sdio_reserve_spilled;   /* log the first overflow, not all of them */
++
++static void sdio_reserve_init(void)
++{
++	if (sdio_reserve_slab)
++		return;                          /* one-time, survives bus deinit */
++
++	sdio_reserve_lock = eh_host_port_mutex_create();
++	if (!sdio_reserve_lock)
++		return;
++
++	sdio_reserve_slab = (uint8_t *)eh_host_port_dma_alloc_aligned(
++			(size_t)SDIO_RESERVE_BLOCKS * MAX_SDIO_BUFFER_SIZE,
++			HOSTED_MEM_ALIGNMENT_64);
++	if (!sdio_reserve_slab) {
++		ESP_LOGW(TAG, "SDIO reserve pool unavailable (%u x %u B); heap only",
++		         (unsigned)SDIO_RESERVE_BLOCKS, (unsigned)MAX_SDIO_BUFFER_SIZE);
++		eh_host_port_mutex_destroy(sdio_reserve_lock);
++		sdio_reserve_lock = NULL;
++		return;
++	}
++	sdio_reserve_slab_end = sdio_reserve_slab +
++			(size_t)SDIO_RESERVE_BLOCKS * MAX_SDIO_BUFFER_SIZE;
++
++	sdio_reserve_head = NULL;
++	for (int i = SDIO_RESERVE_BLOCKS - 1; i >= 0; i--) {
++		uint8_t *b = sdio_reserve_slab + (size_t)i * MAX_SDIO_BUFFER_SIZE;
++		*(void **)b = sdio_reserve_head;
++		sdio_reserve_head = b;
++	}
++	sdio_reserve_avail = SDIO_RESERVE_BLOCKS;
++	sdio_reserve_min_avail = SDIO_RESERVE_BLOCKS;
++
++	ESP_LOGI(TAG, "SDIO reserve pool: %u x %u B (dma_free now %u)",
++	         (unsigned)SDIO_RESERVE_BLOCKS, (unsigned)MAX_SDIO_BUFFER_SIZE,
++	         SDIO_OOM_FREE());
++}
++
++static void *sdio_reserve_take(void)
++{
++	void *b;
++
++	if (!sdio_reserve_slab)
++		return NULL;
++
++	eh_host_port_mutex_lock(sdio_reserve_lock);
++	b = sdio_reserve_head;
++	if (b) {
++		sdio_reserve_head = *(void **)b;
++		sdio_reserve_avail--;
++		if (sdio_reserve_avail < sdio_reserve_min_avail)
++			sdio_reserve_min_avail = sdio_reserve_avail;
++	}
++	eh_host_port_mutex_unlock(sdio_reserve_lock);
++	return b;
++}
++
++/* True when `p` belonged to the reserve and has been returned to it. */
++static bool sdio_reserve_give(void *p)
++{
++	if (!sdio_reserve_slab ||
++	    (uint8_t *)p < sdio_reserve_slab || (uint8_t *)p >= sdio_reserve_slab_end)
++		return false;
++
++	eh_host_port_mutex_lock(sdio_reserve_lock);
++	*(void **)p = sdio_reserve_head;
++	sdio_reserve_head = p;
++	sdio_reserve_avail++;
++	eh_host_port_mutex_unlock(sdio_reserve_lock);
++	return true;
++}
++
+ static inline void *sdio_buffer_alloc(unsigned int need_memset)
+ {
+ #if EH_HOST_USE_MEMPOOL
+ 	MEMPOOL_ALLOC(buf_mp_g, MAX_SDIO_BUFFER_SIZE, need_memset);
+ #else
+-	void *p = eh_host_port_dma_alloc(MAX_SDIO_BUFFER_SIZE);
++	/* LOCAL PATCH: slab first, heap as the overflow for deep bursts. */
++	void *p = sdio_reserve_take();
++	if (!p) {
++		p = eh_host_port_dma_alloc(MAX_SDIO_BUFFER_SIZE);
++		if (p) {
++			sdio_reserve_overflows++;
++			if (!sdio_reserve_spilled) {
++				sdio_reserve_spilled = true;
++				ESP_LOGW(TAG, "SDIO reserve pool exhausted, spilling to the heap "
++				              "(dma_free=%u dma_largest=%u) -- raise "
++				              "SDIO_RESERVE_BLOCKS if this repeats",
++				         SDIO_OOM_FREE(), SDIO_OOM_LARGEST());
++			}
++		}
++	}
+ 	if (p && need_memset) memset(p, 0, MAX_SDIO_BUFFER_SIZE);
+ 	return p;
+ #endif
+@@ -345,10 +513,44 @@
+ #if EH_HOST_USE_MEMPOOL
+ 	MEMPOOL_FREE(buf_mp_g, buf);
+ #else
+-	if (buf) eh_host_port_dma_free(buf);
++	if (!buf) return;
++	if (sdio_reserve_give(buf)) return;   /* LOCAL PATCH */
++	eh_host_port_dma_free(buf);
+ #endif
+ }
+ 
++/* ---- LOCAL PATCH: bounded wait instead of dropping on the first miss -----
++ *
++ * A dropped TX packet is a TCP segment the peer has to time out and
++ * retransmit — or, on the control queue, an RPC request to the co-processor
++ * that nothing ever retransmits: the host waits 5 s for an answer that can no
++ * longer come, and repeats that forever. That is the failure that needed a
++ * power cycle, so the control queue gets a far longer budget than the data
++ * queues. Sleeping here is the point, not a side effect: these tasks run at
++ * priority 22, so yielding is what lets the tasks holding the memory run and
++ * give it back. No bus lock is held at either call site. */
++#define SDIO_TX_ALLOC_RETRY_MS     10
++#define SDIO_TX_ALLOC_RETRIES_DATA 3    /* ~30 ms */
++#define SDIO_TX_ALLOC_RETRIES_CTRL 20   /* ~200 ms */
++/* RX is kept short on purpose: the staging ring behind it is only two slots
++ * deep, so waiting here stalls reads from the slave rather than the sender. */
++#define SDIO_RX_ALLOC_RETRY_MS     5
++#define SDIO_RX_ALLOC_RETRIES      2
++
++static void *sdio_buffer_alloc_waiting(unsigned int need_memset, int retries,
++                                       uint32_t retry_ms)
++{
++	void *p = sdio_buffer_alloc(need_memset);
++
++	while (!p && retries-- > 0) {
++		eh_host_port_task_delay_ms(retry_ms);
++		if (!s_running)
++			return NULL;
++		p = sdio_buffer_alloc(need_memset);
++	}
++	return p;
++}
++
+ static void bus_deinit_internal(void *bus_handle)
+ {
+ 	uint8_t prio_q_idx = 0;
+@@ -932,6 +1134,7 @@
+ 	uint32_t buf_needed;
+ 	uint8_t tx_needed = 1;
+ 	uint8_t flag = 0;
++	int tx_prio = -1;   /* LOCAL PATCH */
+ 
+ 	tx_needed = 1;
+ 	buf_handle = (interface_buffer_handle_t){0};
+@@ -945,11 +1148,17 @@
+ 		return;
+ 	}
+ 
+-		if (eh_host_port_queue_receive(to_slave_queue[PRIO_Q_SERIAL], &buf_handle, 0))
+-			if (eh_host_port_queue_receive(to_slave_queue[PRIO_Q_BT], &buf_handle, 0))
+-				if (eh_host_port_queue_receive(to_slave_queue[PRIO_Q_OTHERS], &buf_handle, 0)) {
+-					tx_needed = 0;
+-				}
++		/* LOCAL PATCH: same strict priority order as before, but the queue
++		 * is remembered — a control packet is worth waiting much longer for
++		 * than a data packet (see sdio_buffer_alloc_waiting). */
++		if (eh_host_port_queue_receive(to_slave_queue[PRIO_Q_SERIAL], &buf_handle, 0) == 0)
++			tx_prio = PRIO_Q_SERIAL;
++		else if (eh_host_port_queue_receive(to_slave_queue[PRIO_Q_BT], &buf_handle, 0) == 0)
++			tx_prio = PRIO_Q_BT;
++		else if (eh_host_port_queue_receive(to_slave_queue[PRIO_Q_OTHERS], &buf_handle, 0) == 0)
++			tx_prio = PRIO_Q_OTHERS;
++		else
++			tx_needed = 0;
+ 
+ 	if (!tx_needed) {
+ 		return;
+@@ -967,7 +1176,10 @@
+ #endif
+ 
+ 		if (!buf_handle.payload_zcopy) {
+-			sendbuf = sdio_buffer_alloc(MEMSET_REQUIRED);
++			sendbuf = sdio_buffer_alloc_waiting(MEMSET_REQUIRED,
++					(tx_prio == PRIO_Q_SERIAL) ? SDIO_TX_ALLOC_RETRIES_CTRL
++					                           : SDIO_TX_ALLOC_RETRIES_DATA,
++					SDIO_TX_ALLOC_RETRY_MS);   /* LOCAL PATCH */
+ 			free_func = sdio_buffer_free;
+ 		} else {
+ 			sendbuf = buf_handle.payload;
+@@ -975,8 +1187,9 @@
+ 		}
+ 
+ 		if (!sendbuf) {
++			sdio_oom_tx_drops++;
+ 			if (!mempool_oom_logged) {
+-				ESP_LOGW(TAG, "mempool OOM start (TX)");
++				SDIO_OOM_LOG_START("TX");
+ 				mempool_oom_logged = true;
+ 			}
+ 			free_func = NULL;
+@@ -989,7 +1202,7 @@
+ 
+ 		/* Zerocopy path doesn't touch the pool — only signal OOM-end on non-zcopy. */
+ 		if (!buf_handle.payload_zcopy && mempool_oom_logged) {
+-			ESP_LOGW(TAG, "mempool OOM end");
++			SDIO_OOM_LOG_END();
+ 			mempool_oom_logged = false;
+ 		}
+ 
+@@ -1326,8 +1539,9 @@
+ 		}
+ 		*buf = (uint8_t *)eh_host_port_dma_alloc_aligned(len, HOSTED_MEM_ALIGNMENT_64);
+ 		if (!*buf) {
+-			ESP_LOGW(TAG, "dma_alloc(%lu) failed; dropping read",
+-			         (unsigned long)len);
++			ESP_LOGW(TAG, "dma_alloc(%lu) failed; dropping read "
++			         "(dma_free=%u dma_largest=%u)",
++			         (unsigned long)len, SDIO_OOM_FREE(), SDIO_OOM_LARGEST());
+ 			return NULL;
+ 		}
+ 		double_buf.buffer[index].buf_size = len;
+@@ -1378,10 +1592,12 @@
+ 			}
+ 			return ESP_FAIL;
+ 		}
+-		pkt_rxbuff = sdio_buffer_alloc(MEMSET_REQUIRED);
++		pkt_rxbuff = sdio_buffer_alloc_waiting(MEMSET_REQUIRED,
++				SDIO_RX_ALLOC_RETRIES, SDIO_RX_ALLOC_RETRY_MS);   /* LOCAL PATCH */
+ 		if (!pkt_rxbuff) {
++			sdio_oom_rx_drops++;
+ 			if (!mempool_oom_logged) {
+-				ESP_LOGW(TAG, "mempool OOM start (RX)");
++				SDIO_OOM_LOG_START("RX");
+ 				mempool_oom_logged = true;
+ 			}
+ 			packet_size = len + offset;
+@@ -1394,7 +1610,7 @@
+ 		}
+ 
+ 		if (mempool_oom_logged) {
+-			ESP_LOGW(TAG, "mempool OOM end");
++			SDIO_OOM_LOG_END();
+ 			mempool_oom_logged = false;
+ 		}
+ 

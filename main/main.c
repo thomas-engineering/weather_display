@@ -21,6 +21,7 @@
 #include "app_favorites.h"
 #include "app_light.h"
 #include "task_heartbeat.h"
+#include "app_heap_probe.h"
 #include "sdkconfig.h"
 
 static const char *TAG = "app";
@@ -178,6 +179,10 @@ static void lvgl_stall_probe_cb(lv_timer_t *t) {
 static void heartbeat_check_cb(void *arg) {
     (void)arg;
     task_heartbeat_check();
+    /* Same timer, same reason it exists: a periodic look from outside every
+     * task at something no single task can see. app_heap_probe rate-limits
+     * itself, so 5s here only sets the resolution, not the log volume. */
+    app_heap_probe_tick("idle");
 }
 
 /* Investigated using ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE + a hardware panel
@@ -277,6 +282,11 @@ void app_main(void) {
     app_light_set_callback(on_ambient_brightness);
     app_light_set_unavailable_callback(on_light_unavailable);
     bool have_light_sensor = app_light_init(bsp_i2c_get_handle());
+
+    /* Baseline before the network comes up, so a later reading has something
+     * to be compared against — see review/ota-sdio-buffer-2026-09-22.md. */
+    app_heap_probe_init();
+    app_heap_probe_log_now("boot");
 
     esp_timer_handle_t hb_timer;
     const esp_timer_create_args_t hb_timer_args = { .callback = &heartbeat_check_cb, .name = "hb_check" };

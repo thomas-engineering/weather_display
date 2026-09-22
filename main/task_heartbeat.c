@@ -36,6 +36,11 @@ void task_heartbeat_mark_idle(task_heartbeat_id_t id) {
     s_active[id] = false;
 }
 
+bool task_heartbeat_is_active(task_heartbeat_id_t id) {
+    if (id < 0 || id >= HB_COUNT) return false;
+    return s_active[id];
+}
+
 void task_heartbeat_check(void) {
     int64_t now = esp_timer_get_time();
     for (int i = 0; i < HB_COUNT; i++) {

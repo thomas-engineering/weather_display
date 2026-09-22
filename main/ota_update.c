@@ -1,5 +1,6 @@
 #include "ota_update.h"
 
+#include "app_heap_probe.h"
 #include "app_prefs.h"
 #include "ota_manifest_parse.h"
 #include "ota_types.h"
@@ -261,6 +262,8 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
     };
     esp_https_ota_config_t ota_cfg = { .http_config = &http_cfg };
 
+    app_heap_probe_log_now("ota p4 begin");
+
     esp_https_ota_handle_t handle = NULL;
     esp_err_t err = esp_https_ota_begin(&ota_cfg, &handle);
     if (err != ESP_OK) { ESP_LOGE(TAG, "esp_https_ota_begin: %s", esp_err_to_name(err)); out.error = OTA_ERR_NETWORK; return out; }
@@ -293,6 +296,11 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
         }
         err = esp_https_ota_perform(handle);
         if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) break;
+        /* The download is the heaviest sustained load this device puts on the
+         * SDIO link, and the one run that failed did so by starving it of
+         * DMA-capable buffers (review/ota-sdio-buffer-2026-09-22.md). Sample
+         * every chunk; app_heap_probe decides what reaches the log. */
+        app_heap_probe_tick("ota p4");
         int read = esp_https_ota_get_image_len_read(handle);
         if (read > last_read) { last_read = read; last_progress_us = now_us; }
         if (on_progress) {
@@ -301,6 +309,8 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
             on_progress(percent, progress_ctx);
         }
     }
+
+    app_heap_probe_log_now("ota p4 done");
 
     if (err != ESP_OK || !esp_https_ota_is_complete_data_received(handle)) {
         ESP_LOGE(TAG, "P4 OTA download failed: %s", esp_err_to_name(err));
@@ -387,6 +397,8 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
         goto done;
     }
 
+    app_heap_probe_log_now("ota c6 begin");
+
     if (esp_hosted_slave_ota_begin() != ESP_OK) { ESP_LOGE(TAG, "esp_hosted_slave_ota_begin failed"); goto done; }
 
     psa_crypto_init();
@@ -406,6 +418,7 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
             stalled_or_over_budget = true;
             break;
         }
+        app_heap_probe_tick("ota c6");
         int r = esp_http_client_read(c, (char *)chunk, sizeof chunk);
         if (r < 0) { write_failed = true; break; }
         if (r == 0) break;

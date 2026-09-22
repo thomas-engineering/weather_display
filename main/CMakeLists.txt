@@ -15,6 +15,7 @@ idf_component_register(
         "save_debounce.c"
         "ota_update.c"
         "task_heartbeat.c"
+        "app_heap_probe.c"
         "display_lock_probe.c"
         "weather_ui.c"
         "weather_chart.c"
