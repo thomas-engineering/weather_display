@@ -343,11 +343,22 @@ Coprozessor-Pfad ausgefuehrt (der Schalter war an):
     E (25838) ota_update: esp_hosted_slave_ota_end failed
     E (25839) ota_update: C6 update failed; keeping the coprocessor's current firmware
 
-Entscheidend ist die Reihenfolge in `run_c6_update()`: `write_failed`, das
-Stall-/Gesamtbudget **und die SHA-256-Pruefung** liegen alle vor
-`esp_hosted_slave_ota_end()`. Das Image wurde also vollstaendig uebertragen
-und stimmte gegen den Manifest-Hash (~1,19 MB in rund 7,7 s); gescheitert
-ist erst der Abschluss-Schritt auf der Slave-Seite.
+**Diese Stelle enthielt zunaechst eine falsche Schlussfolgerung**, hier
+korrigiert stehen gelassen, weil der Irrtum lehrreich ist: notiert war, das
+Image sei vollstaendig uebertragen worden und habe gegen den Manifest-Hash
+gestimmt. Belegt war das nicht. `hash_ok` bedeutete nur, dass
+`psa_hash_finish()` erfolgreich war — der Vergleich gegen
+`expected_sha256` stand **hinter** `esp_hosted_slave_ota_end()` und lief
+deshalb nie. Ueber den Zustand des Images sagte der Fehlschlag damit gar
+nichts.
+
+Und diese Reihenfolge war selbst ein Fehler: die Verifikation lag hinter
+dem Finalisieren, war also wirkungslos, und ein abgeschnittenes Image wurde
+dem Coprozessor als vollstaendig uebergeben. Dazu brach die
+Download-Schleife bei jedem Null-Byte-Read als sauberem Dateiende ab, ohne
+die Gesamtmenge je gegen `Content-Length` zu pruefen. Beides behoben:
+Laengen- und Hash-Pruefung laufen jetzt vor `end()`, ein zu kurzer Body
+wird erkannt und das Image gar nicht erst finalisiert.
 
 Und es ist **gutartig** gescheitert: der Coprozessor behielt 2.6.7, das
 Board blieb online, Wetterabruf und der naechste Update-Check danach liefen
@@ -375,3 +386,42 @@ Check sauber alle ~250 s (250, 519, 769, 1020). Das erklaert auch, warum der
 gescheiterte Versuch vom Mittag als `silent OTA auto-check` bei 21 Minuten
 Uptime im Log steht. Noch nicht behoben — waehrend der Messungen war es die
 einzige Moeglichkeit, einen Download ohne Fingertipp am Geraet auszuloesen.
+
+## C6, zweiter Anlauf mit Diagnose — 2026-09-22
+
+Release v0.0.6 gebaut, weil der C6-Pfad beim ersten Boot **nach** dem
+P4-Update laeuft: die Diagnose muss im Image stecken, das installiert wird,
+nicht in dem, das installiert. Ergebnis:
+
+    I (27108) ota_update: C6 image streamed: 1193600 of 1193600 bytes
+    E (27122) ota_update: esp_hosted_slave_ota_end failed on a verified
+              image: ESP_ERR_OTA_VALIDATE_FAILED (0x1503)
+
+Damit ist die Abschneide-Hypothese erledigt: 1 193 600 von 1 193 600 Byte,
+exakt die Asset-Groesse, und der Manifest-Hash stimmt — das Erreichen
+dieser Zeile beweist beides, weil beide Pruefungen jetzt davor liegen. Was
+zum Coprozessor geht, ist vollstaendig und korrekt. Der C6 lehnt es in
+seiner eigenen `esp_ota_end()`-Verifikation ab.
+
+Offen, zwei Hypothesen, keine geprueft:
+
+1. **Das Image ist fuer diesen C6 ungueltig.** Gebaut aus
+   `examples/network_split/station/cp` von esp-hosted-mcu v3.0.7, waehrend
+   der Coprozessor 2.6.7 faehrt und esp_hosted bei jedem Boot
+   `major version mismatch — OTA coprocessor from host` meldet. Der Host
+   hat ausserdem `CONFIG_ESP_HOSTED_HOST_FEAT_NW_SPLIT` gar nicht gesetzt —
+   eine Network-Split-Coprozessor-Firmware koennte schlicht die falsche
+   Anwendung sein.
+2. **Was der Slave speichert, ist nicht was wir senden.** Unser Hash deckt
+   die HTTP-Bytes ab, nie den Flash des C6. Ein Defekt im RPC-Schreibpfad —
+   2.6.7-Slave gegen einen Host, der RPC ext v2 spricht — saehe exakt so
+   aus: jeder Write meldet OK, unsere Byte-Bilanz stimmt, die Verifikation
+   auf der anderen Seite scheitert. Von hier aus ist der Unterschied nicht
+   sichtbar.
+
+Naechster Schritt morgen: v1-gegen-v2-Unterschiede im OTA-Write-Pfad lesen,
+`EH_RPC_OTA_CHUNK_MAX` gegen die 1536 Byte `C6_OTA_CHUNK_SIZE` pruefen, und
+den C6 einmal direkt flashen, um Hypothese 1 aus der Gleichung zu nehmen.
+
+Nicht vergessen: der Fehlschlag ist gutartig. Der Coprozessor behaelt seine
+Firmware, das Board bleibt online.
