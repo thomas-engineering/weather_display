@@ -52,6 +52,19 @@ bool app_wifi_is_connected(void);
  * of just "offline". */
 bool app_wifi_is_reconnecting(void);
 
+/* Asks the driver whether the station is genuinely still associated, for the
+ * case no Wi-Fi event covers: associated and addressed on paper, but every
+ * request failing. Returns true if the association is real. If it isn't, our
+ * own state is corrected and recovery starts, so the caller doesn't have to.
+ * Cheap (one RPC); call it from a worker task, not the LVGL task. */
+bool app_wifi_verify_link(void);
+
+/* Tears the current association down and rejoins from scratch. For when
+ * app_wifi_verify_link() said the link was fine and it still doesn't work.
+ * Returns immediately — recovery runs on app_wifi's own worker task, so this
+ * is safe to call from the weather worker without blocking it. */
+void app_wifi_force_reconnect(void);
+
 /* Fills ip/dns/gw (each must be >=16 bytes, IPSTR is "%d.%d.%d.%d") for the
  * Settings > Device information dialog. Returns false, buffers untouched, if
  * not connected or the netif has no address yet. */
