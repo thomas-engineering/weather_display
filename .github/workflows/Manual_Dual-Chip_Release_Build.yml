@@ -41,9 +41,28 @@ jobs:
         target: esp32p4
         path: '.'
         # Generates the configuration exactly matching the project sdkconfig for the Waveshare display
+        #
+        # The `patch` step is not optional. Both sdkconfig and managed_components/
+        # are gitignored, so what reaches this build is only what is committed:
+        # `idf.py defconfig` rebuilds the configuration from sdkconfig.defaults
+        # (that is how the SPIRAM/mbedtls allocation settings get in), but the
+        # local changes to esp_hosted's SDIO transport — reserved buffer pool,
+        # back-pressure instead of dropping, OOM diagnostics — live only in
+        # patches/. Without this step the release would silently ship without
+        # them, which is exactly the failure the whole change set is about.
+        # See patches/README.md and review/ota-sdio-buffer-2026-09-22.md.
+        #
+        # `reconfigure` before the patch guarantees managed_components/ has
+        # actually been resolved onto disk; the grep after the build guarantees
+        # the patch survived into the binary rather than being quietly reverted
+        # by a later dependency resolution.
         command: |
           idf.py defconfig
+          idf.py reconfigure
+          patch -p1 < patches/esp_hosted_sdio_reserve.patch
           idf.py build
+          grep -q "SDIO reserve pool" build/weather_display.bin \
+            || { echo "::error::local esp_hosted patch did not reach the built image"; exit 1; }
 
     # Prepare the compiled App binary for upload
     - name: Prepare P4 Binary
