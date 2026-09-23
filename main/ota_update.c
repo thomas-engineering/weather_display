@@ -526,6 +526,11 @@ void ota_update_resume_after_boot(bool update_coprocessor) {
         if (fetch_manifest_and_urls(&manifest, p4_url, sizeof p4_url, c6_url, sizeof c6_url)) {
             if (run_c6_update(c6_url, manifest.c6_sha256)) {
                 ESP_LOGI(TAG, "C6 coprocessor updated; restarting host to resync");
+                /* Mark this P4 image valid before restarting — otherwise it
+                 * is still ESP_OTA_IMG_PENDING_VERIFY and ESP-IDF's rollback
+                 * safety net reverts to the previous P4 image on this exact
+                 * restart, silently undoing the update that just ran. */
+                esp_ota_mark_app_valid_cancel_rollback();
                 esp_hosted_deinit();
                 vTaskDelay(pdMS_TO_TICKS(2000));
                 esp_restart();
