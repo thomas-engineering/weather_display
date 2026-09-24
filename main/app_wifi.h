@@ -71,7 +71,10 @@ void app_wifi_force_reconnect(void);
 bool app_wifi_get_ip_info(char *ip, size_t ip_len, char *dns, size_t dns_len, char *gw, size_t gw_len);
 
 /* Starts SNTP and waits up to `timeout_ms` for the clock to be set. The header
- * clock and the "Today/Tomorrow" labels are wrong without this. */
+ * clock and the "Today/Tomorrow" labels are wrong without this. Returns true
+ * immediately once the clock has been set once. On a timeout SNTP keeps
+ * retrying in the background; calling this again re-sends a request at once
+ * instead of waiting out lwIP's own retry backoff. */
 bool app_wifi_sync_time(int timeout_ms);
 
 #endif

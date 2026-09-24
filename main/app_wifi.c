@@ -256,6 +256,16 @@ static void event_handler(void *arg, esp_event_base_t base, int32_t id, void *da
         case IP_EVENT_STA_GOT_IP: {
             ip_event_got_ip_t *e = (ip_event_got_ip_t *)data;
             ESP_LOGI(TAG, "got ip " IPSTR, IP2STR(&e->ip_info.ip));
+            /* Log what DHCP handed us, so a failed lookup can be told apart
+             * from "never got a DNS server at all" (the 2026-09-23 startup
+             * DNS failures were neither — see the lwIP port-range note in
+             * the top-level CMakeLists.txt). */
+            esp_netif_dns_info_t dns_info = {0};
+            if (esp_netif_get_dns_info(s_sta_netif, ESP_NETIF_DNS_MAIN, &dns_info) == ESP_OK) {
+                ESP_LOGI(TAG, "DNS main server: " IPSTR, IP2STR(&dns_info.ip.u_addr.ip4));
+            } else {
+                ESP_LOGW(TAG, "esp_netif_get_dns_info failed right after got ip");
+            }
             policy_event(WRP_EV_GOT_IP);
             coproc_event(CHP_EV_LINK_UP);
             break;
@@ -551,15 +561,24 @@ int app_wifi_scan(wx_wifi_network_t *out, int max) {
 
 bool app_wifi_sync_time(int timeout_ms) {
     static bool started = false;
+    static bool synced = false;
+    /* esp_netif_sntp_sync_wait() takes a semaphore that is only given on a
+     * sync, so once the clock is set a second call would block for the whole
+     * timeout (the next sync is an hour away) — which used to hold up the
+     * weather fetch after every manual Wi-Fi connect by 15s. */
+    if (synced) return true;
     if (!started) {
         esp_sntp_config_t cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
         if (esp_netif_sntp_init(&cfg) != ESP_OK) return false;
         started = true;
+    } else {
+        esp_netif_sntp_start();
     }
     if (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(timeout_ms)) != ESP_OK) {
         ESP_LOGW(TAG, "SNTP sync timed out; clock may be wrong");
         return false;
     }
+    synced = true;
     time_t now = time(NULL);
     ESP_LOGI(TAG, "clock set: %ld", (long)now);
     return true;

@@ -23,6 +23,7 @@
 #include "ota_update.h"
 #include "network_status_policy.h"
 #include "link_health_policy.h"
+#include "startup_retry_policy.h"
 #include "task_heartbeat.h"
 #include "display_lock_probe.h"
 
@@ -35,6 +36,10 @@ static const char *TAG = "weather";
 
 #define HTTP_BUF_MAX     (48 * 1024)
 #define SEARCH_DEBOUNCE_MS 450
+/* Longest the boot-time fetch waits for the clock. Leaves room inside the
+ * 30s "time and weather after Wi-Fi connect" budget for the fetch itself
+ * and one retry. */
+#define STARTUP_SNTP_WAIT_MS 8000
 
 typedef enum { CMD_SEARCH, CMD_SELECT, CMD_REFRESH, CMD_RELANG, CMD_WIFI_SCAN, CMD_WIFI_CONNECT, CMD_WIFI_FORGET,
                CMD_FAV_TOGGLE, CMD_FAV_SELECT, CMD_FAV_REMOVE, CMD_OTA_START, CMD_OTA_RESUME } cmd_kind_t;
@@ -623,11 +628,11 @@ static bool do_refresh_body(bool is_manual) {
  * own comment) — do_refresh_body() has several early returns, so wrapping it
  * here rather than taking/releasing inline at each one avoids a forgotten
  * release on some future edit. */
-static void do_refresh(bool is_manual) {
+static bool do_refresh(bool is_manual) {
     if (xSemaphoreTake(s_network_mutex, pdMS_TO_TICKS(NETWORK_MUTEX_TIMEOUT_MS)) != pdTRUE) {
         ESP_LOGE(TAG, "network mutex busy for %ds, skipping refresh", NETWORK_MUTEX_TIMEOUT_MS / 1000);
         ui_error(weather_strings[app_prefs_get()->lang].error, is_manual);
-        return;
+        return false;
     }
     bool ok = do_refresh_body(is_manual);
     xSemaphoreGive(s_network_mutex);
@@ -649,6 +654,7 @@ static void do_refresh(bool is_manual) {
     case LHP_ACT_NONE:
         break;
     }
+    return ok;
 }
 
 /* ---- geocoding ----------------------------------------------------------- */
@@ -903,7 +909,14 @@ static void weather_task(void *arg) {
             bsp_display_unlock();
         }
         if (connect_ok) {
-            app_wifi_sync_time(15000);
+            /* Clock first: do_refresh() stamps s_last_success with time(NULL),
+             * so fetching before SNTP would mark fresh data as decades old.
+             * The wait is bounded so a missing NTP answer can't hold the
+             * weather back — SNTP keeps retrying in the background and the
+             * idle tick picks the clock up whenever it lands. With DNS
+             * working (see the lwIP port-range note in the top-level
+             * CMakeLists.txt) this normally returns within ~1s. */
+            app_wifi_sync_time(STARTUP_SNTP_WAIT_MS);
         } else if (bsp_display_lock(1000)) {
             weather_ui_open_wifi_setup();
             bsp_display_unlock();
@@ -911,7 +924,14 @@ static void weather_task(void *arg) {
     }
 
     bool wifi_was_connected = app_wifi_is_connected();
-    if (wifi_was_connected) do_refresh(false);
+    if (wifi_was_connected) {
+        startup_retry_policy_t refresh_retry;
+        startup_retry_policy_init(&refresh_retry, 0);
+        int delay_ms;
+        while (!do_refresh(false) && startup_retry_policy_next(&refresh_retry, &delay_ms)) {
+            vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        }
+    }
 
     for (;;) {
         task_heartbeat_touch(HB_WEATHER);
@@ -974,7 +994,7 @@ static void weather_task(void *arg) {
                         bsp_display_unlock();
                     }
                     if (ok) {
-                        app_wifi_sync_time(15000);
+                        app_wifi_sync_time(STARTUP_SNTP_WAIT_MS);
                         do_refresh(false);
                         last_auto = xTaskGetTickCount();
                     }

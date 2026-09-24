@@ -108,3 +108,9 @@ CONFIG_CAMERA_OV5647=y
 # touch-latency hardware experiments. Without this, mbedtls_strerror() is a
 # stub that always writes an empty string.
 CONFIG_MBEDTLS_ERROR_STRINGS=y
+
+# SNTP's startup delay waits a random 0-5s before the first request (meant to
+# spread load when a whole fleet reboots at once). One display on a home
+# network doesn't need that, and the clock has to be set before the boot-time
+# weather fetch (see STARTUP_SNTP_WAIT_MS in main/app_weather.c).
+# CONFIG_LWIP_SNTP_STARTUP_DELAY is not set

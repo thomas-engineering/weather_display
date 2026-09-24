@@ -25,6 +25,7 @@ void test_wifi_reconnect_policy_run(void);
 void test_link_health_policy_run(void);
 void test_heap_watch_run(void);
 void test_coprocessor_health_policy_run(void);
+void test_startup_retry_policy_run(void);
 
 void app_main(void) {
     UNITY_BEGIN();
@@ -39,5 +40,6 @@ void app_main(void) {
     test_link_health_policy_run();
     test_heap_watch_run();
     test_coprocessor_health_policy_run();
+    test_startup_retry_policy_run();
     exit(UNITY_END());
 }
