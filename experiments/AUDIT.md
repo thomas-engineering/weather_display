@@ -190,6 +190,21 @@ nicht aufgeraeumt werden; parallele Verbindungen;
 **Nachweis:** GUARD. Vor jedem Verbindungsaufbau den groessten freien
 INTERNAL-Block loggen und unter einer Schwelle warnen.
 
+
+---
+
+ ## M -Ueberlauf — stille Bereichsueberschreitung in Zeit- und Groessenrechnungen
+
+      **Worum es geht:** Arithmetik, die in einem zu schmalen Typ ausgefuehrt wird,
+      bevor das Ergebnis in einen breiteren wandert. Kein Compiler-Fehler, keine
+      Laufzeitmeldung — der Wert ist einfach falsch, und zwar meist zu klein.
+
+      **Belegter Fall (2026-09-22):** `pdMS_TO_TICKS()` castet sein Argument **vor**
+      der Multiplikation mit `configTICK_RATE_HZ` auf `TickType_t` (uint32). Der
+      12-Stunden-Auto-Check in `main/app_weather.c` lief dadurch alle **4,17 Minuten**
+      — auf Hardware gemessen, Abstaende 250/519/769/1020 s. Der Dialog versprach
+      12 Stunden.
+
 ---
 
 ## Nachbereitung eines Durchlaufs

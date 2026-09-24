@@ -211,7 +211,7 @@ jobs:
         body: |
           Manually triggered release build for Weather Display (Waveshare P4 Board).
           - ESP-IDF Version: v6.1.0
-          - Includes display drivers and esp-hosted SPI network configuration.
+          - Includes display drivers and esp-hosted SDIO network configuration.
         draft: false
         prerelease: false
         files: |
