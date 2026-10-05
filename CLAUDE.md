@@ -70,8 +70,20 @@ Datei.
 
 Die Skripte sourcen `$IDF_PATH/export.sh` selbst, wenn `idf.py` fehlt. Du musst
 das nie manuell tun und keine `source`-Zeile in einen Befehl einbauen. Falls ein
-Skript mit Exit-Code 127 abbricht, fehlt ESP-IDF oder `esp-emu` — melde das,
-statt Workarounds zu bauen.
+Skript mit Exit-Code 127 abbricht, fehlt ESP-IDF oder `esp-emu` **in dieser
+Shell** — bevor du das als "nicht installiert" meldest, zuerst in derselben
+Bash-Aufruf-Zeile aktivieren:
+
+```sh
+source ~/.espressif/tools/activate_idf_v6.1.sh
+```
+
+ESP-IDF liegt unter `~/.espressif`, nicht unter `$IDF_PATH`/`~/esp`, und ist
+nicht auf PATH. Shell-Zustand persistiert nicht zwischen Bash-Aufrufen, also
+muss das Sourcen im selben Aufruf wie das eigentliche Skript stehen (`source
+~/.espressif/tools/activate_idf_v6.1.sh && ./scripts/emu-test.sh`). Erst wenn
+das Skript danach immer noch mit Exit-Code 127 abbricht, fehlt ESP-IDF oder
+`esp-emu` tatsächlich — das dann melden, statt Workarounds zu bauen.
 
 ## Codeorganisation
 

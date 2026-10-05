@@ -10,9 +10,11 @@
 #include "lvgl.h"
 
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
+#include "cJSON.h"
 
 #include "weather_ui.h"
 #include "app_wifi.h"
@@ -25,6 +27,21 @@
 #include "sdkconfig.h"
 
 static const char *TAG = "app";
+
+/* cJSON has no PSRAM awareness of its own: with no hooks set it uses plain
+ * malloc, and every tree node (~40 B) lands in internal RAM below
+ * CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL, competing with the SDIO link to the
+ * C6 for the same memory during forecast/geocoding/OTA-manifest parsing
+ * (see review/audit-b-heap-2026-10-05.md). */
+static void *cjson_malloc(size_t sz) {
+    void *p = heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (p) return p;
+    return heap_caps_malloc(sz, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
+static void cjson_free(void *p) {
+    heap_caps_free(p);
+}
 
 /* ---- UI callbacks: all of these run on the LVGL task, so they must not block.
  * Every one of them just posts to the weather worker's queue. ---------------- */
@@ -211,6 +228,11 @@ static void heartbeat_check_cb(void *arg) {
  * confirmed fix, until someone taps through it and checks lvgl_stall. */
 
 void app_main(void) {
+    /* Before anything parses JSON (app_weather_start() below, and whatever
+     * it triggers): point cJSON at PSRAM first. */
+    cJSON_Hooks hooks = { .malloc_fn = cjson_malloc, .free_fn = cjson_free };
+    cJSON_InitHooks(&hooks);
+
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -331,6 +353,7 @@ void app_main(void) {
 #endif
     lv_timer_create(lvgl_stall_probe_cb, 20, NULL);
     bsp_display_unlock();
+    app_heap_probe_log_now("ui built");
 
     app_wifi_init();
 

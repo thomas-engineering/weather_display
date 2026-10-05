@@ -11,6 +11,7 @@
 #include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
+#include "app_heap_probe.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -521,8 +522,10 @@ static bool do_refresh_body(bool is_manual) {
     char *body = http_get(url);
     if (!body) { ui_error(weather_strings[p->lang].error, is_manual); return false; }
 
+    app_heap_probe_log_now("pre-parse");
     cJSON *root = cJSON_Parse(body);
     free(body);
+    app_heap_probe_log_now("parsed");
     if (!root) { ui_error(weather_strings[p->lang].error, is_manual); return false; }
 
     const cJSON *cur = cJSON_GetObjectItemCaseSensitive(root, "current");
@@ -619,6 +622,7 @@ static bool do_refresh_body(bool is_manual) {
     s_have_forecast = true;
     ESP_LOGI(TAG, "forecast ok: %.1fC code=%d, %d days", s_cur_temp, s_cur_code, n);
     push_forecast_to_ui(true);
+    app_heap_probe_log_now("forecast pushed");
     network_status_policy_on_fetch(&s_net_status, true, is_manual);
     apply_toast_state();
     return true;
