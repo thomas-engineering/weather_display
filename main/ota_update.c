@@ -1,5 +1,6 @@
 #include "ota_update.h"
 
+#include "app_config.h"
 #include "app_heap_probe.h"
 #include "app_prefs.h"
 #include "ota_manifest_parse.h"
@@ -54,6 +55,18 @@ void ota_update_reset_cancel(void) {
 #define OTA_USER_AGENT       "esp32-p4-weather-display"
 #define JSON_BUF_MAX         (32 * 1024)
 #define URL_MAX              256
+#define HTTP_MAX_REDIRECTS   5
+
+#define SHA256_DIGEST_BYTES PSA_HASH_LENGTH(PSA_ALG_SHA_256)
+#define SHA256_HEX_BUF_LEN  (2 * SHA256_DIGEST_BYTES + 1)
+_Static_assert(SHA256_DIGEST_BYTES == 32, "SHA-256 digest size changed");
+/* Partition read-back size while hashing a freshly written image. */
+#define SHA_READ_CHUNK_BYTES 4096
+
+/* Download progress tops out below OTA_PROGRESS_DONE_PCT, which is reserved
+ * for "flashed and verified"; with no known image size, show a midpoint. */
+#define OTA_PROGRESS_DOWNLOAD_MAX_PCT (OTA_PROGRESS_DONE_PCT - 1)
+#define OTA_PROGRESS_UNKNOWN_SIZE_PCT 50
 
 /* esp-hosted's RPC OTA write caps a chunk at EH_RPC_OTA_CHUNK_MAX (1536 B,
  * eh_host_feat_rpc_ext_v2_types.h — not a public include path, so mirrored
@@ -92,11 +105,11 @@ void ota_update_reset_cancel(void) {
  * so -ESP_FAIL came out as +1 and printed as the nonsensical "HTTP 1" in the
  * caller's log line instead of a clear connection-failure message. */
 static int http_open_following_redirects(esp_http_client_handle_t c) {
-    for (int redirects = 0; redirects < 5; redirects++) {
+    for (int redirects = 0; redirects < HTTP_MAX_REDIRECTS; redirects++) {
         if (esp_http_client_open(c, 0) != ESP_OK) return -1;
         esp_http_client_fetch_headers(c);
         int status = esp_http_client_get_status_code(c);
-        if (status < 300 || status >= 400) return status;
+        if (status < HttpStatus_MultipleChoices || status >= HttpStatus_BadRequest) return status;
 
         esp_err_t err = esp_http_client_set_redirection(c);
         esp_http_client_close(c);
@@ -113,8 +126,8 @@ static char *fetch_small(const char *url) {
     esp_http_client_config_t cfg = {
         .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
-        .buffer_size = 4096,
+        .timeout_ms = HTTP_TIMEOUT_MS,
+        .buffer_size = HTTP_RX_BUFFER_BYTES,
         .buffer_size_tx = OTA_HTTP_TX_BUF_SIZE,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
@@ -123,13 +136,13 @@ static char *fetch_small(const char *url) {
 
     char *body = NULL;
     int status = http_open_following_redirects(c);
-    if (status != 200) {
+    if (status != HttpStatus_Ok) {
         if (status < 0) ESP_LOGE(TAG, "connection failed for %.100s", url);
         else            ESP_LOGE(TAG, "HTTP %d for %.100s", status, url);
         goto done;
     }
     int64_t clen = esp_http_client_get_content_length(c);
-    size_t cap = (clen > 0 && clen < JSON_BUF_MAX) ? (size_t)clen + 1 : 8192;
+    size_t cap = (clen > 0 && clen < JSON_BUF_MAX) ? (size_t)clen + 1 : HTTP_BODY_INITIAL_CAP_BYTES;
     body = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!body) goto done;
 
@@ -209,9 +222,9 @@ static void bytes_to_hex(const uint8_t *bytes, size_t n, char *out /* >= 2n+1 */
 }
 
 /* Reads `len` bytes back from `part` and returns their lowercase hex SHA-256
- * in `out_hex` (>= 65 B). False on a partition read error. */
+ * in `out_hex` (>= SHA256_HEX_BUF_LEN B). False on a partition read error. */
 static bool sha256_of_partition(const esp_partition_t *part, size_t len, char *out_hex) {
-    uint8_t *buf = heap_caps_malloc(4096, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    uint8_t *buf = heap_caps_malloc(SHA_READ_CHUNK_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!buf) return false;
 
     psa_crypto_init(); /* idempotent; cheap to call again if something already has */
@@ -220,14 +233,14 @@ static bool sha256_of_partition(const esp_partition_t *part, size_t len, char *o
 
     bool ok = true;
     for (size_t off = 0; off < len; ) {
-        size_t chunk = len - off < 4096 ? len - off : 4096;
+        size_t chunk = len - off < SHA_READ_CHUNK_BYTES ? len - off : SHA_READ_CHUNK_BYTES;
         if (esp_partition_read(part, off, buf, chunk) != ESP_OK ||
             psa_hash_update(&op, buf, chunk) != PSA_SUCCESS) { ok = false; break; }
         off += chunk;
     }
     free(buf);
 
-    uint8_t digest[32];
+    uint8_t digest[SHA256_DIGEST_BYTES];
     size_t digest_len = 0;
     if (ok) ok = (psa_hash_finish(&op, digest, sizeof digest, &digest_len) == PSA_SUCCESS);
     if (!ok) { psa_hash_abort(&op); return false; }
@@ -255,8 +268,8 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
     esp_http_client_config_t http_cfg = {
         .url = p4_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
-        .buffer_size = 4096,
+        .timeout_ms = HTTP_TIMEOUT_MS,
+        .buffer_size = HTTP_RX_BUFFER_BYTES,
         .buffer_size_tx = OTA_HTTP_TX_BUF_SIZE,
         .keep_alive_enable = true,
     };
@@ -304,8 +317,9 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
         int read = esp_https_ota_get_image_len_read(handle);
         if (read > last_read) { last_read = read; last_progress_us = now_us; }
         if (on_progress) {
-            int percent = (image_size > 0 && read >= 0) ? (int)((int64_t)read * 100 / image_size) : 50;
-            if (percent > 99) percent = 99;
+            int percent = (image_size > 0 && read >= 0) ? (int)((int64_t)read * 100 / image_size)
+                                                                : OTA_PROGRESS_UNKNOWN_SIZE_PCT;
+            if (percent > OTA_PROGRESS_DOWNLOAD_MAX_PCT) percent = OTA_PROGRESS_DOWNLOAD_MAX_PCT;
             on_progress(percent, progress_ctx);
         }
     }
@@ -330,7 +344,7 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
     /* esp_https_ota_finish() already switched the boot partition to `target`
      * — verify against the manifest's hash before trusting that, and revert
      * if it doesn't match rather than reboot into an unverified image. */
-    char actual_sha256[65];
+    char actual_sha256[SHA256_HEX_BUF_LEN];
     if (image_len <= 0 || !sha256_of_partition(target, (size_t)image_len, actual_sha256)) {
         ESP_LOGE(TAG, "could not compute P4 image hash for verification");
         esp_ota_set_boot_partition(running);
@@ -344,7 +358,7 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
         return out;
     }
 
-    if (on_progress) on_progress(100, progress_ctx);
+    if (on_progress) on_progress(OTA_PROGRESS_DONE_PCT, progress_ctx);
     out.status = OTA_RESULT_UPDATED_REBOOTING;
     out.error = OTA_ERR_NONE;
     return out;
@@ -381,8 +395,8 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
     esp_http_client_config_t cfg = {
         .url = c6_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
-        .buffer_size = 4096,
+        .timeout_ms = HTTP_TIMEOUT_MS,
+        .buffer_size = HTTP_RX_BUFFER_BYTES,
         .buffer_size_tx = OTA_HTTP_TX_BUF_SIZE,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
@@ -391,7 +405,7 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
 
     bool ok = false;
     int status = http_open_following_redirects(c);
-    if (status != 200) {
+    if (status != HttpStatus_Ok) {
         if (status < 0) ESP_LOGE(TAG, "connection failed for %.100s", c6_url);
         else            ESP_LOGE(TAG, "HTTP %d for %.100s", status, c6_url);
         goto done;
@@ -451,7 +465,7 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
         if (psa_hash_update(&sha, chunk, (size_t)r) != PSA_SUCCESS) { write_failed = true; break; }
     }
 
-    uint8_t digest[32];
+    uint8_t digest[SHA256_DIGEST_BYTES];
     size_t digest_len = 0;
     bool hash_ok = !write_failed && !cancelled && !stalled_or_over_budget &&
                    psa_hash_finish(&sha, digest, sizeof digest, &digest_len) == PSA_SUCCESS;
@@ -480,7 +494,7 @@ static bool run_c6_update(const char *c6_url, const char *expected_sha256) {
         goto done;
     }
 
-    char actual_sha256[65];
+    char actual_sha256[SHA256_HEX_BUF_LEN];
     bytes_to_hex(digest, digest_len, actual_sha256);
     if (!hex_equal_ci(actual_sha256, expected_sha256)) {
         ESP_LOGE(TAG, "C6 image SHA-256 mismatch: got %s, manifest says %s -- not finalising",
