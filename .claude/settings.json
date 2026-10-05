@@ -22,7 +22,6 @@
       "Bash(ls:*)"
     ],
     "deny": [
-      "Bash(git push:*)",
       "Bash(idf.py monitor:*)",
       "Bash(idf.py flash:*)",
       "Bash(idf.py set-target:*)",
