@@ -10,7 +10,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IDF_PATH="${IDF_PATH:-$HOME/esp/esp-idf}"
 BUILD_DIR="$REPO_ROOT/build"
 LOG_DIR="$REPO_ROOT/.logs"
 LOG="$LOG_DIR/fw-build.log"
@@ -18,14 +17,8 @@ TAIL_LINES="${TAIL_LINES:-25}"
 
 mkdir -p "$LOG_DIR"
 
-if ! command -v idf.py >/dev/null 2>&1; then
-    if [ ! -f "$IDF_PATH/export.sh" ]; then
-        echo "FEHLER: ESP-IDF nicht gefunden. IDF_PATH=$IDF_PATH" >&2
-        exit 127
-    fi
-    # shellcheck disable=SC1091
-    source "$IDF_PATH/export.sh" >/dev/null
-fi
+# shellcheck source=lib/idf-env.sh
+source "$REPO_ROOT/scripts/lib/idf-env.sh"
 
 cd "$REPO_ROOT"
 

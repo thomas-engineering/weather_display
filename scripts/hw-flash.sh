@@ -18,7 +18,6 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IDF_PATH="${IDF_PATH:-$HOME/esp/esp-idf}"
 BUILD_DIR="$REPO_ROOT/build"
 LOG_DIR="$REPO_ROOT/.logs"
 LOG="$LOG_DIR/hw.log"
@@ -28,10 +27,8 @@ MONITOR_SECONDS="${MONITOR_SECONDS:-20}"
 
 mkdir -p "$LOG_DIR"
 
-if ! command -v idf.py >/dev/null 2>&1; then
-    # shellcheck disable=SC1091
-    source "$IDF_PATH/export.sh" >/dev/null
-fi
+# shellcheck source=lib/idf-env.sh
+source "$REPO_ROOT/scripts/lib/idf-env.sh"
 
 cd "$REPO_ROOT"
 

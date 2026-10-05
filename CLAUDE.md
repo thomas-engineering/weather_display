@@ -56,21 +56,14 @@ im `sdkconfig` angekommen ist, und ihn sonst dort von Hand nachziehen.
 
 ## Logs und Umgebung
 
-Alle Läufe schreiben nach `.logs/`. Bei einem Fehlschlag zuerst das Log lesen
-(`fw-build.log`, `hw.log`; `host-test.log` enthält nur den Testlauf,
-Buildfehler stehen auf der Konsole), nicht blind neu starten.
+Alle Läufe schreiben nach `.logs/` (`host-test.log`, `fw-build.log`, `hw.log`,
+jeweils mit Build). Bei einem Fehlschlag zuerst das Log lesen, nicht blind neu
+starten.
 
-ESP-IDF liegt unter `~/.espressif`, nicht auf PATH und nicht unter dem
-Skript-Standard `$IDF_PATH=~/esp/esp-idf`. Für `fw-build.sh`, `hw-flash.sh`
-und `host-test.sh` im selben Bash-Aufruf vorher aktivieren; `host-test.sh` und
-`sim.sh` bauen nativ und brauchen danach die System-Toolchain vorn im PATH:
-
-```sh
-source ~/.espressif/tools/activate_idf_v6.1.sh && ./scripts/fw-build.sh
-source ~/.espressif/tools/activate_idf_v6.1.sh && PATH=/usr/bin:/bin:$PATH ./scripts/host-test.sh
-```
-
-Fehlt ESP-IDF auch nach der Aktivierung, melde das, statt Workarounds zu bauen.
+Die Skripte richten ESP-IDF selbst ein (`scripts/lib/idf-env.sh`): zuerst
+`~/.espressif/tools/activate_idf_v6.1.sh` (überschreibbar per `IDF_ACTIVATE`),
+sonst `$IDF_PATH/export.sh`. Kein `source` in Befehle einbauen. Exit-Code 127
+heißt: ESP-IDF fehlt — melde das, statt Workarounds zu bauen.
 
 ## Codeorganisation
 
