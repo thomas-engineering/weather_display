@@ -43,9 +43,10 @@ Schleifen; Allokationen im Flush- oder Renderpfad; fehlende NULL-Pruefung nach
 Allokation; fehlende Freigabe beim Screenwechsel; `MALLOC_CAP_INTERNAL` gegen
 `MALLOC_CAP_SPIRAM`.
 
-**Nachweis:** GUARD. Watermark in der PERF-Zeile
-(`heap_caps_get_free_size` und `heap_caps_get_largest_free_block`, je fuer
-INTERNAL und SPIRAM), plus eine Untergrenze, die `SELFTEST_FAIL` ausloest.
+**Nachweis:** GUARD. Watermark in der 5-s-Ausgabe aus `heartbeat_check_cb`
+(`main/main.c`; `heap_caps_get_free_size` und
+`heap_caps_get_largest_free_block`, je fuer INTERNAL und SPIRAM), plus eine
+Untergrenze, die eine ERROR-Logzeile ausloest.
 Fuer Leck-Verdacht: Screenwechsel n-mal durchlaufen und die Freigroesse
 vorher/nachher vergleichen.
 
@@ -60,7 +61,8 @@ Stelle. `-O2` aus M2 verschiebt den Verbrauch zusaetzlich.
 Rekursion; `snprintf` mit grossen Puffern auf dem Stack; ISR-Handler.
 
 **Nachweis:** GUARD. `uxTaskGetStackHighWaterMark()` fuer jeden eigenen Task
-in der PERF-Zeile. Reserve unter 512 Byte ist ein Befund.
+in der 5-s-Ausgabe aus `heartbeat_check_cb` (`main/main.c`). Reserve unter
+512 Byte ist ein Befund.
 
 ---
 
