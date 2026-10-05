@@ -19,6 +19,8 @@
 #include "weather_chart.h"
 /* FIX: auto-refresh table shared with app_prefs.c, which persists its index. */
 #include "auto_refresh_options.h"
+/* FIX: brightness range shared with app_prefs.c and the ambient-light policy. */
+#include "light_policy.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -1915,7 +1917,7 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_remove_flag(slider_wrap, LV_OBJ_FLAG_SCROLLABLE);
     ui.brightness_slider = lv_slider_create(slider_wrap);
     lv_obj_set_width(ui.brightness_slider, LV_PCT(100));
-    lv_slider_set_range(ui.brightness_slider, 7, 100);
+    lv_slider_set_range(ui.brightness_slider, LIGHT_POLICY_BRIGHTNESS_MIN, LIGHT_POLICY_BRIGHTNESS_MAX);
     lv_slider_set_value(ui.brightness_slider, ui.brightness, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(ui.brightness_slider, C_NEUTRAL_800, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui.brightness_slider, LV_OPA_COVER, LV_PART_MAIN);
