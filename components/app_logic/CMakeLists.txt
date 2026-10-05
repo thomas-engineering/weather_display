@@ -9,3 +9,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     PRIV_REQUIRES espressif__cjson
 )
+
+# Warnings in our own code are errors; scoped to this component so warnings
+# from managed_components/ don't break the build.
+target_compile_options(${COMPONENT_LIB} PRIVATE -Werror)

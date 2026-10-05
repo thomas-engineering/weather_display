@@ -1,0 +1,4 @@
+ESP-ROM:esp32p4-eco5-20250430
+I (1252) main_task: Calling app_main()
+W (4099) wifi: disconnected (reason 36)
+I (7800) app: >>> BOOT_OK <<<

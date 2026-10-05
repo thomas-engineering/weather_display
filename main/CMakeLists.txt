@@ -30,6 +30,10 @@ idf_component_register(
                   esp_app_format espressif__esp_hosted app_update esp_https_ota
                   esp_partition mbedtls)
 
+# Warnings in our own code are errors; scoped to this component so warnings
+# from managed_components/ don't break the build.
+target_compile_options(${COMPONENT_LIB} PRIVATE -Werror)
+
 # NOTE: no esp_hosted/SDMMC link workaround here. The Waveshare examples carry one
 # for esp_hosted 1.4.x, which relied on the IDF 5 umbrella driver's transitive SDMMC
 # include. This project is on esp_hosted 3.0.x, which needs no such patch — and its
