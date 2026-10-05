@@ -16,6 +16,7 @@
 #include "nvs_flash.h"
 #include "cJSON.h"
 
+#include "app_config.h"
 #include "weather_ui.h"
 #include "app_wifi.h"
 #include "app_weather.h"
@@ -27,6 +28,17 @@
 #include "sdkconfig.h"
 
 static const char *TAG = "app";
+
+/* Lock wait in on_ambient_brightness(): a timeout only leaves the slider one
+ * sensor sample behind (see the else branch there). */
+#define AMBIENT_UI_LOCK_TIMEOUT_MS 100
+
+#define TOUCH_PROBE_PERIOD_MS 30
+#define LVGL_STALL_PROBE_PERIOD_MS 20
+/* Gaps above this are noticeable as lag, not routine jitter. */
+#define LVGL_STALL_WARN_MS 60
+
+#define HEARTBEAT_TIMER_PERIOD_US (5 * 1000 * 1000)
 
 /* cJSON has no PSRAM awareness of its own: with no hooks set it uses plain
  * malloc, and every tree node (~40 B) lands in internal RAM below
@@ -97,7 +109,7 @@ static void on_brightness_adaptive(bool on) {
  * the UI either). */
 static void on_light_unavailable(void) {
     app_prefs_save_brightness_adaptive(false);
-    if (bsp_display_lock(1000)) {
+    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
         weather_ui_set_brightness_adaptive(false);
         weather_ui_set_brightness_adaptive_available(false);
         bsp_display_unlock();
@@ -113,7 +125,7 @@ static void on_light_unavailable(void) {
  * fall back to if adaptive mode is turned off, not whatever the sensor last picked. */
 static void on_ambient_brightness(int percent) {
     bsp_display_brightness_set(percent);
-    if (bsp_display_lock(100)) {
+    if (bsp_display_lock(AMBIENT_UI_LOCK_TIMEOUT_MS)) {
         weather_ui_set_brightness(percent);
         bsp_display_unlock();
     } else {
@@ -178,9 +190,7 @@ static void lvgl_stall_probe_cb(lv_timer_t *t) {
     int64_t now_us = esp_timer_get_time();
     if (last_us != 0) {
         int64_t gap_ms = (now_us - last_us) / 1000;
-        /* Nominal period is 20ms; only flag gaps that would actually be
-         * noticeable as lag, not routine jitter. */
-        if (gap_ms > 60) {
+        if (gap_ms > LVGL_STALL_WARN_MS) {
             ESP_LOGW(TAG, "lvgl_stall: task was blocked for %lldms (expected ~20ms) "
                           "-- touch reads were delayed by the same amount",
                      (long long)gap_ms);
@@ -313,7 +323,7 @@ void app_main(void) {
     esp_timer_handle_t hb_timer;
     const esp_timer_create_args_t hb_timer_args = { .callback = &heartbeat_check_cb, .name = "hb_check" };
     ESP_ERROR_CHECK(esp_timer_create(&hb_timer_args, &hb_timer));
-    ESP_ERROR_CHECK(esp_timer_start_periodic(hb_timer, 5 * 1000 * 1000));
+    ESP_ERROR_CHECK(esp_timer_start_periodic(hb_timer, HEARTBEAT_TIMER_PERIOD_US));
 
     ESP_ERROR_CHECK(bsp_display_lock(-1) ? ESP_OK : ESP_ERR_TIMEOUT);
     weather_ui_create(lv_screen_active());
@@ -348,10 +358,10 @@ void app_main(void) {
     app_light_set_adaptive(adaptive_on);
     weather_ui_set_loading(true);
 #if CONFIG_WEATHER_TOUCH_DEBUG
-    lv_timer_create(touch_probe_cb, 30, NULL);
+    lv_timer_create(touch_probe_cb, TOUCH_PROBE_PERIOD_MS, NULL);
     ESP_LOGW(TAG, "touch debug on: tap the four corners and watch the log");
 #endif
-    lv_timer_create(lvgl_stall_probe_cb, 20, NULL);
+    lv_timer_create(lvgl_stall_probe_cb, LVGL_STALL_PROBE_PERIOD_MS, NULL);
     bsp_display_unlock();
     app_heap_probe_log_now("ui built");
 
@@ -368,7 +378,7 @@ void app_main(void) {
      * through s_network_mutex's finite timeout — found by firmware-auditor
      * Category K. */
     bool have_creds = app_wifi_have_credentials();
-    if (bsp_display_lock(1000)) {
+    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
         weather_ui_set_network_status(have_creds ? WX_NET_RECONNECTING : WX_NET_OFFLINE);
         if (!have_creds) {
             weather_ui_set_loading(false);
@@ -395,7 +405,7 @@ void app_main(void) {
          * network is handled by weather_task's own initial connect attempt
          * instead (it opens this same screen itself if that attempt fails). */
         ESP_LOGI(TAG, "no stored network; opening Wi-Fi setup");
-        if (bsp_display_lock(1000)) {
+        if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
             weather_ui_open_wifi_setup();
             bsp_display_unlock();
         }
