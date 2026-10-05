@@ -71,7 +71,7 @@ components/app_logic/     hardware-free application logic, host-tested (see Test
 
 host_test/                Unity tests for components/app_logic/, run on the Linux target
 sim/                       LVGL UI ported to desktop SDL, no board or emulator needed
-scripts/                   host-test.sh, emu-test.sh, hw-flash.sh, sim.sh (see Testing)
+scripts/                   host-test.sh, sim.sh, fw-build.sh, hw-flash.sh (see Testing)
 ```
 
 ### Imported vs. authored
@@ -174,34 +174,33 @@ everywhere and makes the app English-only in practice.
 Four layers, matched to what each one can actually catch — see `CLAUDE.md` for
 the full rationale. In order of speed:
 
-| Changed | Run | Time |
-|---|---|---|
-| `components/app_logic/**` | `./scripts/host-test.sh` | ~5 s |
-| `main/**`, drivers, startup, sdkconfig | `./scripts/emu-test.sh` | ~60 s |
-| UI rendering (`weather_ui.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, fonts) | `./scripts/sim.sh --screen <name> --screenshot <file.bmp>` | ~5 s |
-| Peripherals (display, camera, SDMMC, ESP-Hosted) | `./scripts/hw-flash.sh [/dev/ttyACM0]` | ~30 s |
+| Changed | Run |
+|---|---|
+| `components/app_logic/**` | `./scripts/host-test.sh` |
+| UI rendering (`weather_ui.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, fonts) | `./scripts/sim.sh --shots <dir>` |
+| everything else in `main/`, sdkconfig, dependencies, CMake | `./scripts/fw-build.sh` |
+| peripherals, startup, Wi-Fi, OTA, timing, memory layout | additionally `./scripts/hw-flash.sh [/dev/ttyACM0]` |
 
 - **`host_test/`** runs Unity tests for every `components/app_logic/` module
-  natively on the Linux target — no chip, no emulator. This is where
+  natively on the Linux target — no chip needed. This is where
   manifest/JSON parsing, version comparison, favorites logic, and the
   ambient-light policy are actually verified.
-- **The emulator** (`build-emu/`, via `esp-emu`) covers CPU, memory, UART,
-  GPIO, timers, SPI flash and GDMA on real ROM behavior, but not PSRAM
-  timing, MIPI-DSI, or any attached peripheral — so it's for `main/` logic
-  and startup, not display or camera code.
 - **`sim/`** builds the UI layer (`weather_ui.c`, `weather_chart.c`,
   `weather_icons.c`, `weather_i18n.c`, `app_format.c`) against desktop LVGL
   at the same resolution and color depth, in an SDL window — see
   [Host simulator](#host-simulator).
+- **`fw-build.sh`** builds the real firmware into `build/` without flashing;
+  warnings in `main/` and `components/app_logic/` are errors.
 - **`hw-flash.sh`** is the only way to verify DSI timing, the camera, SDMMC,
-  ESP-Hosted, or anything below `display_port_dsi.c` — it builds, flashes,
-  and reads the boot log with a timeout, never using `idf.py monitor`
-  (interactive, breaks without a real TTY).
+  ESP-Hosted or startup — it builds via `fw-build.sh`, flashes, reads the
+  boot log with a timeout (never `idf.py monitor`, which breaks without a real
+  TTY), and evaluates it with `scripts/check-boot-log.sh` (panics, reboots,
+  missing `>>> BOOT_OK <<<`; `REQUIRE_IP=1` also requires `got ip`).
 
-None of the first three prove the firmware boots on the actual board — the
-OTA download/flash path and the coprocessor RPC path in particular are
-hardware-only, since neither the emulator nor the simulator has a real
-network or a second chip to talk to.
+There is no emulator stage: none of the available emulators model MIPI-DSI,
+PPA, touch, PSRAM timing or ESP-Hosted. None of the first three layers prove
+the firmware boots on the actual board — the OTA download/flash path and the
+coprocessor RPC path in particular are hardware-only.
 
 ### Host simulator
 

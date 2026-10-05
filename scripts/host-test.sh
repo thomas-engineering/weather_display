@@ -6,61 +6,70 @@
 # Exit 0  = alle Tests gruen
 # Exit !=0 = Testfehler, Buildfehler oder fehlende Umgebung (127)
 #
-# Braucht keine Hardware und keinen Emulator.
+# Braucht keine Hardware. Build und Testlauf landen in .logs/host-test.log;
+# auf der Konsole nur die letzten Zeilen und das Ergebnis.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IDF_PATH="${IDF_PATH:-$HOME/esp/esp-idf}"
 
 PROJECT_DIR="$REPO_ROOT/host_test"
 BUILD_DIR="$PROJECT_DIR/build-linux"
 LOG_DIR="$REPO_ROOT/.logs"
 LOG="$LOG_DIR/host-test.log"
 TEST_TIMEOUT="${TEST_TIMEOUT:-120}"
+TAIL_LINES="${TAIL_LINES:-25}"
 
 mkdir -p "$LOG_DIR"
 
-# --- ESP-IDF-Umgebung -------------------------------------------------------
-# Der Agent startet pro Kommando eine frische Shell, deshalb sourcen wir hier
-# selbst statt uns auf eine vorbereitete Shell zu verlassen.
-if ! command -v idf.py >/dev/null 2>&1; then
-    if [ ! -f "$IDF_PATH/export.sh" ]; then
-        echo "FEHLER: ESP-IDF nicht gefunden. IDF_PATH=$IDF_PATH" >&2
-        echo "Setze IDF_PATH oder installiere ESP-IDF." >&2
-        exit 127
-    fi
-    # shellcheck disable=SC1091
-    source "$IDF_PATH/export.sh" >/dev/null
-fi
+# shellcheck source=lib/idf-env.sh
+source "$REPO_ROOT/scripts/lib/idf-env.sh"
+
+# The Linux target is built with the host compiler. The ESP toolchain's own
+# `as` shadows the system one once IDF is on PATH and rejects --64.
+PATH="/usr/bin:/bin:$PATH"
 
 cd "$PROJECT_DIR"
 
-# --- Build ------------------------------------------------------------------
-# set-target loescht das Build-Verzeichnis, also nur beim allerersten Lauf.
-if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
-    echo "== Erstkonfiguration: Linux-Target =="
-    idf.py -B "$BUILD_DIR" --preview set-target linux
-fi
+: >"$LOG"
 
-echo "== Build =="
-idf.py -B "$BUILD_DIR" build
+# --- Build ------------------------------------------------------------------
+set +e
+{
+    # set-target loescht das Build-Verzeichnis, also nur beim allerersten Lauf.
+    if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
+        echo "== Erstkonfiguration: Linux-Target =="
+        idf.py -B "$BUILD_DIR" --preview set-target linux || exit $?
+    fi
+    echo "== Build =="
+    idf.py -B "$BUILD_DIR" build
+} >>"$LOG" 2>&1
+build_status=$?
+set -e
+
+if [ "$build_status" -ne 0 ]; then
+    tail -n "$TAIL_LINES" "$LOG"
+    echo "HOST_TESTS_FAILED: Build (exit=$build_status). Volles Log: $LOG" >&2
+    exit "$build_status"
+fi
 
 BIN="$(find "$BUILD_DIR" -maxdepth 1 -name '*.elf' -print -quit)"
 if [ -z "$BIN" ]; then
-    echo "FEHLER: kein Test-Binary in $BUILD_DIR" >&2
+    echo "FEHLER: kein Test-Binary in $BUILD_DIR. Volles Log: $LOG" >&2
     exit 1
 fi
 
 # --- Ausfuehren -------------------------------------------------------------
-echo "== Tests: $(basename "$BIN") =="
+echo "== Tests: $(basename "$BIN") ==" >>"$LOG"
 set +e
-timeout "$TEST_TIMEOUT" "$BIN" 2>&1 | tee "$LOG"
-status=${PIPESTATUS[0]}
+timeout "$TEST_TIMEOUT" "$BIN" >>"$LOG" 2>&1
+status=$?
 set -e
 
+tail -n "$TAIL_LINES" "$LOG"
+
 if [ "$status" -eq 124 ]; then
-    echo "HOST_TESTS_FAILED: Timeout nach ${TEST_TIMEOUT}s (Deadlock?). Log: $LOG" >&2
+    echo "HOST_TESTS_FAILED: Timeout nach ${TEST_TIMEOUT}s (Deadlock?). Volles Log: $LOG" >&2
     exit 124
 fi
 

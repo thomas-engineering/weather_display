@@ -1,0 +1,5 @@
+ESP-ROM:esp32p4-eco5-20250430
+I (1252) main_task: Calling app_main()
+Guru Meditation Error: Core  0 panic'ed (Load access fault). Exception was unhandled.
+I (7800) app: >>> BOOT_OK <<<
+I (7787) wifi: got ip 192.168.178.110

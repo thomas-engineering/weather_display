@@ -10,13 +10,14 @@
 # selbst und braucht kein TTY.
 #
 # Nutzung:  ./scripts/hw-flash.sh [/dev/ttyACM0]
+#           REQUIRE_IP=1 ./scripts/hw-flash.sh /dev/ttyACM0
 #
-# Baut bewusst aus build/ mit der Produktionskonfiguration, nicht aus build-emu/.
+# Baut ueber scripts/fw-build.sh nach build/, flasht, liest den Boot-Log und
+# wertet ihn mit scripts/check-boot-log.sh aus. Exit-Code = der der Auswertung.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-IDF_PATH="${IDF_PATH:-$HOME/esp/esp-idf}"
 BUILD_DIR="$REPO_ROOT/build"
 LOG_DIR="$REPO_ROOT/.logs"
 LOG="$LOG_DIR/hw.log"
@@ -26,18 +27,12 @@ MONITOR_SECONDS="${MONITOR_SECONDS:-20}"
 
 mkdir -p "$LOG_DIR"
 
-if ! command -v idf.py >/dev/null 2>&1; then
-    # shellcheck disable=SC1091
-    source "$IDF_PATH/export.sh" >/dev/null
-fi
+# shellcheck source=lib/idf-env.sh
+source "$REPO_ROOT/scripts/lib/idf-env.sh"
 
 cd "$REPO_ROOT"
 
-if [ ! -f "$BUILD_DIR/CMakeCache.txt" ]; then
-    idf.py -B "$BUILD_DIR" set-target esp32p4
-fi
-
-idf.py -B "$BUILD_DIR" build
+"$REPO_ROOT/scripts/fw-build.sh"
 
 if [ -z "$PORT" ]; then
     echo "Kein Port angegeben. Nutzung: $0 /dev/ttyACM0" >&2
@@ -61,3 +56,6 @@ timeout "$MONITOR_SECONDS" cat "$PORT" | tee "$LOG"
 set -e
 
 echo "Log: $LOG"
+
+echo "== Auswertung =="
+exec "$REPO_ROOT/scripts/check-boot-log.sh" "$LOG"

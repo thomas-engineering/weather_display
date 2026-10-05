@@ -1,50 +1,46 @@
-# <weather_display> — ESP32-P4 / ESP-IDF
+# weather_display — ESP32-P4 / ESP-IDF
 
-<Das Gerät holt Wetterdaten von open-meteo und zeigt diese auf einem Display an. Die Hardware ist ein board
-mit ESP32-P4, 7-zoll-Display 1024*600, Touchscreen und Wifi. https://github.com/waveshareteam/ESP32-P4-WIFI6-Touch-LCD-7B
-ESP32-P4 auf diesem board ist noch Hardware-Vesion 1.3>
+Das Gerät holt Wetterdaten von Open-Meteo und zeigt sie auf einem 7-Zoll-Touchdisplay (1024×600).
+
+## Plattform
+
+- Board: https://github.com/waveshareteam/ESP32-P4-WIFI6-Touch-LCD-7B; WLAN über
+  einen ESP32-C6-Coprozessor per SDIO (ESP-Hosted)
+- ESP32-P4 Hardware-Revision 1.3 (`rev1_3`-Profil in `sdkconfig.defaults`),
+  ESP-IDF v6.1 (README, `.github/workflows/Manual_Dual-Chip_Release_Build.yml`)
 
 ## Testleiter — welcher Befehl wann
 
-| Wenn du das geändert hast | Führe das aus | Dauer |
-|---|---|---|
-| `components/app_logic/**` | `./scripts/host-test.sh` | ~5 s |
-| `main/**`, Treiber, Startup, sdkconfig | `./scripts/emu-test.sh` | ~60 s |
-| UI-Darstellung (`main/weather_ui.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, `main/fonts/**`) | `./scripts/sim.sh --screen <name> --screenshot <datei.bmp>` und den Screenshot ansehen; `--shots <verzeichnis>` nimmt alle sechs Zustände auf | ~5 s pro Screen, ~20 s für alle |
-| Peripherie-Anbindung (Display, Kamera, SDMMC, ESP-Hosted) | `./scripts/hw-flash.sh [/dev/ttyACM0]` — baut, flasht und liest den Boot-Log mit Timeout; Log liegt in `.logs/hw.log` | ~30 s |
-| WLAN-Wiederherstellung (`app_wifi.c`, `wifi_reconnect_policy`, `link_health_policy`) | `./scripts/hil-outage-test.sh [/dev/ttyACM0]` — beobachtet den Log und prueft, ob jede Trennung wieder in einem `got ip` endet; den Ausfall loest ein Mensch aus (Gast-WLAN aus, Board abschirmen) | Dauer nach `--seconds` |
+| Wenn du das geändert hast | Führe das aus |
+|---|---|
+| `components/app_logic/**` | `./scripts/host-test.sh` |
+| UI-Darstellung (`weather_ui.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, `main/fonts/`) | `./scripts/sim.sh --shots <verzeichnis>`, Screenshots ansehen |
+| alles andere in `main/`, sdkconfig, Abhängigkeiten, CMake | `./scripts/fw-build.sh` |
+| Peripherie, Startup, WLAN, OTA, Timing, Speicherlayout | zusätzlich `./scripts/hw-flash.sh /dev/ttyACM0` (bei WLAN/OTA mit `REQUIRE_IP=1`) |
+| WLAN-Wiederherstellung (`app_wifi.c`, `wifi_reconnect_policy`, `link_health_policy`) | zusätzlich `./scripts/hil-outage-test.sh` (Mensch löst den Ausfall aus) |
+| `scripts/check-boot-log.sh` | `./scripts/test-check-boot-log.sh` |
 
 Nach jeder inhaltlichen Änderung mindestens `./scripts/host-test.sh` laufen
-lassen, bevor du die Aufgabe als erledigt meldest. Beide Skripte beenden sich
-von selbst und liefern Exit-Code 0 nur bei Erfolg.
+lassen, bevor du die Aufgabe als erledigt meldest. Alle Skripte beenden sich
+von selbst und liefern Exit-Code 0 nur bei Erfolg. `sim.sh --shots` nimmt acht
+Zustände auf (sieben Screens plus `first-boot`); einzeln:
+`./scripts/sim.sh --screen <name> --screenshot <datei.bmp>`.
+
+`hw-flash.sh` baut über `fw-build.sh`, flasht, liest den Boot-Log
+(`MONITOR_SECONDS`, Standard 20 s) nach `.logs/hw.log` und prüft ihn mit
+`check-boot-log.sh`: Panic, Reboot oder fehlendes `>>> BOOT_OK <<<` (Ende von
+`app_main()`) ergeben Exit 1; mit `REQUIRE_IP=1` auch fehlendes `got ip`.
 
 ## Verbotene Befehle
 
-Diese Kommandos enden nie von selbst und blockieren die Session:
-
-- `idf.py monitor` direkt — ist ein interaktives Curses-Tool und bricht ohne
-  echtes TTY sofort mit "Monitor requires standard input to be attached to
-  TTY" ab. Für den Emulator stattdessen `./scripts/emu-test.sh` (Log in
-  `.logs/emu-test.log`), für echte Hardware `./scripts/hw-flash.sh` (Log in
-  `.logs/hw.log`) — beide lesen den Log non-interaktiv mit Timeout.
-- `esp-emu` direkt ohne `--timeout` — immer über `./scripts/emu-test.sh`
-- `./scripts/sim.sh` ohne `--screenshot` — das öffnet ein Fenster und läuft, bis
-  ich es schließe. Der interaktive Simulator ist für mich; du nimmst
-  `--screenshot <datei.bmp>`, das beendet sich von selbst.
-
-Flashen auf echte Hardware (Peripherie-Änderungen, Kamera, Display-Timing,
-alles was der Emulator nicht abdeckt) läuft über `./scripts/hw-flash.sh
-[/dev/ttyACM0]` — das Skript baut aus `build/`, flasht und liest danach den
-rohen Boot-Log mit festem Timeout (`MONITOR_SECONDS`, Standard 20s), ohne
-`idf.py monitor` zu benutzen. Direktes `idf.py flash` bleibt außerhalb dieses
-Skripts tabu — nur der Wrapper mit Timeout ist erlaubt, damit die Session
-garantiert nicht an einem hängenden Monitor blockiert.
-
-Ebenfalls nicht selbst ausführen:
-
-- `idf.py set-target` — löscht das Build-Verzeichnis und erzwingt einen
-  Full-Rebuild. Die Skripte machen das genau einmal.
-- `idf.py fullclean` oder `rm -rf build*` — nur auf ausdrückliche Ansage.
+| Befehl | Grund | Stattdessen |
+|---|---|---|
+| `idf.py monitor` | interaktiv, bricht ohne TTY ab, blockiert die Session | `./scripts/hw-flash.sh` |
+| `idf.py flash` direkt | kein Timeout beim anschließenden Lesen | `./scripts/hw-flash.sh` |
+| `idf.py set-target` | löscht das Build-Verzeichnis | die Skripte machen das einmal selbst |
+| `idf.py fullclean`, `rm -rf build*` | erzwingt Full-Rebuild | nur auf ausdrückliche Ansage |
+| `./scripts/sim.sh` ohne `--shots`/`--screenshot` | öffnet ein Fenster, läuft bis zum Schließen | `--shots` oder `--screenshot` |
+| `git push` ohne Rückfrage, `git push --force`, `scripts/gh-push.sh` | Push nur mit Zustimmung, Merge macht der Mensch | vorher fragen und den Branch nennen, dann `git push` |
 
 ## Build-Verzeichnisse
 
@@ -52,59 +48,70 @@ Ebenfalls nicht selbst ausführen:
 |---|---|---|
 | `host_test/build-linux/` | Host-Unit-Tests, Linux-Target | `host-test.sh` |
 | `sim/build-sim/` | LVGL-Simulator, natives CMake ohne IDF | `sim.sh` |
-| `build-emu/` | Firmware mit Emulator-sdkconfig (ROM-Rev 0) | `emu-test.sh` |
-| `build/` | flashbare Firmware für echte Hardware | Mensch |
+| `build/` | flashbare Firmware | ausschließlich `fw-build.sh` und `hw-flash.sh` |
 
-Nicht mischen. Kein `-B` von Hand. Die Konfigurationen unterscheiden sich
-(`sdkconfig.defaults.emu`), ein gemeinsames Build-Verzeichnis liefert falsche
-Ergebnisse.
+Nicht mischen, kein `-B` von Hand. Das generierte `sdkconfig` (gitignored)
+überschreibt `sdkconfig.defaults`: Nach einer Änderung dort prüfen, ob der Wert
+im `sdkconfig` angekommen ist, und ihn sonst dort von Hand nachziehen.
 
-## Logs
+## Logs und Umgebung
 
-Alle Läufe schreiben nach `.logs/`. Bei einem Fehlschlag zuerst
-`.logs/host-test.log` bzw. `.logs/emu-test.log` lesen, nicht blind neu starten.
-Die Skripte geben nur die letzten Zeilen aus, das vollständige Log steht in der
-Datei.
+Alle Läufe schreiben nach `.logs/` (`host-test.log`, `fw-build.log`, `hw.log`,
+jeweils mit Build). Bei einem Fehlschlag zuerst das Log lesen, nicht blind neu
+starten.
 
-## Umgebung
-
-Die Skripte sourcen `$IDF_PATH/export.sh` selbst, wenn `idf.py` fehlt. Du musst
-das nie manuell tun und keine `source`-Zeile in einen Befehl einbauen. Falls ein
-Skript mit Exit-Code 127 abbricht, fehlt ESP-IDF oder `esp-emu` **in dieser
-Shell** — bevor du das als "nicht installiert" meldest, zuerst in derselben
-Bash-Aufruf-Zeile aktivieren:
-
-```sh
-source ~/.espressif/tools/activate_idf_v6.1.sh
-```
-
-ESP-IDF liegt unter `~/.espressif`, nicht unter `$IDF_PATH`/`~/esp`, und ist
-nicht auf PATH. Shell-Zustand persistiert nicht zwischen Bash-Aufrufen, also
-muss das Sourcen im selben Aufruf wie das eigentliche Skript stehen (`source
-~/.espressif/tools/activate_idf_v6.1.sh && ./scripts/emu-test.sh`). Erst wenn
-das Skript danach immer noch mit Exit-Code 127 abbricht, fehlt ESP-IDF oder
-`esp-emu` tatsächlich — das dann melden, statt Workarounds zu bauen.
+Die Skripte richten ESP-IDF selbst ein (`scripts/lib/idf-env.sh`): zuerst
+`~/.espressif/tools/activate_idf_v6.1.sh` (überschreibbar per `IDF_ACTIVATE`),
+sonst `$IDF_PATH/export.sh`. Kein `source` in Befehle einbauen. Exit-Code 127
+heißt: ESP-IDF fehlt — melde das, statt Workarounds zu bauen.
 
 ## Codeorganisation
 
 `components/app_logic/` ist hardwarefrei: keine IDF-Header, kein `driver/`, kein
-`freertos/`, keine Register. Zeit und I/O kommen über die Callback-Struktur
-`app_logic_io_t` herein. Alles hier ist auf dem Host testbar und wird auch dort
-getestet.
+`freertos/`, keine Register. Zeit und I/O kommen über Callback-Strukturen herein
+(z. B. `storage_backend_t`). Alles hier ist auf dem Host testbar und wird dort
+getestet. `main/` fasst Hardware an und wird nicht host-getestet. Warnungen in
+`main/` und `components/app_logic/` sind Fehler (`-Werror`).
 
-`main/` und die `hal_*`-Komponenten fassen Hardware an und werden nicht
-host-getestet.
+**Neue Logik gehört nach `app_logic`.** Zustandslogik, Parsing,
+Protokollbehandlung oder Fehlerentscheidungen nicht in `main/` schreiben,
+sondern nach `app_logic` ziehen und in `main/` nur Adapter lassen. Geht das
+nicht, sag warum, bevor du es anders machst.
 
-**Neue Logik gehört nach `app_logic`.** Wenn du Zustandslogik, Parsing,
-Protokollbehandlung oder Fehlerentscheidungen in `main/` schreiben willst, zieh
-sie stattdessen nach `app_logic` und lass `main/` nur die Adapter halten. Wenn
-das nicht geht, sag warum, bevor du es anders machst.
+**Kommentare im Quellcode sind immer auf Englisch**, auch beim Überarbeiten
+bestehender Zeilen. Einen bestehenden deutschen Kommentar nicht extra suchen
+und umschreiben, wenn die Datei sonst nicht angefasst wird.
 
-**Kommentare im Quellcode sind immer auf Englisch** — unabhängig davon, dass
-diese Datei und viele Chat-Antworten auf Deutsch sind. Gilt für neue
-Kommentare und beim Überarbeiten bestehender Zeilen; ein bestehender
-deutscher Kommentar wird nicht extra gesucht und umgeschrieben, wenn die
-Datei sonst nicht angefasst wird.
+## Konstanten
+
+- Keine nackten Zahlenwerte in neuem Code außer 0, 1, -1 und offensichtlichen
+  Einheitenumrechnungen. Bestehende Literale nur in eigenen Refactoring-Paketen
+  benennen, nicht nebenbei in einem fachlichen Commit.
+- Name nach Bedeutung, nicht nach Wert; Einheit als Suffix (`_MS`, `_US`, `_S`,
+  `_BYTES`, `_HZ`, `_DBM`, `_PCT`).
+- Werte, die eine API schon definiert (Puffergrößen, HTTP-Status), ableiten
+  statt neu tippen.
+- Nur in einer Datei genutzt → oben in der `.c`; mehrfach genutzt →
+  gemeinsamer Header, nie doppelt definieren.
+- Bei unklarer Bedeutung nicht raten, sondern fragen.
+
+## Projektregeln
+
+- **UI-Werte:** Farben, Abstände und Radien kommen aus dem Nocturne-Designsystem
+  (`design/src/nocturne/`, extrahiert mit `tools/extract-design.mjs`). Keine
+  Werte frei erfinden.
+- **`managed_components/`** ist gitignored und wird nie direkt geändert. Nötige
+  Änderungen als Patch in `patches/` mit Eintrag in `patches/README.md`; nach
+  jeder Neuauflösung der Abhängigkeiten erneut anwenden (aktuell
+  `esp_hosted_sdio_reserve.patch`).
+- **C6 / ESP-Hosted:** Host `espressif/esp_hosted` `3.0.*`
+  (`main/idf_component.yml`), Slave-Firmware 3.0.7
+  (`scripts/c6_firmware_via_UART/binaries_v3.0.7`). Beide Versionen müssen
+  zusammenpassen (siehe Release-Workflow). Den C6 flasht nur der Mensch.
+  Änderungen an der ESP-Hosted-Anbindung immer als „braucht Hardwaretest"
+  melden.
+- **`version.txt`** wird von Hand gepflegt und vom Release-Workflow gelesen;
+  nicht ungefragt ändern.
 
 ## Grenzen der Testebenen
 
@@ -113,28 +120,26 @@ Timing, Interrupts, Cache- und PSRAM-Verhalten, DMA, Stackgrößen,
 Speicherausrichtung, echte Nebenläufigkeit. Der FreeRTOS-POSIX-Simulator läuft
 single-core, auch mit SMP-Konfiguration.
 
-Der Emulator deckt CPU, Speicher, UART, GPIO, Timer, CLIC, eFuse, SPI-Flash,
-GDMA, EMAC und Krypto ab. Er deckt **nicht** ab: LP-Core, PSRAM-Timing (nur als
-Zero-Init-RAM hinterlegt), MIPI-DSI, PPA, H.264, PTP und alle angeschlossene
-Peripherie.
-
-Alles unterhalb von display_port_dsi.c ist im Emulator nicht testbar und wird dort auch nicht gebaut. Änderungen an DSI-Init, Panel-Timings oder PPA-Nutzung meldest du mir als "braucht Hardwaretest", statt sie über emu-test.sh zu prüfen. Neuer Zeichencode gehört oberhalb von display_port_t, damit er im MEMBUF-Backend läuft.
-
 Der Simulator (`sim/`) zeigt echtes LVGL-Rendering derselben UI-Quellen in
 derselben Auflösung und Farbtiefe, aber gegen einen SDL-Softwarepfad. Er deckt
 **nicht** ab: DSI-Timing, PPA-Rotation, Tear-Avoid-Modus, LVGL-Puffergrößen,
 PSRAM-Durchsatz und das Farbverhalten des echten Panels. Layout, Typografie,
 Farben, Zustandslogik der Screens und die Callback-Reihenfolge deckt er ab.
 
-Aus grünen Host- oder Emulator-Tests folgt also nicht, dass es auf dem Board
-läuft. Schreib das in deine Zusammenfassung dazu, wenn die Änderung Hardware
-berührt.
+Es gibt keinen Emulator, der DSI, PPA, Touch, PSRAM-Timing oder ESP-Hosted
+abbildet. Keinen vorschlagen oder einrichten.
 
+Änderungen aus den Testleiter-Zeilen „Peripherie …" und „WLAN-Wiederherstellung"
+gelten erst mit grünem `hw-flash.sh` bzw. `hil-outage-test.sh` als erledigt.
+Ohne Board: „ungetestet auf Hardware" ausdrücklich in die Zusammenfassung.
 
+## Reviews, Git und Sprache
 
-## Marker
-
-Die Firmware druckt am Ende des Selbsttests `>>> SELFTEST_OK <<<` oder
-`>>> SELFTEST_FAIL <<<`. `emu-test.sh` wertet genau diese Strings aus. Erweitere
-für neue Integrationstests die Funktion `run_selftest()` in `main/selftest.c` und
-lass die Marker unverändert.
+- Reviews nur vorschlagen, erst auf Ansage starten: `lvgl-reviewer` nach einem
+  fertigen Screen oder Treiber, `firmware-auditor` mit genau einer Fehlerklasse
+  aus `experiments/AUDIT.md` pro Lauf, Skill `comments-cleanup` für gezielte
+  Dateien. Berichte als `review/<thema>-<JJJJ-MM-TT>.md`.
+- Auf Feature-Branches selbst committen. Pushen nur nach Rückfrage, in der der
+  Branch genannt wird (z. B. „`chore/x` nach `origin` pushen?"); kein
+  Force-Push, kein Merge. Commits englisch,
+  kurz, im Imperativ („Name HTTP timeouts"); Berichte an den Menschen deutsch.

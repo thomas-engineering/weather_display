@@ -2,11 +2,19 @@
   "permissions": {
     "allow": [
       "Bash(./scripts/hw-flash.sh:*)",
+      "Bash(./scripts/fw-build.sh:*)",
       "Bash(./scripts/host-test.sh:*)",
-      "Bash(./scripts/emu-test.sh:*)",
+      "Bash(./scripts/check-boot-log.sh:*)",
+      "Bash(./scripts/test-check-boot-log.sh:*)",
+      "Bash(./scripts/hil-outage-test.sh:*)",
+      "Bash(./scripts/sim.sh --shots:*)",
       "Bash(git status:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git switch:*)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
+      "Bash(git checkout -b:*)",
       "Bash(rg:*)",
       "Bash(grep:*)",
       "Bash(tail:*)",
@@ -18,14 +26,8 @@
       "Bash(idf.py flash:*)",
       "Bash(idf.py set-target:*)",
       "Bash(idf.py fullclean:*)",
-      "Bash(esp-emu:*)",
       "Bash(esptool.py:*)"
     ]
-  },
-
-  "statusLine": {
-    "type": "command",
-    "command": "bash ~/.claude/statusline-command.sh"
   }
 }
 
