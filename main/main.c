@@ -400,4 +400,7 @@ void app_main(void) {
             bsp_display_unlock();
         }
     }
+
+    /* Parsed by scripts/check-boot-log.sh; do not change. */
+    ESP_LOGI(TAG, ">>> BOOT_OK <<<");
 }
