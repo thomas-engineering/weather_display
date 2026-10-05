@@ -55,6 +55,19 @@ static app_light_unavailable_cb_t s_unavailable_cb;
 static int s_stream_fail_count;
 static int s_stream_retry_skip_ticks;
 #define STREAM_GIVEUP_FAILS 40
+/* Retry stagger after a failed stream start, in sample ticks
+ * (SAMPLE_INTERVAL_MS apart): every tick up to STREAM_RETRY_FAST_FAILS
+ * failures (~25 s), every 6th tick up to STREAM_RETRY_MEDIUM_FAILS (~30 s
+ * apart), every 60th tick after that (~5 min apart) until giving up. */
+#define STREAM_RETRY_FAST_FAILS        5
+#define STREAM_RETRY_MEDIUM_FAILS      15
+#define STREAM_RETRY_MEDIUM_SKIP_TICKS 5
+#define STREAM_RETRY_SLOW_SKIP_TICKS   59
+
+#define CAMERA_SCCB_FREQ_HZ 100000
+#define LIGHT_TASK_STACK_BYTES 4096
+#define LIGHT_TASK_PRIO 3
+#define LIGHT_TASK_CORE 0
 static light_policy_t s_policy;
 static TaskHandle_t s_task;
 
@@ -71,7 +84,7 @@ static volatile bool s_deinit_requested;
 /* RGB565, little-endian, sampled at a stride rather than every pixel — a
  * coarse ambient-brightness estimate doesn't need full-resolution accuracy. */
 static uint8_t average_luma(const uint8_t *buf, size_t len) {
-    size_t count = len / 2;
+    size_t count = len / sizeof(uint16_t);
     if (count == 0) return 0;
     const uint16_t *px = (const uint16_t *)buf;
     size_t step = count / SAMPLE_POINTS;
@@ -308,12 +321,10 @@ static void light_sensor_task(void *arg) {
                     if (s_unavailable_cb) s_unavailable_cb();
                     continue;
                 }
-                /* Stagger: every tick for the first 5 failures (~25s), every
-                 * 6th tick up to 15 (~30s apart), every 60th tick after that
-                 * (~5min apart) until giving up entirely. */
-                s_stream_retry_skip_ticks = (s_stream_fail_count <= 5) ? 0
-                                          : (s_stream_fail_count <= 15) ? 5
-                                          : 59;
+                s_stream_retry_skip_ticks = (s_stream_fail_count <= STREAM_RETRY_FAST_FAILS) ? 0
+                                          : (s_stream_fail_count <= STREAM_RETRY_MEDIUM_FAILS)
+                                                ? STREAM_RETRY_MEDIUM_SKIP_TICKS
+                                                : STREAM_RETRY_SLOW_SKIP_TICKS;
                 ESP_LOGW(TAG, "failed to start capture stream (%d in a row), next retry in ~%ds",
                          s_stream_fail_count, (s_stream_retry_skip_ticks + 1) * (SAMPLE_INTERVAL_MS / 1000));
                 continue;
@@ -346,7 +357,7 @@ bool app_light_init(i2c_master_bus_handle_t i2c_bus) {
         .sccb_config = {
             .init_sccb = false,
             .i2c_handle = i2c_bus,
-            .freq = 100000,
+            .freq = CAMERA_SCCB_FREQ_HZ,
         },
         .reset_pin = -1,
         .pwdn_pin = -1,
@@ -390,7 +401,8 @@ bool app_light_init(i2c_master_bus_handle_t i2c_bus) {
     if (!s_task_mutex) s_task_mutex = xSemaphoreCreateMutex();
     if (!s_deinit_done) s_deinit_done = xSemaphoreCreateBinary();
     s_deinit_requested = false;
-    xTaskCreatePinnedToCore(light_sensor_task, "light_sensor", 4096, NULL, 3, &s_task, 0);
+    xTaskCreatePinnedToCore(light_sensor_task, "light_sensor", LIGHT_TASK_STACK_BYTES, NULL, LIGHT_TASK_PRIO, &s_task,
+                            LIGHT_TASK_CORE);
     return true;
 }
 
