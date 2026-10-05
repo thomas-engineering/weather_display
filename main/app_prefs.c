@@ -1,4 +1,6 @@
 #include "app_prefs.h"
+#include "auto_refresh_options.h"
+#include "light_policy.h"
 #include "sdkconfig.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -12,6 +14,16 @@ static const char *TAG = "prefs";
 static const char *NS = "weather";
 #define RECORD_KEY "prefs"
 #define RECORD_VERSION 3 /* bumped for ota_auto_update/ota_update_coprocessor (2026-09-19 sync) */
+/* Older layouts still migrated on load. */
+#define RECORD_VERSION_V1 1
+#define RECORD_VERSION_V2 2
+
+/* Legacy scalar NVS keys stored coordinates as degrees * 10^4. */
+#define LEGACY_COORD_SCALE 10000.0f
+#define MILLIDEG_PER_DEG 1000.0f
+
+#define BRIGHTNESS_DEFAULT_PCT LIGHT_POLICY_BRIGHTNESS_MAX
+#define PREFS_SAVE_DEBOUNCE_US (50 * 1000)
 
 static app_prefs_t s_prefs;
 
@@ -32,7 +44,7 @@ typedef struct __attribute__((packed)) {
     uint8_t lang, temp_unit, wind_unit, time_fmt;
     uint8_t brightness;
     uint8_t brightness_adaptive;
-    uint8_t auto_refresh_idx; /* 0=off,1=15,2=30,3=60 — index not minutes, so it fits a uint8 like its siblings */
+    uint8_t auto_refresh_idx; /* index into k_auto_refresh_values, not minutes, so it fits a uint8 like its siblings */
     uint8_t ota_auto_update;
     uint8_t ota_update_coprocessor;
 } prefs_payload_t;
@@ -63,17 +75,19 @@ typedef struct __attribute__((packed)) {
 } prefs_payload_v2_t;
 
 static int auto_refresh_idx_to_minutes(uint8_t idx) {
-    static const int minutes[4] = { 0, 15, 30, 60 };
-    return minutes[idx < 4 ? idx : 2];
+    return k_auto_refresh_values[idx < AUTO_REFRESH_OPTION_COUNT ? idx : AUTO_REFRESH_DEFAULT_IDX];
+}
+
+static bool auto_refresh_minutes_valid(int minutes) {
+    for (int i = 0; i < AUTO_REFRESH_OPTION_COUNT; i++)
+        if (k_auto_refresh_values[i] == minutes) return true;
+    return false;
 }
 
 static uint8_t auto_refresh_minutes_to_idx(int minutes) {
-    switch (minutes) {
-        case 0: return 0;
-        case 15: return 1;
-        case 60: return 3;
-        default: return 2; /* 30, and any unexpected value */
-    }
+    for (int i = 0; i < AUTO_REFRESH_OPTION_COUNT; i++)
+        if (k_auto_refresh_values[i] == minutes) return (uint8_t)i;
+    return AUTO_REFRESH_DEFAULT_IDX; /* any unexpected value */
 }
 
 static void get_str(nvs_handle_t h, const char *key, char *dst, size_t cap) {
@@ -106,8 +120,8 @@ static void migrate_from_legacy_keys(void) {
     if (buf[0]) memcpy(s_prefs.country, buf, sizeof buf);
 
     int32_t v;
-    if (nvs_get_i32(h, "lat_e4", &v) == ESP_OK) s_prefs.lat = (float)v / 10000.0f;
-    if (nvs_get_i32(h, "lon_e4", &v) == ESP_OK) s_prefs.lon = (float)v / 10000.0f;
+    if (nvs_get_i32(h, "lat_e4", &v) == ESP_OK) s_prefs.lat = (float)v / LEGACY_COORD_SCALE;
+    if (nvs_get_i32(h, "lon_e4", &v) == ESP_OK) s_prefs.lon = (float)v / LEGACY_COORD_SCALE;
 
     int tmp;
     tmp = s_prefs.lang;       get_u8(h, "lang", &tmp);       s_prefs.lang = (weather_lang_t)tmp;
@@ -123,15 +137,15 @@ void app_prefs_load(app_prefs_t *out) {
     /* Kconfig defaults first, so a blank/corrupt record still yields a usable city. */
     snprintf(s_prefs.name, sizeof s_prefs.name, "%s", CONFIG_WEATHER_DEFAULT_CITY_NAME);
     snprintf(s_prefs.country, sizeof s_prefs.country, "%s", CONFIG_WEATHER_DEFAULT_CITY_COUNTRY);
-    s_prefs.lat = (float)CONFIG_WEATHER_DEFAULT_LAT_MILLIDEG / 1000.0f;
-    s_prefs.lon = (float)CONFIG_WEATHER_DEFAULT_LON_MILLIDEG / 1000.0f;
+    s_prefs.lat = (float)CONFIG_WEATHER_DEFAULT_LAT_MILLIDEG / MILLIDEG_PER_DEG;
+    s_prefs.lon = (float)CONFIG_WEATHER_DEFAULT_LON_MILLIDEG / MILLIDEG_PER_DEG;
     s_prefs.lang = LANG_EN;
     s_prefs.temp_unit = WX_UNIT_C;
     s_prefs.wind_unit = WX_WIND_KMH;
     s_prefs.time_fmt = WX_TIME_24;
-    s_prefs.brightness = 100;
+    s_prefs.brightness = BRIGHTNESS_DEFAULT_PCT;
     s_prefs.brightness_adaptive = false;
-    s_prefs.auto_refresh_minutes = 30; /* matches the design's initial autoRefreshMinutes */
+    s_prefs.auto_refresh_minutes = k_auto_refresh_values[AUTO_REFRESH_DEFAULT_IDX]; /* matches the design's initial autoRefreshMinutes */
     s_prefs.ota_auto_update = true; /* matches the design's initial otaAutoUpdate */
     s_prefs.ota_update_coprocessor = false; /* matches the design's initial otaUpdateCoprocessor */
 
@@ -152,7 +166,7 @@ void app_prefs_load(app_prefs_t *out) {
         s_prefs.auto_refresh_minutes = auto_refresh_idx_to_minutes(p.auto_refresh_idx);
         s_prefs.ota_auto_update = p.ota_auto_update != 0;
         s_prefs.ota_update_coprocessor = p.ota_update_coprocessor != 0;
-    } else if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, 2, &p2, sizeof p2)) {
+    } else if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, RECORD_VERSION_V2, &p2, sizeof p2)) {
         /* A device already on RECORD_VERSION 2 (pre-OTA-settings) — migrate
          * its record instead of falling through to migrate_from_legacy_keys(),
          * same reasoning as the v1 branch below. ota_auto_update/
@@ -181,7 +195,7 @@ void app_prefs_load(app_prefs_t *out) {
         memcpy(np.name, s_prefs.name, sizeof np.name);
         memcpy(np.country, s_prefs.country, sizeof np.country);
         storage_record_save(&storage_backend_nvs, NS, RECORD_KEY, RECORD_VERSION, &np, sizeof np);
-    } else if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, 1, &p1, sizeof p1)) {
+    } else if (storage_record_load(&storage_backend_nvs, NS, RECORD_KEY, RECORD_VERSION_V1, &p1, sizeof p1)) {
         /* A device already on RECORD_VERSION 1 (pre-auto-refresh) — migrate its
          * record instead of falling through to migrate_from_legacy_keys(),
          * which only understands the older pre-record scalar keys and would
@@ -241,9 +255,10 @@ void app_prefs_load(app_prefs_t *out) {
     if (s_prefs.temp_unit > WX_UNIT_F) s_prefs.temp_unit = WX_UNIT_C;
     if (s_prefs.wind_unit > WX_WIND_MS) s_prefs.wind_unit = WX_WIND_KMH;
     if (s_prefs.time_fmt > WX_TIME_12) s_prefs.time_fmt = WX_TIME_24;
-    if (s_prefs.brightness < 7 || s_prefs.brightness > 100) s_prefs.brightness = 100;
-    if (s_prefs.auto_refresh_minutes != 0 && s_prefs.auto_refresh_minutes != 15 &&
-        s_prefs.auto_refresh_minutes != 30 && s_prefs.auto_refresh_minutes != 60) s_prefs.auto_refresh_minutes = 30;
+    if (s_prefs.brightness < LIGHT_POLICY_BRIGHTNESS_MIN || s_prefs.brightness > LIGHT_POLICY_BRIGHTNESS_MAX)
+        s_prefs.brightness = BRIGHTNESS_DEFAULT_PCT;
+    if (!auto_refresh_minutes_valid(s_prefs.auto_refresh_minutes))
+        s_prefs.auto_refresh_minutes = k_auto_refresh_values[AUTO_REFRESH_DEFAULT_IDX];
 
     ESP_LOGI(TAG, "city=%s,%s (%.4f,%.4f) lang=%d", s_prefs.name, s_prefs.country,
              s_prefs.lat, s_prefs.lon, (int)s_prefs.lang);
@@ -275,7 +290,7 @@ static void persist_prefs_cb(void *arg) {
 }
 
 static void request_save(void) {
-    save_debounce_fire(&s_save_timer, "prefs_save", persist_prefs_cb, 50 * 1000 /* 50ms, in us */);
+    save_debounce_fire(&s_save_timer, "prefs_save", persist_prefs_cb, PREFS_SAVE_DEBOUNCE_US);
 }
 
 void app_prefs_save_city(const char *name, const char *country, float lat, float lon) {

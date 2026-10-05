@@ -17,6 +17,10 @@
 #include "weather_icons.h"
 #include "ui_fonts.h"
 #include "weather_chart.h"
+/* FIX: auto-refresh table shared with app_prefs.c, which persists its index. */
+#include "auto_refresh_options.h"
+/* FIX: brightness range shared with app_prefs.c and the ambient-light policy. */
+#include "light_policy.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -1514,11 +1518,10 @@ static void on_seg_temp(int idx, void *user) { LV_UNUSED(user); ui.temp_unit = (
 static void on_seg_wind(int idx, void *user) { LV_UNUSED(user); ui.wind_unit = (wx_wind_unit_t)idx; notify_settings_changed(); }
 static void on_seg_time(int idx, void *user) { LV_UNUSED(user); ui.time_fmt = (wx_time_fmt_t)idx; notify_settings_changed(); }
 /* Synced from Claude Design 2026-09-12: Off/15/30/60 min, index maps directly
- * to k_auto_refresh_values below. */
-static const int k_auto_refresh_values[4] = { 0, 15, 30, 60 };
+ * to k_auto_refresh_values. FIX: the table now lives in auto_refresh_options.h. */
 static void on_seg_auto_refresh(int idx, void *user) {
     LV_UNUSED(user);
-    if (idx < 0 || idx >= 4) return;
+    if (idx < 0 || idx >= AUTO_REFRESH_OPTION_COUNT) return;
     ui.auto_refresh_minutes = k_auto_refresh_values[idx];
     notify_settings_changed();
 }
@@ -1602,7 +1605,7 @@ void weather_ui_set_auto_refresh(int minutes) {
     ui.auto_refresh_minutes = minutes;
     if (!ui.seg_auto[0]) return;
     int idx = 2; /* default to 30 if an unexpected value ever arrives */
-    for (int i = 0; i < 4; i++) if (k_auto_refresh_values[i] == minutes) idx = i;
+    for (int i = 0; i < AUTO_REFRESH_OPTION_COUNT; i++) if (k_auto_refresh_values[i] == minutes) idx = i;
     for (int i = 0; i < 4; i++) lv_obj_set_style_bg_opa(ui.seg_auto[i], i == idx ? LV_OPA_20 : LV_OPA_TRANSP, 0);
 }
 
@@ -1892,7 +1895,7 @@ static void build_settings_panel(lv_obj_t *parent) {
     const char *auto_labels_l[4] = { weather_strings[ui.lang].auto_off, weather_strings[ui.lang].auto_15,
                                       weather_strings[ui.lang].auto_30, weather_strings[ui.lang].auto_60 };
     int auto_idx = 2;
-    for (int i = 0; i < 4; i++) if (k_auto_refresh_values[i] == ui.auto_refresh_minutes) auto_idx = i;
+    for (int i = 0; i < AUTO_REFRESH_OPTION_COUNT; i++) if (k_auto_refresh_values[i] == ui.auto_refresh_minutes) auto_idx = i;
     lv_obj_t *f6 = field_wrap(ui.settings_panel, weather_strings[ui.lang].auto_refresh);
     seg_create(f6, auto_labels_l, 4, auto_idx, on_seg_auto_refresh, NULL, ui.seg_auto);
 
@@ -1914,7 +1917,7 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_remove_flag(slider_wrap, LV_OBJ_FLAG_SCROLLABLE);
     ui.brightness_slider = lv_slider_create(slider_wrap);
     lv_obj_set_width(ui.brightness_slider, LV_PCT(100));
-    lv_slider_set_range(ui.brightness_slider, 7, 100);
+    lv_slider_set_range(ui.brightness_slider, LIGHT_POLICY_BRIGHTNESS_MIN, LIGHT_POLICY_BRIGHTNESS_MAX);
     lv_slider_set_value(ui.brightness_slider, ui.brightness, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(ui.brightness_slider, C_NEUTRAL_800, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(ui.brightness_slider, LV_OPA_COVER, LV_PART_MAIN);

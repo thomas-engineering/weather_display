@@ -3,6 +3,16 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* "Feels cooler/warmer" once apparent and actual temperature differ by this
+ * much; rain/breeze suffix from these precipitation and wind levels. */
+#define REAL_FEEL_DIFF_C      3.0f
+#define REAL_FEEL_RAIN_PCT    50
+#define REAL_FEEL_BREEZY_KMH  30.0f
+
+/* ISO 8601 pieces: "YYYY-MM-DD", and "HH:MM" after the 'T'. */
+#define ISO_DATE_LEN 10
+#define ISO_HHMM_LEN 5
+
 /* Weekday/month names and the "real feel" sentence fragments used below live
  * in weather_i18n.c (weather_wday_short / weather_mon_short / weather_real_feel)
  * alongside every other translated string, not duplicated here. */
@@ -54,11 +64,11 @@ void fmt_real_feel(char *out, size_t n, float apparent_c, float actual_c,
                    float wind_kmh, int precip_prob, weather_lang_t lang) {
     lang = clamp_lang(lang);
     float diff = apparent_c - actual_c;
-    const char *base = (diff <= -3.0f) ? weather_real_feel[lang].cooler
-                     : (diff >=  3.0f) ? weather_real_feel[lang].warmer
+    const char *base = (diff <= -REAL_FEEL_DIFF_C) ? weather_real_feel[lang].cooler
+                     : (diff >=  REAL_FEEL_DIFF_C) ? weather_real_feel[lang].warmer
                                        : weather_real_feel[lang].same;
-    const char *tail = (precip_prob >= 50) ? weather_real_feel[lang].rain
-                     : (wind_kmh >= 30.0f) ? weather_real_feel[lang].breezy
+    const char *tail = (precip_prob >= REAL_FEEL_RAIN_PCT) ? weather_real_feel[lang].rain
+                     : (wind_kmh >= REAL_FEEL_BREEZY_KMH) ? weather_real_feel[lang].breezy
                                            : "";
     snprintf(out, n, "%s%s", base, tail);
 }
@@ -67,7 +77,7 @@ void fmt_iso_time(char *out, size_t n, const char *iso, wx_time_fmt_t fmt) {
     out[0] = '\0';
     if (!iso) return;
     const char *t = strchr(iso, 'T');
-    if (!t || strlen(t + 1) < 5) return;
+    if (!t || strlen(t + 1) < ISO_HHMM_LEN) return;
     int h, m;
     if (sscanf(t + 1, "%2d:%2d", &h, &m) != 2) return;
     struct tm tm0 = {0};
@@ -88,6 +98,8 @@ void fmt_time_ago(char *out, size_t n, time_t last_success, time_t now, weather_
     else snprintf(out, n, weather_strings[lang].data_updated_ago_hour, (int)((diff_min + 30) / 60));
 }
 
+/* WHO UV index scale: low 0-2, moderate 3-5, high 6-7, very high 8-10,
+ * extreme 11+. */
 const char *uv_category(bool has_value, float uv, weather_lang_t lang) {
     lang = clamp_lang(lang);
     if (!has_value) return "";
@@ -98,6 +110,9 @@ const char *uv_category(bool has_value, float uv, weather_lang_t lang) {
     return weather_strings[lang].uv_extreme;
 }
 
+/* US EPA AQI categories: good 0-50, moderate 51-100, unhealthy for
+ * sensitive groups 101-150, unhealthy 151-200, very unhealthy 201-300,
+ * hazardous 301+. */
 const char *aqi_category(bool has_value, int aqi, weather_lang_t lang) {
     lang = clamp_lang(lang);
     if (!has_value) return "";
@@ -110,7 +125,7 @@ const char *aqi_category(bool has_value, int aqi, weather_lang_t lang) {
 }
 
 bool parse_iso_date(const char *s, struct tm *out) {
-    if (!s || strlen(s) < 10) return false;
+    if (!s || strlen(s) < ISO_DATE_LEN) return false;
     int y, m, d;
     if (sscanf(s, "%4d-%2d-%2d", &y, &m, &d) != 3) return false;
     memset(out, 0, sizeof(*out));

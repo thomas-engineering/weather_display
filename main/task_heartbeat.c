@@ -15,11 +15,15 @@ typedef struct {
  * bounds a single do_refresh()/Wi-Fi op by NETWORK_MUTEX_TIMEOUT_MS (60s) plus
  * a couple of 15s HTTP timeouts; the OTA tasks are bounded by OTA_TOTAL_BUDGET_US
  * (10 min) plus the same mutex wait and some flash/reboot overhead. */
+#define HB_WEATHER_BUDGET_S      120
+#define HB_LIGHT_SENSOR_BUDGET_S 30
+#define HB_OTA_BUDGET_S          900
+
 static const hb_meta_t s_meta[HB_COUNT] = {
-    [HB_WEATHER]      = { "weather",      120 * 1000000LL },
-    [HB_LIGHT_SENSOR] = { "light_sensor",  30 * 1000000LL },
-    [HB_OTA]          = { "ota",          900 * 1000000LL },
-    [HB_OTA_RESUME]   = { "ota_resume",   900 * 1000000LL },
+    [HB_WEATHER]      = { "weather",      HB_WEATHER_BUDGET_S * 1000000LL },
+    [HB_LIGHT_SENSOR] = { "light_sensor", HB_LIGHT_SENSOR_BUDGET_S * 1000000LL },
+    [HB_OTA]          = { "ota",          HB_OTA_BUDGET_S * 1000000LL },
+    [HB_OTA_RESUME]   = { "ota_resume",   HB_OTA_BUDGET_S * 1000000LL },
 };
 
 static int64_t s_last_touch_us[HB_COUNT];
