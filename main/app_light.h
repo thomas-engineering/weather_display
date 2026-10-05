@@ -33,7 +33,8 @@ bool app_light_init(i2c_master_bus_handle_t i2c_bus);
 bool app_light_available(void);
 
 /* Percent within LIGHT_POLICY_BRIGHTNESS_MIN..MAX, the same range and meaning
- * as the manual brightness slider. Only fires while adaptive mode is on and a camera is available. */
+ * as the manual brightness slider. Only fires while adaptive mode is on and a
+ * camera is available. */
 typedef void (*app_light_brightness_cb_t)(int percent);
 void app_light_set_callback(app_light_brightness_cb_t cb);
 
