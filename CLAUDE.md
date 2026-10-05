@@ -92,7 +92,8 @@ und umschreiben, wenn die Datei sonst nicht angefasst wird.
 ## Konstanten
 
 - Keine nackten Zahlenwerte in neuem Code außer 0, 1, -1 und offensichtlichen
-  Einheitenumrechnungen.
+  Einheitenumrechnungen. Bestehende Literale nur in eigenen Refactoring-Paketen
+  benennen, nicht nebenbei in einem fachlichen Commit.
 - Name nach Bedeutung, nicht nach Wert; Einheit als Suffix (`_MS`, `_US`, `_S`,
   `_BYTES`, `_HZ`, `_DBM`, `_PCT`).
 - Werte, die eine API schon definiert (Puffergrößen, HTTP-Status), ableiten
@@ -141,9 +142,9 @@ Ohne Board: „ungetestet auf Hardware" ausdrücklich in die Zusammenfassung.
 
 ## Reviews, Git und Sprache
 
-- `lvgl-reviewer` nach einem fertigen Screen oder Treiber, nicht nach jeder
-  Einzeländerung; `firmware-auditor` mit genau einer Fehlerklasse aus
-  `experiments/AUDIT.md` pro Lauf. Berichte als `review/<thema>-<JJJJ-MM-TT>.md`.
-- Auf Feature-Branches arbeiten und dort selbst committen. Kein Push, kein Merge.
-- Commit-Messages auf Englisch, kurz, im Imperativ („Name HTTP timeouts").
-- Berichte an den Menschen auf Deutsch; Code-Kommentare und Commits auf Englisch.
+- Reviews nur vorschlagen, erst auf Ansage starten: `lvgl-reviewer` nach einem
+  fertigen Screen oder Treiber, `firmware-auditor` mit genau einer Fehlerklasse
+  aus `experiments/AUDIT.md` pro Lauf, Skill `comments-cleanup` für gezielte
+  Dateien. Berichte als `review/<thema>-<JJJJ-MM-TT>.md`.
+- Auf Feature-Branches selbst committen, kein Push, kein Merge. Commits englisch,
+  kurz, im Imperativ („Name HTTP timeouts"); Berichte an den Menschen deutsch.
