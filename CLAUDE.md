@@ -40,7 +40,7 @@ Zustände auf (sieben Screens plus `first-boot`); einzeln:
 | `idf.py set-target` | löscht das Build-Verzeichnis | die Skripte machen das einmal selbst |
 | `idf.py fullclean`, `rm -rf build*` | erzwingt Full-Rebuild | nur auf ausdrückliche Ansage |
 | `./scripts/sim.sh` ohne `--shots`/`--screenshot` | öffnet ein Fenster, läuft bis zum Schließen | `--shots` oder `--screenshot` |
-| `git push`, `scripts/gh-push.sh` | Push und Merge macht der Mensch | auf dem Feature-Branch committen |
+| `git push` ohne Rückfrage, `git push --force`, `scripts/gh-push.sh` | Push nur mit Zustimmung, Merge macht der Mensch | vorher fragen und den Branch nennen, dann `git push` |
 
 ## Build-Verzeichnisse
 
@@ -139,5 +139,7 @@ Ohne Board: „ungetestet auf Hardware" ausdrücklich in die Zusammenfassung.
   fertigen Screen oder Treiber, `firmware-auditor` mit genau einer Fehlerklasse
   aus `experiments/AUDIT.md` pro Lauf, Skill `comments-cleanup` für gezielte
   Dateien. Berichte als `review/<thema>-<JJJJ-MM-TT>.md`.
-- Auf Feature-Branches selbst committen, kein Push, kein Merge. Commits englisch,
+- Auf Feature-Branches selbst committen. Pushen nur nach Rückfrage, in der der
+  Branch genannt wird (z. B. „`chore/x` nach `origin` pushen?"); kein
+  Force-Push, kein Merge. Commits englisch,
   kurz, im Imperativ („Name HTTP timeouts"); Berichte an den Menschen deutsch.
