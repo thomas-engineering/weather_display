@@ -12,7 +12,8 @@
 /* esp_http_client settings shared by the Open-Meteo and OTA downloads. */
 #define HTTP_TIMEOUT_MS 15000
 #define HTTP_RX_BUFFER_BYTES 4096
-/* Starting size of a growing response buffer when Content-Length is unknown. */
+/* Starting size of a growing response buffer when Content-Length is unknown
+ * or at least the caller's cap. */
 #define HTTP_BODY_INITIAL_CAP_BYTES 8192
 
 /* NUL-terminated copies of the station credentials. */

@@ -55,7 +55,9 @@ void ota_update_reset_cancel(void) {
 #define OTA_USER_AGENT       "esp32-p4-weather-display"
 #define JSON_BUF_MAX         (32 * 1024)
 #define URL_MAX              256
-#define HTTP_MAX_REDIRECTS   5
+/* Each attempt is one request; a redirect costs one, so at most
+ * HTTP_MAX_OPEN_ATTEMPTS - 1 redirects are followed. */
+#define HTTP_MAX_OPEN_ATTEMPTS 5
 
 #define SHA256_DIGEST_BYTES PSA_HASH_LENGTH(PSA_ALG_SHA_256)
 #define SHA256_HEX_BUF_LEN  (2 * SHA256_DIGEST_BYTES + 1)
@@ -64,7 +66,8 @@ _Static_assert(SHA256_DIGEST_BYTES == 32, "SHA-256 digest size changed");
 #define SHA_READ_CHUNK_BYTES 4096
 
 /* Download progress tops out below OTA_PROGRESS_DONE_PCT, which is reserved
- * for "flashed and verified"; with no known image size, show a midpoint. */
+ * for "flashed and verified"; when image size or bytes read are unknown,
+ * show a midpoint. */
 #define OTA_PROGRESS_DOWNLOAD_MAX_PCT (OTA_PROGRESS_DONE_PCT - 1)
 #define OTA_PROGRESS_UNKNOWN_SIZE_PCT 50
 
@@ -105,7 +108,7 @@ _Static_assert(SHA256_DIGEST_BYTES == 32, "SHA-256 digest size changed");
  * so -ESP_FAIL came out as +1 and printed as the nonsensical "HTTP 1" in the
  * caller's log line instead of a clear connection-failure message. */
 static int http_open_following_redirects(esp_http_client_handle_t c) {
-    for (int redirects = 0; redirects < HTTP_MAX_REDIRECTS; redirects++) {
+    for (int attempt = 0; attempt < HTTP_MAX_OPEN_ATTEMPTS; attempt++) {
         if (esp_http_client_open(c, 0) != ESP_OK) return -1;
         esp_http_client_fetch_headers(c);
         int status = esp_http_client_get_status_code(c);
