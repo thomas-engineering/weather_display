@@ -1,4 +1,5 @@
 #include "app_weather.h"
+#include "app_config.h"
 #include "app_prefs.h"
 #include "app_favorites.h"
 #include "app_format.h"
@@ -37,10 +38,34 @@ static const char *TAG = "weather";
 
 #define HTTP_BUF_MAX     (48 * 1024)
 #define SEARCH_DEBOUNCE_MS 450
+#define SEARCH_MIN_QUERY_LEN 2
+
+#define CMD_QUEUE_DEPTH 8
+/* weather_task waits this long for a command per loop pass. The clock tick
+ * counts passes, so it fires every CLOCK_REFRESH_MS only while idle. */
+#define CMD_POLL_MS 500
+#define CLOCK_REFRESH_MS 30000
+#define CLOCK_REFRESH_TICKS (CLOCK_REFRESH_MS / CMD_POLL_MS)
+
+#define WEATHER_TASK_STACK_BYTES 8192
+#define WEATHER_TASK_PRIO 4
+#define WEATHER_TASK_CORE 0
+#define OTA_TASK_STACK_BYTES 8192
+#define OTA_TASK_PRIO 3
+#define OTA_TASK_CORE 0
+#define OTA_RESUME_TASK_STACK_BYTES 8192
+#define OTA_RESUME_TASK_PRIO 3
+#define OTA_RESUME_TASK_CORE 0
 /* Longest the boot-time fetch waits for the clock. Leaves room inside the
  * 30s "time and weather after Wi-Fi connect" budget for the fetch itself
  * and one retry. */
 #define STARTUP_SNTP_WAIT_MS 8000
+
+/* Open-Meteo's hourly series is one flat array, sliced into days. */
+#define HOURS_PER_DAY 24
+/* Hourly "time" is local ISO 8601 ("2026-09-08T14:00"): the hour starts here. */
+#define ISO_HOUR_OFFSET 11
+#define ISO_HOUR_DIGITS 2
 
 typedef enum { CMD_SEARCH, CMD_SELECT, CMD_REFRESH, CMD_RELANG, CMD_WIFI_SCAN, CMD_WIFI_CONNECT, CMD_WIFI_FORGET,
                CMD_FAV_TOGGLE, CMD_FAV_SELECT, CMD_FAV_REMOVE, CMD_OTA_START, CMD_OTA_RESUME } cmd_kind_t;
@@ -50,8 +75,8 @@ typedef struct {
     char query[64];
     int index;
     weather_lang_t lang;
-    char ssid[33];
-    char pass[65];
+    char ssid[WIFI_SSID_BUF_LEN];
+    char pass[WIFI_PASS_BUF_LEN];
     bool ota_silent; /* CMD_OTA_START only: true for the periodic auto-check, so a
                        * WX_OTA_IDLE/DOWNLOADING flicker doesn't show up on a dialog
                        * the user hasn't opened when nothing turns out to be new. */
@@ -123,6 +148,13 @@ static bool s_ota_checked_once;
  * would never check at all. */
 #define OTA_FIRST_CHECK_DELAY_MS (2 * 60 * 1000)
 
+/* After a silent update, how long to wait for open dialogs to close before
+ * rebooting anyway, and how often to look. */
+#define OTA_REBOOT_MODAL_WAIT_MAX_MS (5 * 60 * 1000)
+#define OTA_REBOOT_MODAL_POLL_MS 5000
+/* After a user-started update: long enough for "rebooting" to be visible. */
+#define OTA_REBOOT_UI_DELAY_MS 1500
+
 /* pdMS_TO_TICKS() casts to TickType_t *before* multiplying by the tick rate,
  * so at 1000 Hz anything past ~71 minutes silently wraps. The 12 hours above
  * came out as 4.17 minutes, and the device really did check that often --
@@ -173,8 +205,8 @@ static char *http_get(const char *url) {
     esp_http_client_config_t cfg = {
         .url = url,
         .crt_bundle_attach = esp_crt_bundle_attach,
-        .timeout_ms = 15000,
-        .buffer_size = 4096,
+        .timeout_ms = HTTP_TIMEOUT_MS,
+        .buffer_size = HTTP_RX_BUFFER_BYTES,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) return NULL;
@@ -203,12 +235,12 @@ static char *http_get(const char *url) {
     }
     int64_t clen = esp_http_client_fetch_headers(c);
     int status = esp_http_client_get_status_code(c);
-    if (status != 200) {
+    if (status != HttpStatus_Ok) {
         ESP_LOGE(TAG, "HTTP %d for %.80s", status, url);
         goto done;
     }
     /* Open-Meteo answers chunked, so fetch_headers() often reports -1; grow to a cap. */
-    size_t cap = (clen > 0 && clen < HTTP_BUF_MAX) ? (size_t)clen + 1 : 8192;
+    size_t cap = (clen > 0 && clen < HTTP_BUF_MAX) ? (size_t)clen + 1 : HTTP_BODY_INITIAL_CAP_BYTES;
     body = heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!body) { ESP_LOGE(TAG, "no memory for %u B body", (unsigned)cap); goto done; }
 
@@ -371,7 +403,7 @@ static wx_net_status_t net_status(void) {
  * ERROR are one-shot transitions, not steady states, so replaying a stale
  * value later would re-show a toast nothing just triggered. */
 static void apply_toast_state(void) {
-    if (!bsp_display_lock(1000)) return;
+    if (!bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) return;
     switch (s_net_status.toast) {
         case NSP_TOAST_SUCCESS: weather_ui_show_refresh_toast(true); break;
         case NSP_TOAST_ERROR:   weather_ui_show_refresh_toast(false); break;
@@ -385,7 +417,7 @@ static void ui_error(const char *msg, bool is_manual) {
     bool stale = s_last_success == 0 || (time(NULL) - s_last_success) > STALE_AFTER_SEC;
     char ip[16] = "", dns[16] = "", gw[16] = "";
     bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
-    if (display_lock_timed(1000, "ui_error")) {
+    if (display_lock_timed(DISPLAY_LOCK_TIMEOUT_MS, "ui_error")) {
         weather_ui_set_loading(false);
         weather_ui_set_error(msg);
         weather_ui_set_network_status(net_status());
@@ -421,7 +453,8 @@ static void push_forecast_to_ui(bool full) {
     struct tm lt;
     gmtime_r(&local, &lt);
 
-    char time_str[16], date_str[32]; /* match weather_current_t's time_str/date_str sizes exactly */
+    char time_str[sizeof(((weather_current_t *)0)->time_str)];
+    char date_str[sizeof(((weather_current_t *)0)->date_str)];
     fmt_time(time_str, sizeof time_str, &lt, p->time_fmt);
     fmt_date(date_str, sizeof date_str, &lt, lang);
 
@@ -430,7 +463,7 @@ static void push_forecast_to_ui(bool full) {
     bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
 
     if (!full) {
-        if (!display_lock_timed(1000, "push_forecast_to_ui/!full")) return;
+        if (!display_lock_timed(DISPLAY_LOCK_TIMEOUT_MS, "push_forecast_to_ui/!full")) return;
         weather_ui_set_clock(time_str, date_str);
         weather_ui_set_network_status(net_status());
         weather_ui_set_data_stale(stale);
@@ -482,7 +515,7 @@ static void push_forecast_to_ui(bool full) {
     for (int i = 0; i < WEATHER_UI_DAYS; i++)
         day_ptrs[i] = s_hourly_valid[i] ? &s_hourly[i] : NULL;
 
-    if (!display_lock_timed(1000, "push_forecast_to_ui/full")) return;
+    if (!display_lock_timed(DISPLAY_LOCK_TIMEOUT_MS, "push_forecast_to_ui/full")) return;
     weather_ui_set_error(NULL);
     weather_ui_set_current(&cur);
     weather_ui_set_days(days);
@@ -504,7 +537,7 @@ static void push_forecast_to_ui(bool full) {
 static bool do_refresh_body(bool is_manual) {
     const app_prefs_t *p = app_prefs_get();
 
-    if (bsp_display_lock(1000)) { weather_ui_set_loading(true); bsp_display_unlock(); }
+    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) { weather_ui_set_loading(true); bsp_display_unlock(); }
 
     char url[512];
     snprintf(url, sizeof url,
@@ -577,7 +610,7 @@ static bool do_refresh_body(bool is_manual) {
         const cJSON *ht = cJSON_GetObjectItemCaseSensitive(hourly, "time");
         int hn = cJSON_IsArray(ht) ? cJSON_GetArraySize(ht) : 0;
         for (int d = 0; d < n; d++) {
-            int base = d * 24;
+            int base = d * HOURS_PER_DAY;
             if (base >= hn) break;
             int cnt = hn - base;
             if (cnt > WEATHER_UI_CHART_POINTS) cnt = WEATHER_UI_CHART_POINTS;
@@ -585,10 +618,10 @@ static bool do_refresh_body(bool is_manual) {
             for (int i = 0; i < cnt; i++) {
                 s_hourly[d].temp_c[i]    = jarr(hourly, "temperature_2m", base + i, 0);
                 s_hourly[d].precip_mm[i] = jarr(hourly, "precipitation", base + i, 0);
-                /* "time" is local ISO ("2026-09-08T14:00"); the hour is at offset 11. */
                 const cJSON *tv = cJSON_GetArrayItem(ht, base + i);
                 const char *ts = (cJSON_IsString(tv) && tv->valuestring) ? tv->valuestring : NULL;
-                s_hourly[d].hour[i] = (ts && strlen(ts) >= 13) ? atoi(ts + 11) : i;
+                s_hourly[d].hour[i] = (ts && strlen(ts) >= ISO_HOUR_OFFSET + ISO_HOUR_DIGITS)
+                                          ? atoi(ts + ISO_HOUR_OFFSET) : i;
             }
             s_hourly_valid[d] = cnt > 1;
         }
@@ -677,7 +710,7 @@ static void push_search_results_to_ui(void) {
         subs[i] = s_hits[i].label;
         is_fav[i] = app_favorites_contains(favs, s_hits[i].lat, s_hits[i].lon);
     }
-    if (bsp_display_lock(1000)) {
+    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
         weather_ui_set_search_results(names, subs, is_fav, s_hit_count);
         bsp_display_unlock();
     }
@@ -693,14 +726,14 @@ static void push_favorites_to_ui(void) {
         names[i] = favs[i].name;
         used[i] = favs[i].used;
     }
-    if (bsp_display_lock(1000)) {
+    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
         weather_ui_set_favorites(names, used);
         bsp_display_unlock();
     }
 }
 
 static void push_ota_state_to_ui(wx_ota_status_t status, int progress) {
-    if (bsp_display_lock(1000)) {
+    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
         weather_ui_set_ota_state(status, progress);
         bsp_display_unlock();
     }
@@ -718,7 +751,7 @@ static void push_ota_error_to_ui(ota_error_t err) {
         case OTA_ERR_NONE:
         default:                  msg = s->ota_error_flash; break;
     }
-    if (bsp_display_lock(1000)) {
+    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
         weather_ui_set_ota_error(msg);
         bsp_display_unlock();
     }
@@ -764,7 +797,7 @@ static void ota_worker_task(void *arg) {
             if (!silent) push_ota_state_to_ui(WX_OTA_IDLE, 0);
             break;
         case OTA_RESULT_UPDATED_REBOOTING:
-            push_ota_state_to_ui(WX_OTA_DONE, 100);
+            push_ota_state_to_ui(WX_OTA_DONE, OTA_PROGRESS_DONE_PCT);
             if (silent) {
                 /* A silent background check found and flashed an update —
                  * don't reboot into it while the user is mid-interaction
@@ -774,18 +807,19 @@ static void ota_worker_task(void *arg) {
                  * only starts once the new image actually boots, so this
                  * can't be allowed to wait forever on a device that always
                  * has something open. */
-                for (int waited_ms = 0; waited_ms < 5 * 60 * 1000; waited_ms += 5000) {
+                for (int waited_ms = 0; waited_ms < OTA_REBOOT_MODAL_WAIT_MAX_MS;
+                     waited_ms += OTA_REBOOT_MODAL_POLL_MS) {
                     task_heartbeat_touch(HB_OTA);
                     bool busy = true;
-                    if (bsp_display_lock(1000)) {
+                    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
                         busy = weather_ui_is_modal_open();
                         bsp_display_unlock();
                     }
                     if (!busy) break;
-                    vTaskDelay(pdMS_TO_TICKS(5000));
+                    vTaskDelay(pdMS_TO_TICKS(OTA_REBOOT_MODAL_POLL_MS));
                 }
             } else {
-                vTaskDelay(pdMS_TO_TICKS(1500)); /* let the UI actually show "rebooting" */
+                vTaskDelay(pdMS_TO_TICKS(OTA_REBOOT_UI_DELAY_MS));
             }
             esp_restart();
             break; /* unreachable */
@@ -824,13 +858,13 @@ static void ota_resume_task(void *arg) {
 
 static void do_search(const char *query) {
     const app_prefs_t *p = app_prefs_get();
-    if (!query || strlen(query) < 2) {
+    if (!query || strlen(query) < SEARCH_MIN_QUERY_LEN) {
         s_hit_count = 0;
-        if (bsp_display_lock(1000)) { weather_ui_set_searching(false); bsp_display_unlock(); }
+        if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) { weather_ui_set_searching(false); bsp_display_unlock(); }
         return;
     }
 
-    if (bsp_display_lock(1000)) { weather_ui_set_searching(true); bsp_display_unlock(); }
+    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) { weather_ui_set_searching(true); bsp_display_unlock(); }
 
     /* Percent-encode: city names carry spaces and non-ASCII (München, Nîmes). */
     char esc[192];
@@ -877,7 +911,7 @@ static void do_search(const char *query) {
         }
     }
 
-    if (bsp_display_lock(1000)) { weather_ui_set_searching(false); bsp_display_unlock(); }
+    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) { weather_ui_set_searching(false); bsp_display_unlock(); }
     push_search_results_to_ui();
 }
 
@@ -908,7 +942,7 @@ static void weather_task(void *arg) {
             ESP_LOGE(TAG, "network mutex busy for %ds, skipping initial Wi-Fi connect",
                      NETWORK_MUTEX_TIMEOUT_MS / 1000);
         }
-        if (bsp_display_lock(1000)) {
+        if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
             weather_ui_set_network_status(net_status());
             bsp_display_unlock();
         }
@@ -921,7 +955,7 @@ static void weather_task(void *arg) {
              * working (see the lwIP port-range note in the top-level
              * CMakeLists.txt) this normally returns within ~1s. */
             app_wifi_sync_time(STARTUP_SNTP_WAIT_MS);
-        } else if (bsp_display_lock(1000)) {
+        } else if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
             weather_ui_open_wifi_setup();
             bsp_display_unlock();
         }
@@ -939,7 +973,7 @@ static void weather_task(void *arg) {
 
     for (;;) {
         task_heartbeat_touch(HB_WEATHER);
-        TickType_t wait = pdMS_TO_TICKS(500);
+        TickType_t wait = pdMS_TO_TICKS(CMD_POLL_MS);
         if (xQueueReceive(s_q, &cmd, wait) == pdTRUE) {
             switch (cmd.kind) {
                 case CMD_SEARCH:
@@ -972,7 +1006,7 @@ static void weather_task(void *arg) {
                     wx_wifi_network_t nets[APP_WIFI_MAX_SCAN];
                     int n = app_wifi_scan(nets, APP_WIFI_MAX_SCAN);
                     xSemaphoreGive(s_network_mutex);
-                    if (bsp_display_lock(1000)) {
+                    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
                         weather_ui_set_wifi_scan_results(nets, n);
                         bsp_display_unlock();
                     }
@@ -981,7 +1015,7 @@ static void weather_task(void *arg) {
                 case CMD_WIFI_CONNECT: {
                     if (xSemaphoreTake(s_network_mutex, pdMS_TO_TICKS(NETWORK_MUTEX_TIMEOUT_MS)) != pdTRUE) {
                         ESP_LOGE(TAG, "network mutex busy for %ds, skipping Wi-Fi connect", NETWORK_MUTEX_TIMEOUT_MS / 1000);
-                        if (bsp_display_lock(1000)) {
+                        if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
                             weather_ui_set_wifi_connect_result(false);
                             bsp_display_unlock();
                         }
@@ -989,7 +1023,7 @@ static void weather_task(void *arg) {
                     }
                     bool ok = app_wifi_connect_with(cmd.ssid, cmd.pass);
                     xSemaphoreGive(s_network_mutex);
-                    if (bsp_display_lock(1000)) {
+                    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
                         weather_ui_set_wifi_connect_result(ok);
                         /* Not a plain `ok ? ONLINE : OFFLINE`: a failed manual attempt
                          * may still have left the driver's own retry burst/timer armed
@@ -1006,7 +1040,7 @@ static void weather_task(void *arg) {
                 }
                 case CMD_WIFI_FORGET:
                     app_wifi_forget();
-                    if (bsp_display_lock(1000)) {
+                    if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
                         weather_ui_set_network_status(WX_NET_OFFLINE);
                         bsp_display_unlock();
                     }
@@ -1046,7 +1080,8 @@ static void weather_task(void *arg) {
                      * the network mutex must survive to be seen by that run's
                      * own s_cancel_requested check (firmware-auditor Category K). */
                     ota_update_reset_cancel();
-                    if (xTaskCreatePinnedToCore(ota_worker_task, "ota", 8192, args, 3, NULL, 0) != pdPASS) {
+                    if (xTaskCreatePinnedToCore(ota_worker_task, "ota", OTA_TASK_STACK_BYTES, args,
+                                                OTA_TASK_PRIO, NULL, OTA_TASK_CORE) != pdPASS) {
                         free(args);
                         s_ota_active = false;
                         /* No dedicated "couldn't even start" category; OTA_ERR_FLASH
@@ -1059,7 +1094,8 @@ static void weather_task(void *arg) {
                 case CMD_OTA_RESUME:
                     if (s_ota_active) break;
                     s_ota_active = true;
-                    if (xTaskCreatePinnedToCore(ota_resume_task, "ota_resume", 8192, NULL, 3, NULL, 0) != pdPASS) {
+                    if (xTaskCreatePinnedToCore(ota_resume_task, "ota_resume", OTA_RESUME_TASK_STACK_BYTES, NULL,
+                                                OTA_RESUME_TASK_PRIO, NULL, OTA_RESUME_TASK_CORE) != pdPASS) {
                         s_ota_active = false;
                     }
                     break;
@@ -1078,7 +1114,7 @@ static void weather_task(void *arg) {
          * to ~30s (the idle clock tick's own cadence). */
         bool wifi_now_connected = app_wifi_is_connected();
         if (wifi_now_connected != wifi_was_connected) {
-            if (bsp_display_lock(1000)) {
+            if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) {
                 weather_ui_set_network_status(net_status());
                 bsp_display_unlock();
             }
@@ -1105,7 +1141,7 @@ static void weather_task(void *arg) {
             last_auto = now;
         } else if (s_have_forecast) {
             static int tick = 0;
-            if (++tick >= 60) { tick = 0; push_forecast_to_ui(false); }  /* ~30 s, clock-only */
+            if (++tick >= CLOCK_REFRESH_TICKS) { tick = 0; push_forecast_to_ui(false); }  /* clock-only */
         }
 
         /* Periodic silent OTA check, gated by the dialog's own auto-update
@@ -1135,12 +1171,13 @@ static void post(cmd_t *c) {
 }
 
 void app_weather_start(void) {
-    s_q = xQueueCreate(8, sizeof(cmd_t));
+    s_q = xQueueCreate(CMD_QUEUE_DEPTH, sizeof(cmd_t));
     s_network_mutex = xSemaphoreCreateMutex();
     network_status_policy_reset(&s_net_status);
     link_health_policy_init(&s_link_health, LINK_HEALTH_VERIFY_AFTER, LINK_HEALTH_RECONNECT_AFTER);
     /* TLS needs a roomy stack; the JSON parse runs on this task too. */
-    xTaskCreatePinnedToCore(weather_task, "weather", 8192, NULL, 4, NULL, 0);
+    xTaskCreatePinnedToCore(weather_task, "weather", WEATHER_TASK_STACK_BYTES, NULL,
+                            WEATHER_TASK_PRIO, NULL, WEATHER_TASK_CORE);
 }
 
 void app_weather_search(const char *query) {

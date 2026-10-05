@@ -43,6 +43,7 @@ typedef struct {
 /* percent is 0-100, meaningful only during the P4 download phase (the C6
  * phase over RPC doesn't report incremental progress back to the UI). */
 typedef void (*ota_progress_cb_t)(int percent, void *ctx);
+#define OTA_PROGRESS_DONE_PCT 100
 
 /* Fetches the latest release, compares its version against the running
  * firmware, and if newer downloads+flashes the P4 image. Does NOT call
