@@ -1,6 +1,6 @@
 # Hardware-free application logic. No IDF headers, no driver/, no freertos/ —
 # see CLAUDE.md's "Codeorganisation". Host-tested by host_test/, linked into
-# the firmware and the emulator build like any other component.
+# the firmware like any other component.
 idf_component_register(
     SRCS "startup_retry_policy.c" "light_policy.c" "storage_record.c" "weather_forecast_parse.c" "favorites.c"
          "ota_manifest_parse.c" "ota_version_compare.c" "network_status_policy.c"

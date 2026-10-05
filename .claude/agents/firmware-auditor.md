@@ -42,8 +42,9 @@ Zu **jedem** Befund gehoert genau eine der drei Nachweisarten:
   und in welche Datei unter `host_test/` er gehoert. Kein fertiger Testcode.
 - **GUARD** — ein einkompilierter Laufzeit-Check, der die Verletzung meldet,
   wenn sie auftritt. Du beschreibst, was geprueft wird, an welcher Stelle, und
-  wie das Ergebnis sichtbar wird (Assert, Log, `SELFTEST_FAIL`, Feld in der
-  PERF-Zeile).
+  wie das Ergebnis sichtbar wird (Assert, Log, Feld in der PERF-Zeile).
+  Ein Assert oder Panic laesst `scripts/check-boot-log.sh` beim
+  `hw-flash.sh`-Lauf fehlschlagen.
 - **INSPEKTION** — nicht automatisiert nachweisbar. Das ist eine zulaessige
   Antwort. Erfinde **niemals** einen Test, der die Sache nicht wirklich
   pruefen wuerde, nur um diese Kategorie zu vermeiden.

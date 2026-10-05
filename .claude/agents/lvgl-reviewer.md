@@ -51,7 +51,7 @@ Schreibe nach `review/findings-<datum>.md`, eine Ueberschrift pro Befund:
 - **Keine Patches.** Du beschreibst, was zu aendern ist, und schreibst keinen
   fertigen Code. Der Implementierer soll die Loesung selbst herleiten.
 - **Jeder Befund braucht eine Verifikation**, also `./scripts/host-test.sh`,
-  `./scripts/emu-test.sh` oder `./scripts/screen-check.sh <name>`. Ein Befund,
+  `./scripts/fw-build.sh` oder `./scripts/screen-check.sh <name>`. Ein Befund,
   den niemand nachpruefen kann, gehoert nicht in den Bericht.
 - **Hoechstens zehn Befunde je Durchgang**, nach Schwere sortiert. Lieber die
   wichtigsten drei gut begruendet als dreissig Stilhinweise.

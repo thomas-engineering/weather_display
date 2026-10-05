@@ -4,7 +4,6 @@ sdkconfig
 sdkconfig.old
 dependencies.lock
 build/
-build-emu/
 host_test/build-linux/
 .logs/
 sim/build-sim/
