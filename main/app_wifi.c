@@ -1,4 +1,5 @@
 #include "app_wifi.h"
+#include "app_config.h"
 #include "sdkconfig.h"
 
 #include "freertos/FreeRTOS.h"
@@ -32,8 +33,8 @@ static const char *NS = "wifi";
  * previous network's password (see main/app_prefs.c's prefs_payload_t for
  * the same reasoning in more detail). */
 typedef struct __attribute__((packed)) {
-    char ssid[33];
-    char pass[65];
+    char ssid[WIFI_SSID_BUF_LEN];
+    char pass[WIFI_PASS_BUF_LEN];
 } wifi_cred_payload_t;
 
 #define WIFI_CONNECTED_BIT BIT0
@@ -45,6 +46,21 @@ typedef struct __attribute__((packed)) {
  * router reboot, a longer drop) would otherwise strand the device until a
  * human reconnects it by hand. */
 #define WIFI_RECONNECT_INTERVAL_MS (15 * 1000)
+
+/* app_wifi_connect() blocks at most this long for a result. */
+#define WIFI_CONNECT_WAIT_MS 30000
+/* esp_wifi_start() completes asynchronously over SDIO; see app_wifi_init(). */
+#define WIFI_START_SETTLE_MS 500
+/* Lets the last log line reach the UART before esp_restart() cuts it off. */
+#define COPROC_RESTART_LOG_FLUSH_MS 200
+
+#define WIFI_WORKER_STACK_BYTES 4096
+#define WIFI_WORKER_PRIO 5
+
+/* Scan-list signal bars from RSSI (dBm). */
+#define RSSI_3_BARS_MIN_DBM (-55)
+#define RSSI_2_BARS_MIN_DBM (-67)
+#define RSSI_1_BAR_MIN_DBM  (-78)
 
 /* Every decision about what to do after a Wi-Fi event lives in
  * components/app_logic/wifi_reconnect_policy.c, which is host-tested
@@ -72,8 +88,8 @@ static SemaphoreHandle_t s_wake;
 static bool s_connect_pending;
 static bool s_timer_armed;
 
-static char s_ssid[33];
-static char s_pass[65];
+static char s_ssid[WIFI_SSID_BUF_LEN];
+static char s_pass[WIFI_PASS_BUF_LEN];
 
 static void policy_lock(void)   { if (s_policy_lock) xSemaphoreTake(s_policy_lock, portMAX_DELAY); }
 static void policy_unlock(void) { if (s_policy_lock) xSemaphoreGive(s_policy_lock); }
@@ -124,7 +140,7 @@ static int load_coproc_recoveries(void) {
 static void save_coproc_recoveries(int n) {
     nvs_handle_t h;
     if (nvs_open(NS, NVS_READWRITE, &h) != ESP_OK) return;
-    if (nvs_set_u8(h, COPROC_RECOVERY_KEY, (uint8_t)(n < 0 ? 0 : (n > 255 ? 255 : n))) == ESP_OK)
+    if (nvs_set_u8(h, COPROC_RECOVERY_KEY, (uint8_t)(n < 0 ? 0 : (n > UINT8_MAX ? UINT8_MAX : n))) == ESP_OK)
         nvs_commit(h);
     nvs_close(h);
 }
@@ -138,8 +154,7 @@ static void coproc_recover(void) {
         return;
     }
     ESP_LOGE(TAG, "coprocessor has not answered for minutes; restarting to reset it");
-    /* Let the line reach the UART before the reset takes the log with it. */
-    vTaskDelay(pdMS_TO_TICKS(200));
+    vTaskDelay(pdMS_TO_TICKS(COPROC_RESTART_LOG_FLUSH_MS));
     esp_restart();
 }
 
@@ -362,7 +377,7 @@ void app_wifi_init(void) {
 
     /* Up before esp_wifi_start(), so the STA_START event it produces already
      * has somewhere to hand its connect. */
-    if (xTaskCreate(wifi_worker_task, "wifi_reconn", 4096, NULL, 5, &s_worker) != pdPASS) {
+    if (xTaskCreate(wifi_worker_task, "wifi_reconn", WIFI_WORKER_STACK_BYTES, NULL, WIFI_WORKER_PRIO, &s_worker) != pdPASS) {
         ESP_LOGE(TAG, "could not start reconnect worker");
         return;
     }
@@ -375,7 +390,7 @@ void app_wifi_init(void) {
      * the netif bring-up land afterwards. Scanning or connecting into that window
      * drives a second start action through the same netif and asserts in lwip.
      * Let the interface settle before anyone else touches it. */
-    vTaskDelay(pdMS_TO_TICKS(500));
+    vTaskDelay(pdMS_TO_TICKS(WIFI_START_SETTLE_MS));
     ESP_LOGI(TAG, "station ready (credentials: %s)", s_ssid[0] ? "stored" : "none");
 }
 
@@ -461,7 +476,7 @@ static bool connect_locked(const char *ssid, const char *pass) {
 
     ESP_LOGI(TAG, "connecting to \"%s\"", ssid);
     EventBits_t bits = xEventGroupWaitBits(s_events, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT,
-                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(30000));
+                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(WIFI_CONNECT_WAIT_MS));
     if (bits & WIFI_CONNECTED_BIT) return true;
     /* Returning false does not mean we stopped trying: the burst and/or the
      * periodic retry are still running, which is what app_wifi_is_reconnecting()
@@ -545,7 +560,9 @@ int app_wifi_scan(wx_wifi_network_t *out, int max) {
         snprintf(out[count].ssid, sizeof out[count].ssid, "%s", (const char *)recs[i].ssid);
         out[count].secured = (recs[i].authmode != WIFI_AUTH_OPEN);
         int rssi = recs[i].rssi;                         /* dBm, roughly -30 .. -90 */
-        int bars = (rssi >= -55) ? 3 : (rssi >= -67) ? 2 : (rssi >= -78) ? 1 : 0;
+        int bars = (rssi >= RSSI_3_BARS_MIN_DBM) ? 3
+                 : (rssi >= RSSI_2_BARS_MIN_DBM) ? 2
+                 : (rssi >= RSSI_1_BAR_MIN_DBM)  ? 1 : 0;
         out[count].strength = bars;
         count++;
     }
