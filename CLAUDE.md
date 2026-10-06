@@ -141,5 +141,11 @@ Ohne Board: „ungetestet auf Hardware" ausdrücklich in die Zusammenfassung.
   Dateien. Berichte als `review/<thema>-<JJJJ-MM-TT>.md`.
 - Auf Feature-Branches selbst committen. Pushen nur nach Rückfrage, in der der
   Branch genannt wird (z. B. „`chore/x` nach `origin` pushen?"); kein
-  Force-Push, kein Merge. Commits englisch,
+  Force-Push. Pull Requests nur auf Ansage anlegen; einen PR mergt Claude nur
+  auf ausdrückliche Ansage, mit genannter Merge-Art. Commits englisch,
   kurz, im Imperativ („Name HTTP timeouts"); Berichte an den Menschen deutsch.
+- **Kleinigkeiten ohne PR:** Versionsbump, Tippfehler und reine Doku
+  brauchen keinen PR. Claude committet auf einem Branch, mergt ihn lokal mit
+  Merge-Commit (`git merge --no-ff`) in `master` und pusht `master` erst nach
+  Rückfrage, in der `master` genannt wird. Alles mit Code oder geändertem
+  Verhalten läuft weiter über einen PR.
