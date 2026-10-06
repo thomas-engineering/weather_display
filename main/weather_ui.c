@@ -96,11 +96,12 @@ typedef struct {
     lv_obj_t *device_info_backdrop;
     lv_obj_t *device_info_online_group, *device_info_offline_lbl;
     lv_obj_t *device_info_name_val, *device_info_hw_val, *device_info_fw_val, *device_info_cp_val;
-    lv_obj_t *device_info_ip_val, *device_info_dns_val, *device_info_gw_val, *device_info_note_lbl;
+    lv_obj_t *device_info_ssid_row, *device_info_ssid_val, *device_info_ip_val, *device_info_dns_val, *device_info_gw_val, *device_info_note_lbl;
     lv_obj_t *device_info_last_update_val;
     bool has_device_info;
     char device_info_name[64], device_info_hw[32], device_info_fw[32], device_info_cp[32];
     bool device_info_online;
+    char device_info_ssid[WEATHER_UI_SSID_BUF_LEN];
     char device_info_ip[16], device_info_dns[16], device_info_gw[16];
     char device_info_last_update[48];
     /* FIX: was 160 — too small for the note text after the 2026-09-13 design
@@ -2099,6 +2100,13 @@ static void ota_toggle_test_channel_cb(lv_event_t *e) {
     if (ui.on_ota_toggle_test_channel) ui.on_ota_toggle_test_channel(on);
 }
 
+/* Shows the SSID row only when the app passed a network name. */
+static void set_device_info_ssid(void) {
+    lv_label_set_text(ui.device_info_ssid_val, ui.device_info_ssid);
+    if (ui.device_info_ssid[0]) lv_obj_remove_flag(ui.device_info_ssid_row, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(ui.device_info_ssid_row, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void build_device_info_panel(lv_obj_t *parent) {
     const weather_strings_t *s = &weather_strings[ui.lang];
 
@@ -2175,6 +2183,13 @@ static void build_device_info_panel(lv_obj_t *parent) {
     lv_obj_set_flex_flow(ui.device_info_online_group, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(ui.device_info_online_group, 12, 0);
     lv_obj_remove_flag(ui.device_info_online_group, LV_OBJ_FLAG_SCROLLABLE);
+    /* FIX: SSID row from the 2026-10-06 design sync, above the IP address. The
+     * value is clipped with an ellipsis instead of pushing the caption out. */
+    ui.device_info_ssid_val = info_row_create(ui.device_info_online_group, s->ssid);
+    ui.device_info_ssid_row = lv_obj_get_parent(ui.device_info_ssid_val);
+    lv_label_set_long_mode(ui.device_info_ssid_val, LV_LABEL_LONG_DOT);
+    lv_obj_set_flex_grow(ui.device_info_ssid_val, 1);
+    lv_obj_set_style_text_align(ui.device_info_ssid_val, LV_TEXT_ALIGN_RIGHT, 0);
     ui.device_info_ip_val = info_row_create(ui.device_info_online_group, s->ip_address);
     ui.device_info_dns_val = info_row_create(ui.device_info_online_group, s->dns);
     ui.device_info_gw_val = info_row_create(ui.device_info_online_group, s->gateway);
@@ -2197,6 +2212,7 @@ static void build_device_info_panel(lv_obj_t *parent) {
         lv_label_set_text(ui.device_info_hw_val, ui.device_info_hw);
         lv_label_set_text(ui.device_info_fw_val, ui.device_info_fw);
         lv_label_set_text(ui.device_info_cp_val, ui.device_info_cp);
+        set_device_info_ssid();
         lv_label_set_text(ui.device_info_ip_val, ui.device_info_ip);
         lv_label_set_text(ui.device_info_dns_val, ui.device_info_dns);
         lv_label_set_text(ui.device_info_gw_val, ui.device_info_gw);
@@ -2475,6 +2491,7 @@ void weather_ui_set_device_info(const weather_device_info_t *info) {
     snprintf(ui.device_info_fw, sizeof ui.device_info_fw, "%s", info->firmware_version ? info->firmware_version : "");
     snprintf(ui.device_info_cp, sizeof ui.device_info_cp, "%s", info->coprocessor_version ? info->coprocessor_version : "");
     ui.device_info_online = info->online;
+    snprintf(ui.device_info_ssid, sizeof ui.device_info_ssid, "%s", info->ssid ? info->ssid : "");
     snprintf(ui.device_info_ip, sizeof ui.device_info_ip, "%s", info->ip ? info->ip : "");
     snprintf(ui.device_info_dns, sizeof ui.device_info_dns, "%s", info->dns ? info->dns : "");
     snprintf(ui.device_info_gw, sizeof ui.device_info_gw, "%s", info->gateway ? info->gateway : "");
@@ -2491,6 +2508,7 @@ void weather_ui_set_device_info(const weather_device_info_t *info) {
     lv_label_set_text(ui.device_info_hw_val, ui.device_info_hw);
     lv_label_set_text(ui.device_info_fw_val, ui.device_info_fw);
     lv_label_set_text(ui.device_info_cp_val, ui.device_info_cp);
+    set_device_info_ssid();
     lv_label_set_text(ui.device_info_ip_val, ui.device_info_ip);
     lv_label_set_text(ui.device_info_dns_val, ui.device_info_dns);
     lv_label_set_text(ui.device_info_gw_val, ui.device_info_gw);

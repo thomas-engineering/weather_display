@@ -384,6 +384,12 @@
             <span data-lv="label.body" style="white-space:nowrap">{{ lastUpdateDisplay }}</span>
           </div>
           <sc-if value="{{ deviceInfo.online }}" hint-placeholder-val="{{ true }}">
+            <sc-if value="{{ deviceInfoOnWifi }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+                <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.ssid }}</span>
+                <span data-lv="label.body" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ deviceInfoSsid }}</span>
+              </div>
+            </sc-if>
             <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
               <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.ipAddress }}</span>
               <span data-lv="label.body" style="white-space:nowrap">{{ deviceInfo.ip }}</span>
@@ -611,6 +617,7 @@ class Component extends DCLogic {
     wifiPassword: '',
     wifiShowPassword: false,
     wifiStatus: null,
+    connectedSsid: null,
     wifiManualMode: false,
     wifiManualSsid: '',
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
@@ -644,7 +651,7 @@ class Component extends DCLogic {
         aqiUnhealthy: 'Unhealthy', aqiVeryUnhealthy: 'Very unhealthy', aqiHazardous: 'Hazardous',
         forgetConfirmTitle: 'Forget this network?', forgetConfirmBody: 'You will need to enter the password again to reconnect.',
         deviceInfo: 'Device information', deviceName: 'Device name', hardwareVersion: 'Hardware version',
-        firmwareVersion: 'Application version', coprocessorVersion: 'Coprocessor version', ipAddress: 'IP address', dns: 'DNS', gateway: 'Gateway',
+        firmwareVersion: 'Application version', coprocessorVersion: 'Coprocessor version', ssid: 'Wi-Fi network (SSID)', ipAddress: 'IP address', dns: 'DNS', gateway: 'Gateway',
         update: 'Update', otaTitle: 'Firmware update', currentVersion: 'Current version', otaStatus: 'Status',
         otaUpToDate: 'Up to date', otaDownloading: 'Downloading', otaDone: 'Update complete — rebooting',
         otaStart: 'Check for update', otaHint: '', cancel: 'Cancel',
@@ -682,7 +689,7 @@ class Component extends DCLogic {
         aqiUnhealthy: 'Ungesund', aqiVeryUnhealthy: 'Sehr ungesund', aqiHazardous: 'Gefährlich',
         forgetConfirmTitle: 'Dieses Netzwerk vergessen?', forgetConfirmBody: 'Du musst das Passwort erneut eingeben, um dich wieder zu verbinden.',
         deviceInfo: 'Geräteinformationen', deviceName: 'Gerätename', hardwareVersion: 'Hardware-Version',
-        firmwareVersion: 'Anwendungsversion', coprocessorVersion: 'Coprozessor-Version', ipAddress: 'IP-Adresse', dns: 'DNS', gateway: 'Gateway',
+        firmwareVersion: 'Anwendungsversion', coprocessorVersion: 'Coprozessor-Version', ssid: 'WLAN-Netzwerk (SSID)', ipAddress: 'IP-Adresse', dns: 'DNS', gateway: 'Gateway',
         update: 'Update', otaTitle: 'Firmware-Update', currentVersion: 'Aktuelle Version', otaStatus: 'Status',
         otaUpToDate: 'Aktuell', otaDownloading: 'Wird heruntergeladen', otaDone: 'Update abgeschlossen — Neustart',
         otaStart: 'Nach Update suchen', otaHint: 'Das Gerät lädt das Update über WLAN (ESP32 OTA) herunter, installiert es und startet neu.', cancel: 'Abbrechen',
@@ -720,7 +727,7 @@ class Component extends DCLogic {
         aqiUnhealthy: 'Insalubre', aqiVeryUnhealthy: 'Muy insalubre', aqiHazardous: 'Peligrosa',
         forgetConfirmTitle: '¿Olvidar esta red?', forgetConfirmBody: 'Deberás introducir la contraseña de nuevo para volver a conectarte.',
         deviceInfo: 'Información del dispositivo', deviceName: 'Nombre del dispositivo', hardwareVersion: 'Versión de hardware',
-        firmwareVersion: 'Versión de la aplicación', coprocessorVersion: 'Versión del coprocesador', ipAddress: 'Dirección IP', dns: 'DNS', gateway: 'Puerta de enlace',
+        firmwareVersion: 'Versión de la aplicación', coprocessorVersion: 'Versión del coprocesador', ssid: 'Red Wi-Fi (SSID)', ipAddress: 'Dirección IP', dns: 'DNS', gateway: 'Puerta de enlace',
         update: 'Actualizar', otaTitle: 'Actualización de firmware', currentVersion: 'Versión actual', otaStatus: 'Estado',
         otaUpToDate: 'Actualizado', otaDownloading: 'Descargando', otaDone: 'Actualización completa — reiniciando',
         otaStart: 'Buscar actualización', otaHint: 'El dispositivo descarga e instala la actualización por Wi-Fi (ESP32 OTA) y luego se reinicia.', cancel: 'Cancelar',
@@ -758,7 +765,7 @@ class Component extends DCLogic {
         aqiUnhealthy: 'Malsaine', aqiVeryUnhealthy: 'Très malsaine', aqiHazardous: 'Dangereuse',
         forgetConfirmTitle: 'Oublier ce réseau ?', forgetConfirmBody: 'Vous devrez à nouveau saisir le mot de passe pour vous reconnecter.',
         deviceInfo: 'Informations sur l\u2019appareil', deviceName: 'Nom de l\u2019appareil', hardwareVersion: 'Version du matériel',
-        firmwareVersion: 'Version de l\u2019application', coprocessorVersion: 'Version du coprocesseur', ipAddress: 'Adresse IP', dns: 'DNS', gateway: 'Passerelle',
+        firmwareVersion: 'Version de l\u2019application', coprocessorVersion: 'Version du coprocesseur', ssid: 'Réseau Wi-Fi (SSID)', ipAddress: 'Adresse IP', dns: 'DNS', gateway: 'Passerelle',
         update: 'Mettre à jour', otaTitle: 'Mise à jour du micrologiciel', currentVersion: 'Version actuelle', otaStatus: 'Statut',
         otaUpToDate: 'À jour', otaDownloading: 'Téléchargement', otaDone: 'Mise à jour terminée — redémarrage',
         otaStart: 'Rechercher une mise à jour', otaHint: 'L\u2019appareil télécharge et installe la mise à jour via Wi-Fi (ESP32 OTA), puis redémarre.', cancel: 'Annuler',
@@ -809,7 +816,7 @@ class Component extends DCLogic {
     window.removeEventListener('offline', this.onOffline);
   }
 
-  DEVICE_INFO = { deviceName: 'Weather Display', hardwareVersion: 'ESP32-P4 Rev A', firmwareVersion: '1.4.2', coprocessorVersion: '0.9.1', online: true, ip: '192.168.1.42', dns: '1.1.1.1', gateway: '192.168.1.1' };
+  DEVICE_INFO = { deviceName: 'Weather Display', hardwareVersion: 'ESP32-P4 Rev A', firmwareVersion: '1.4.2', coprocessorVersion: '0.9.1', online: true, connection: 'wifi', ssid: 'HomeNet-5G', ip: '192.168.1.42', dns: '1.1.1.1', gateway: '192.168.1.1' };
   openSearch = () => this.setState({ searchOpen: true });
   closeSearch = () => this.setState({ searchOpen: false, searchQuery: '', searchResults: [] });
   openSettings = () => this.setState({ settingsOpen: true });
@@ -922,7 +929,7 @@ class Component extends DCLogic {
   wifiConnect = () => {
     this.setState({ wifiStatus: 'connecting' });
     clearTimeout(this.wifiConnectTimer);
-    this.wifiConnectTimer = setTimeout(() => this.setState({ wifiStatus: 'connected' }), 1200);
+    this.wifiConnectTimer = setTimeout(() => this.setState((s) => ({ wifiStatus: 'connected', connectedSsid: s.wifiSelectedSsid })), 1200);
   };
 
   setUnit(kind, val) {
@@ -1238,6 +1245,8 @@ class Component extends DCLogic {
       deviceInfoOpen, openDeviceInfo: this.openDeviceInfo, closeDeviceInfo: this.closeDeviceInfo,
       deviceInfo: this.DEVICE_INFO,
       deviceInfoOffline: !this.DEVICE_INFO.online,
+      deviceInfoOnWifi: this.DEVICE_INFO.connection === 'wifi',
+      deviceInfoSsid: this.state.connectedSsid || this.DEVICE_INFO.ssid,
       lastUpdateDisplay: lastFetchSuccessAt ? new Date(lastFetchSuccessAt).toLocaleString(locale) : strings.noUpdateYet,
       deviceInfoNote: 'Created by M. Thomas using Claude Design and Claude Code. \nUsing Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0 for non-commercial use (https://creativecommons.org/licenses/by/4.0/).\n',
       showContent: !!weather && !(loading && !weather),

@@ -433,6 +433,12 @@ bool app_wifi_get_ip_info(char *ip, size_t ip_len, char *dns, size_t dns_len, ch
     return true;
 }
 
+bool app_wifi_get_ssid(char *out, size_t out_len) {
+    if (!app_wifi_is_connected() || !s_ssid[0]) return false;
+    snprintf(out, out_len, "%s", s_ssid);
+    return true;
+}
+
 bool app_wifi_verify_link(void) {
     wifi_ap_record_t ap;
     esp_err_t err = esp_wifi_sta_get_ap_info(&ap);
