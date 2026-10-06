@@ -2,7 +2,6 @@ build/
 managed_components/
 sdkconfig
 sdkconfig.old
-dependencies.lock
 host_test/build-linux/
 .logs/
 sim/build-sim/

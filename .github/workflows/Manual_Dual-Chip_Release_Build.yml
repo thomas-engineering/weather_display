@@ -86,9 +86,20 @@ jobs:
         # actually been resolved onto disk; the grep after the build guarantees
         # the patch survived into the binary rather than being quietly reverted
         # by a later dependency resolution.
+        #
+        # dependencies.lock is committed and pins the component versions
+        # resolved by the local ESP-IDF installation (esp_hosted, esp_wifi_remote,
+        # ...). The CI therefore builds the same versions as a local build and
+        # as the test channel; the check after `reconfigure` fails the run if
+        # the component manager had to change the lock (a stale lock, or a
+        # changed constraint in main/idf_component.yml). Refresh it locally with
+        # `idf.py update-dependencies`, re-apply the patch, and commit it.
         command: |
+          cp dependencies.lock /tmp/dependencies.lock.committed
           idf.py defconfig
           idf.py reconfigure
+          cmp -s dependencies.lock /tmp/dependencies.lock.committed \
+            || { echo "::error::dependencies.lock changed during reconfigure; update and commit it locally"; exit 1; }
           patch -p1 < patches/esp_hosted_sdio_reserve.patch
           idf.py build
           grep -q "SDIO reserve pool" build/weather_display.bin \
