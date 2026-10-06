@@ -338,6 +338,10 @@
             <span style="{{ otaCoproSwitchTrackStyle }}"><span style="{{ otaCoproSwitchThumbStyle }}"></span></span>
             <span data-lv="label.body" style="font-size:13px">{{ t.otaUpdateCoprocessor }}</span>
           </div>
+          <div data-lv="switch.option" style="display:inline-flex;align-items:center;gap:var(--space-2);cursor:pointer" onClick="{{ toggleOtaTestChannel }}" role="switch" aria-checked="{{ otaTestChannel }}">
+            <span style="{{ otaTestSwitchTrackStyle }}"><span style="{{ otaTestSwitchThumbStyle }}"></span></span>
+            <span data-lv="label.body" style="font-size:13px">{{ t.otaTestChannel }}</span>
+          </div>
           <p data-lv="label.body" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 60%, transparent);margin:0">{{ t.otaHint }}</p>
         </div>
         <div style="display:flex;justify-content:flex-end;gap:var(--space-3);margin-top:var(--space-5)">
@@ -615,7 +619,7 @@ class Component extends DCLogic {
     wifiForgetConfirmOpen: false,
     airQuality: null,
     favorites: new Array(6).fill(null),
-    otaOpen: false, otaStatus: 'idle', otaProgress: 0, otaAutoUpdate: true, otaUpdateCoprocessor: false,
+    otaOpen: false, otaStatus: 'idle', otaProgress: 0, otaAutoUpdate: true, otaUpdateCoprocessor: false, otaTestChannel: false,
   };
 
   STALE_MS = 60 * 60 * 1000;
@@ -646,6 +650,7 @@ class Component extends DCLogic {
         otaStart: 'Check for update', otaHint: '', cancel: 'Cancel',
         otaAutoUpdate: 'Auto-update (checks every 12 hours)',
         otaUpdateCoprocessor: 'Update Wi-Fi coprocessor with application',
+        otaTestChannel: 'Test channel (pre-releases, for testing only)',
         notConnected: 'Not connected to the internet',
         lastUpdate: 'Weather data as of', noUpdateYet: 'No update yet',
         space: 'Space', done: 'Done',
@@ -683,6 +688,7 @@ class Component extends DCLogic {
         otaStart: 'Nach Update suchen', otaHint: 'Das Gerät lädt das Update über WLAN (ESP32 OTA) herunter, installiert es und startet neu.', cancel: 'Abbrechen',
         otaAutoUpdate: 'Automatisches Update (Prüfung alle 12 Stunden)',
         otaUpdateCoprocessor: 'WLAN-Koprozessor mit Anwendung aktualisieren',
+        otaTestChannel: 'Testkanal (Vorabversionen, nur zum Testen)',
         notConnected: 'Nicht mit dem Internet verbunden',
         lastUpdate: 'Wetterdaten vom', noUpdateYet: 'Noch keine Aktualisierung',
         space: 'Leerzeichen', done: 'Fertig',
@@ -720,6 +726,7 @@ class Component extends DCLogic {
         otaStart: 'Buscar actualización', otaHint: 'El dispositivo descarga e instala la actualización por Wi-Fi (ESP32 OTA) y luego se reinicia.', cancel: 'Cancelar',
         otaAutoUpdate: 'Actualización automática (cada 12 horas)',
         otaUpdateCoprocessor: 'Actualizar coprocesador Wi-Fi con la aplicación',
+        otaTestChannel: 'Canal de pruebas (versiones preliminares, solo para pruebas)',
         notConnected: 'Sin conexión a Internet',
         lastUpdate: 'Datos meteorológicos del', noUpdateYet: 'Aún sin actualizar',
         space: 'Espacio', done: 'Listo',
@@ -757,6 +764,7 @@ class Component extends DCLogic {
         otaStart: 'Rechercher une mise à jour', otaHint: 'L\u2019appareil télécharge et installe la mise à jour via Wi-Fi (ESP32 OTA), puis redémarre.', cancel: 'Annuler',
         otaAutoUpdate: 'Mise à jour automatique (vérifie toutes les 12 heures)',
         otaUpdateCoprocessor: 'Mettre à jour le coprocesseur Wi-Fi avec l\u2019application',
+        otaTestChannel: 'Canal de test (préversions, uniquement pour les tests)',
         notConnected: 'Pas de connexion à Internet',
         lastUpdate: 'Données météo du', noUpdateYet: 'Pas encore de mise à jour',
         space: 'Espace', done: 'Terminé',
@@ -813,6 +821,7 @@ class Component extends DCLogic {
   openOta = () => this.setState({ otaOpen: true, otaStatus: 'idle', otaProgress: 0 });
   toggleOtaAutoUpdate = () => this.setState((s) => ({ otaAutoUpdate: !s.otaAutoUpdate }));
   toggleOtaUpdateCoprocessor = () => this.setState((s) => ({ otaUpdateCoprocessor: !s.otaUpdateCoprocessor }));
+  toggleOtaTestChannel = () => this.setState((s) => ({ otaTestChannel: !s.otaTestChannel }));
   closeOta = () => {
     if (this._otaTimer) clearInterval(this._otaTimer);
     this.setState({ otaOpen: false });
@@ -1147,7 +1156,7 @@ class Component extends DCLogic {
   }
 
   renderVals() {
-    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, deviceInfoOpen, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt, autoRefreshMinutes, wifiForgetConfirmOpen, airQuality, favorites, otaOpen, otaStatus, otaProgress, otaAutoUpdate, otaUpdateCoprocessor } = this.state;
+    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, deviceInfoOpen, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt, autoRefreshMinutes, wifiForgetConfirmOpen, airQuality, favorites, otaOpen, otaStatus, otaProgress, otaAutoUpdate, otaUpdateCoprocessor, otaTestChannel } = this.state;
     const isDataStale = !!lastFetchSuccessAt && (now.getTime() - lastFetchSuccessAt) > this.STALE_MS;
     const strings = this.getStrings(language);
     const otaStatusLabel = otaStatus === 'downloading' ? `${strings.otaDownloading} ${otaProgress}%` : otaStatus === 'done' ? strings.otaDone : strings.otaUpToDate;
@@ -1266,6 +1275,9 @@ class Component extends DCLogic {
       otaAutoSwitchThumbStyle: `position:absolute;top:1px;left:${otaAutoUpdate ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${otaAutoUpdate ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
       otaUpdateCoprocessor, toggleOtaUpdateCoprocessor: this.toggleOtaUpdateCoprocessor,
       otaCoproSwitchTrackStyle: `position:relative;display:inline-block;width:36px;height:20px;border-radius:10px;flex-shrink:0;transition:background-color .15s ease,border-color .15s ease;background:${otaUpdateCoprocessor ? 'var(--color-accent-700)' : 'var(--color-neutral-800)'};border:1px solid ${otaUpdateCoprocessor ? 'var(--color-accent)' : 'var(--color-neutral-600)'}`,
+      otaTestChannel, toggleOtaTestChannel: this.toggleOtaTestChannel,
+      otaTestSwitchTrackStyle: `position:relative;display:inline-block;width:36px;height:20px;border-radius:10px;flex-shrink:0;transition:background-color .15s ease,border-color .15s ease;background:${otaTestChannel ? 'var(--color-accent-700)' : 'var(--color-neutral-800)'};border:1px solid ${otaTestChannel ? 'var(--color-accent)' : 'var(--color-neutral-600)'}`,
+      otaTestSwitchThumbStyle: `position:absolute;top:1px;left:${otaTestChannel ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${otaTestChannel ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
       otaCoproSwitchThumbStyle: `position:absolute;top:1px;left:${otaUpdateCoprocessor ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${otaUpdateCoprocessor ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
       isAutoOff: autoRefreshMinutes === 0, isAuto15: autoRefreshMinutes === 15, isAuto30: autoRefreshMinutes === 30, isAuto60: autoRefreshMinutes === 60,
       setAutoOff: () => this.setState({ autoRefreshMinutes: 0 }), setAuto15: () => this.setState({ autoRefreshMinutes: 15 }),
