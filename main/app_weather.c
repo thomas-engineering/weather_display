@@ -327,6 +327,8 @@ static void query_coprocessor_version(void) {
     }
 }
 
+_Static_assert(WEATHER_UI_SSID_BUF_LEN == WIFI_SSID_BUF_LEN, "device-info SSID buffer must match the Wi-Fi SSID buffer");
+
 /* ip/dns/gw/online are gathered by the caller *before* taking
  * bsp_display_lock() — app_wifi_get_ip_info() -> esp_netif_get_dns_info() is
  * an IPC call to the TCP/IP task with no timeout on this project's lwip
@@ -335,7 +337,7 @@ static void query_coprocessor_version(void) {
  * off the display lock once before. Every call site below now does the same
  * (found by firmware-auditor Category G): only lv_ and weather_ui_ calls
  * happen while the lock is held. */
-static void push_device_info_to_ui(bool online, const char *ip, const char *dns, const char *gw) {
+static void push_device_info_to_ui(bool online, const char *ssid, const char *ip, const char *dns, const char *gw) {
     /* s_last_success is the last successful *forecast* fetch, same value the
      * staleness check above uses — exactly "last update" from the design's
      * own lastFetchSuccessAt. Formatted with the same date/time helpers the
@@ -361,6 +363,7 @@ static void push_device_info_to_ui(bool online, const char *ip, const char *dns,
         .firmware_version = esp_app_get_description()->version,
         .coprocessor_version = s_cp_version,
         .online = online,
+        .ssid = online ? ssid : NULL,
         .ip = online ? ip : NULL,
         .dns = online ? dns : NULL,
         .gateway = online ? gw : NULL,
@@ -417,12 +420,14 @@ static void ui_error(const char *msg, bool is_manual) {
     bool stale = s_last_success == 0 || (time(NULL) - s_last_success) > STALE_AFTER_SEC;
     char ip[16] = "", dns[16] = "", gw[16] = "";
     bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
+    char ssid[WIFI_SSID_BUF_LEN] = "";
+    if (online) app_wifi_get_ssid(ssid, sizeof ssid);
     if (display_lock_timed(DISPLAY_LOCK_TIMEOUT_MS, "ui_error")) {
         weather_ui_set_loading(false);
         weather_ui_set_error(msg);
         weather_ui_set_network_status(net_status());
         weather_ui_set_data_stale(stale);
-        push_device_info_to_ui(online, ip, dns, gw);
+        push_device_info_to_ui(online, ssid, ip, dns, gw);
         display_unlock_timed();
     }
     apply_toast_state();
@@ -461,13 +466,15 @@ static void push_forecast_to_ui(bool full) {
     bool stale = s_last_success == 0 || (now_utc - s_last_success) > STALE_AFTER_SEC;
     char ip[16] = "", dns[16] = "", gw[16] = "";
     bool online = app_wifi_get_ip_info(ip, sizeof ip, dns, sizeof dns, gw, sizeof gw);
+    char ssid[WIFI_SSID_BUF_LEN] = "";
+    if (online) app_wifi_get_ssid(ssid, sizeof ssid);
 
     if (!full) {
         if (!display_lock_timed(DISPLAY_LOCK_TIMEOUT_MS, "push_forecast_to_ui/!full")) return;
         weather_ui_set_clock(time_str, date_str);
         weather_ui_set_network_status(net_status());
         weather_ui_set_data_stale(stale);
-        push_device_info_to_ui(online, ip, dns, gw);
+        push_device_info_to_ui(online, ssid, ip, dns, gw);
         display_unlock_timed();
         return;
     }
@@ -523,7 +530,7 @@ static void push_forecast_to_ui(bool full) {
     weather_ui_set_network_status(net_status());
     weather_ui_set_data_stale(stale);
     weather_ui_set_loading(false);
-    push_device_info_to_ui(online, ip, dns, gw);
+    push_device_info_to_ui(online, ssid, ip, dns, gw);
     display_unlock_timed();
 }
 

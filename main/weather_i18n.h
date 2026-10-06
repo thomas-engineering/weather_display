@@ -24,7 +24,7 @@ typedef struct {
      * firmware version, added right after firmware_version ("Application
      * version" in that same sync — was "Firmware version"). */
     const char *coprocessor_version;
-    const char *ip_address, *dns, *gateway, *not_connected;
+    const char *ssid, *ip_address, *dns, *gateway, *not_connected;
     const char *last_update, *no_update_yet;
     /* Header "last synced" text (2026-09-12 sync). data_updated_ago_min/hour
      * take one %d (minutes/hours) — app_format.c's fmt_time_ago() snprintf's

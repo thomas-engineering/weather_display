@@ -235,10 +235,18 @@ void weather_ui_set_data_stale(bool stale);
  * "No update yet" fallback text yourself if there has never been a
  * successful fetch. coprocessor_version has no such fallback text in the
  * design; pass "-" or similar yourself if the version can't be read. */
+/* FIX: 32-byte SSID plus NUL. Kept in sync with WIFI_SSID_BUF_LEN in
+ * app_config.h (asserted in app_weather.c); not derived from it here because
+ * this header is also built by the simulator, which has no ESP-IDF headers. */
+#define WEATHER_UI_SSID_BUF_LEN 33
+
+/* ssid (added 2026-10-06 sync from Claude Design) is the Wi-Fi network the
+ * device is joined to, shown above the IP address; like ip/dns/gateway it is
+ * only shown while online. NULL or "" hides the row. */
 typedef struct {
     const char *device_name, *hardware_version, *firmware_version, *coprocessor_version;
     bool online;
-    const char *ip, *dns, *gateway, *last_update, *note;
+    const char *ssid, *ip, *dns, *gateway, *last_update, *note;
 } weather_device_info_t;
 void weather_ui_set_device_info(const weather_device_info_t *info);
 

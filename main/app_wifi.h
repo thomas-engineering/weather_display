@@ -70,6 +70,11 @@ void app_wifi_force_reconnect(void);
  * not connected or the netif has no address yet. */
 bool app_wifi_get_ip_info(char *ip, size_t ip_len, char *dns, size_t dns_len, char *gw, size_t gw_len);
 
+/* Copies the SSID of the network the device is joined to into `out` (size it
+ * with WIFI_SSID_BUF_LEN). Returns false, `out` untouched, if not connected or
+ * no network is stored. Reads the stored credentials; no call to the C6. */
+bool app_wifi_get_ssid(char *out, size_t out_len);
+
 /* Starts SNTP and waits up to `timeout_ms` for the clock to be set. The header
  * clock and the "Today/Tomorrow" labels are wrong without this. Returns true
  * immediately once the clock has been set once. On a timeout SNTP keeps
