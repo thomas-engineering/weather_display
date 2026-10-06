@@ -114,6 +114,12 @@ jobs:
     #    error at boot (main/main.c's on-device logs already show this for
     #    the currently-flashed C6). Only the simple "MAJOR.MINOR.*" glob this
     #    project actually uses is handled — not full semver-range syntax.
+    #
+    #    channel=test builds the newest matching tag, so every new esp-hosted
+    #    3.0.x gets exercised on hardware first (docs/c6-firmware-test.md).
+    #    channel=release builds exactly the tag in c6_release_version.txt,
+    #    the version that last passed that test; a release never picks up an
+    #    untested C6 image just because Espressif tagged a new one.
     - name: Resolve C6 esp_hosted Version
       id: c6_ref
       run: |
@@ -139,14 +145,30 @@ jobs:
             ;;
         esac
 
-        LATEST=$(git ls-remote --tags --refs https://github.com/espressif/esp-hosted-mcu.git "refs/tags/${PREFIX}*" \
-          | awk -F'/' '{print $NF}' | sort -V | tail -n1)
-        if [ -z "$LATEST" ]; then
-          echo "::error::No espressif/esp-hosted-mcu tag matches '${PREFIX}*' (constraint '$CONSTRAINT' from main/idf_component.yml)"
-          exit 1
+        if [ "${{ inputs.channel }}" = "release" ]; then
+          PINNED="$(tr -d '[:space:]' < c6_release_version.txt)"
+          LATEST="v${PINNED}"
+          case "$LATEST" in
+            "${PREFIX}"*) ;;
+            *)
+              echo "::error::c6_release_version.txt ($PINNED) does not match main/idf_component.yml's esp_hosted constraint '$CONSTRAINT'"
+              exit 1
+              ;;
+          esac
+          if ! git ls-remote --tags --refs https://github.com/espressif/esp-hosted-mcu.git "refs/tags/${LATEST}" | grep -q .; then
+            echo "::error::espressif/esp-hosted-mcu has no tag '$LATEST' (from c6_release_version.txt)"
+            exit 1
+          fi
+          echo "Release channel: building the tested esp-hosted-mcu $LATEST from c6_release_version.txt"
+        else
+          LATEST=$(git ls-remote --tags --refs https://github.com/espressif/esp-hosted-mcu.git "refs/tags/${PREFIX}*" \
+            | awk -F'/' '{print $NF}' | sort -V | tail -n1)
+          if [ -z "$LATEST" ]; then
+            echo "::error::No espressif/esp-hosted-mcu tag matches '${PREFIX}*' (constraint '$CONSTRAINT' from main/idf_component.yml)"
+            exit 1
+          fi
+          echo "Test channel: building the newest esp-hosted-mcu $LATEST (matches main/idf_component.yml constraint '$CONSTRAINT')"
         fi
-
-        echo "Building esp-hosted-mcu $LATEST (matches main/idf_component.yml constraint '$CONSTRAINT')"
         echo "ref=$LATEST" >> $GITHUB_OUTPUT
 
     # FIX (first real run failed here): the checkout path doubles as the
@@ -209,6 +231,15 @@ jobs:
         PAT=$(grep -oP '#define\s+PROJECT_VERSION_PATCH_1\s+\K\d+' "$VER_HDR")
         echo "c6_version=${MAJ}.${MIN}.${PAT}" >> $GITHUB_OUTPUT
 
+        # A release must ship exactly the C6 version that passed the test.
+        if [ "${{ inputs.channel }}" = "release" ]; then
+          PINNED="$(tr -d '[:space:]' < c6_release_version.txt)"
+          if [ "${MAJ}.${MIN}.${PAT}" != "$PINNED" ]; then
+            echo "::error::built C6 version ${MAJ}.${MIN}.${PAT} differs from c6_release_version.txt ($PINNED)"
+            exit 1
+          fi
+        fi
+
     # 4. AUTOMATION: Calculate SHA-256 checksums and write the manifest.json
     - name: Generate Manifest and Checksums
       id: manifest
@@ -242,6 +273,7 @@ jobs:
           Manually triggered release build for Weather Display (Waveshare P4 Board).
           - ESP-IDF Version: v6.1.0
           - Includes display drivers and esp-hosted SDIO network configuration.
+          - ESP32-C6 coprocessor firmware: esp-hosted ${{ steps.c6_version.outputs.c6_version }}
         draft: false
         prerelease: ${{ steps.create_version.outputs.prerelease }}
         files: |

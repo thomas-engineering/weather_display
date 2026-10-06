@@ -19,6 +19,8 @@ Das Gerät holt Wetterdaten von Open-Meteo und zeigt sie auf einem 7-Zoll-Touchd
 | Peripherie, Startup, WLAN, OTA, Timing, Speicherlayout | zusätzlich `./scripts/hw-flash.sh /dev/ttyACM0` (bei WLAN/OTA mit `REQUIRE_IP=1`) |
 | WLAN-Wiederherstellung (`app_wifi.c`, `wifi_reconnect_policy`, `link_health_policy`) | zusätzlich `./scripts/hil-outage-test.sh` (Mensch löst den Ausfall aus) |
 | `scripts/check-boot-log.sh` | `./scripts/test-check-boot-log.sh` |
+| `scripts/c6-compat-check.sh` | `./scripts/test-c6-compat-check.sh` |
+| C6-Firmware-Version (`c6_release_version.txt`, C6-Schritt im Release-Workflow) | Ablauf in `docs/c6-firmware-test.md`; Mensch prüft auf dem Board |
 
 Nach jeder inhaltlichen Änderung mindestens `./scripts/host-test.sh` laufen
 lassen, bevor du die Aufgabe als erledigt meldest. Alle Skripte beenden sich

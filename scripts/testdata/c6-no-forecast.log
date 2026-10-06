@@ -1,0 +1,5 @@
+ESP-ROM:esp32p4-eco5-20250430
+I (2989) eh_init_evt: esp-hosted fw versions: host=3.0.7 coprocessor=3.0.9 (match)
+I (3835) app: >>> BOOT_OK <<<
+I (8009) wifi: got ip 192.168.178.110
+I (8095) wifi: clock set: 1791277950

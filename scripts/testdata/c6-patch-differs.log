@@ -1,0 +1,7 @@
+ESP-ROM:esp32p4-eco5-20250430
+I (2946) eh_init_evt: esp-hosted fw versions: host=3.0.9 coprocessor=3.0.7
+I (2953) eh_init_evt: patch version differs (compatible)
+I (3835) app: >>> BOOT_OK <<<
+I (8009) wifi: got ip 192.168.178.110
+I (8095) wifi: clock set: 1791277950
+I (9370) weather: forecast ok: 15.9C code=0, 7 days
