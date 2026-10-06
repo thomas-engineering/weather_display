@@ -56,6 +56,8 @@ void app_weather_ota_start(void);
 void app_weather_ota_cancel(void);
 void app_weather_ota_toggle_auto_update(bool on);
 void app_weather_ota_toggle_update_coprocessor(bool on);
+/* Persists the update channel: on = test (pre-releases), off = release. */
+void app_weather_ota_set_test_channel(bool on);
 void app_weather_ota_resume_after_boot(void);
 
 #endif

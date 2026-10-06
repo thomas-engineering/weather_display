@@ -41,7 +41,7 @@ typedef struct {
      * Settings screen's Network row, next to "Configure network". */
     const char *update, *ota_title, *current_version, *ota_status;
     const char *ota_up_to_date, *ota_downloading, *ota_done, *ota_start, *ota_hint;
-    const char *ota_auto_update, *ota_update_coprocessor;
+    const char *ota_auto_update, *ota_update_coprocessor, *ota_test_channel;
     /* Failure reasons for weather_ui_set_ota_error() — added alongside the
      * real download/flash logic (main/ota_update.c); the design's own
      * fake-progress dialog never needed these since it couldn't fail. */

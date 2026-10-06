@@ -117,7 +117,7 @@ typedef struct {
     lv_obj_t *ota_backdrop;
     lv_obj_t *ota_current_version_val, *ota_status_val;
     lv_obj_t *ota_progress_track, *ota_progress_fill;
-    lv_obj_t *ota_auto_sw, *ota_copro_sw;
+    lv_obj_t *ota_auto_sw, *ota_copro_sw, *ota_test_sw;
     lv_obj_t *ota_hint_lbl;
     lv_obj_t *ota_start_btn, *ota_start_lbl;
     wx_ota_status_t ota_status;
@@ -125,7 +125,7 @@ typedef struct {
     char ota_error_msg[64]; /* only meaningful while ota_status is WX_OTA_ERROR; re-applied
                               * verbatim (not re-translated) by ota_rebuild() on a language
                               * switch, same limitation as any other in-flight async state */
-    bool ota_auto_update, ota_update_coprocessor;
+    bool ota_auto_update, ota_update_coprocessor, ota_test_channel;
 
     lv_obj_t *search_backdrop, *search_ta, *search_kb, *search_results, *search_status_lbl, *search_cancel_lbl;
     lv_obj_t *favorites_caption_lbl, *favorites_row;
@@ -162,6 +162,7 @@ typedef struct {
     weather_ui_ota_cancel_cb_t on_ota_cancel;
     weather_ui_ota_toggle_auto_update_cb_t on_ota_toggle_auto_update;
     weather_ui_ota_toggle_update_coprocessor_cb_t on_ota_toggle_update_coprocessor;
+    weather_ui_ota_toggle_test_channel_cb_t on_ota_toggle_test_channel;
 } weather_ui_t;
 
 static weather_ui_t ui;
@@ -1656,6 +1657,17 @@ void weather_ui_set_ota_auto_update(bool on) {
     else lv_obj_remove_state(ui.ota_auto_sw, LV_STATE_CHECKED);
 }
 
+void weather_ui_set_ota_test_channel(bool on) {
+    ui.ota_test_channel = on;
+    if (!ui.ota_test_sw) return;
+    if (on) lv_obj_add_state(ui.ota_test_sw, LV_STATE_CHECKED);
+    else lv_obj_remove_state(ui.ota_test_sw, LV_STATE_CHECKED);
+}
+
+void weather_ui_set_ota_test_channel_callback(weather_ui_ota_toggle_test_channel_cb_t on_toggle) {
+    ui.on_ota_toggle_test_channel = on_toggle;
+}
+
 void weather_ui_set_ota_update_coprocessor(bool on) {
     ui.ota_update_coprocessor = on;
     if (!ui.ota_copro_sw) return;
@@ -2080,6 +2092,13 @@ static void ota_toggle_copro_cb(lv_event_t *e) {
     if (ui.on_ota_toggle_update_coprocessor) ui.on_ota_toggle_update_coprocessor(on);
 }
 
+static void ota_toggle_test_channel_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    bool on = lv_obj_has_state(ui.ota_test_sw, LV_STATE_CHECKED);
+    ui.ota_test_channel = on;
+    if (ui.on_ota_toggle_test_channel) ui.on_ota_toggle_test_channel(on);
+}
+
 static void build_device_info_panel(lv_obj_t *parent) {
     const weather_strings_t *s = &weather_strings[ui.lang];
 
@@ -2336,6 +2355,31 @@ static void build_ota_panel(lv_obj_t *parent) {
     lv_label_set_text(copro_lbl, s->ota_update_coprocessor);
     lv_obj_set_style_text_color(copro_lbl, C_TEXT, 0);
     lv_obj_set_style_text_font(copro_lbl, FONT_14, 0);
+
+    /* FIX: not in the design export — test-channel switch, same row shape as
+     * the two above. Re-add after a re-sync from Claude Design. */
+    lv_obj_t *test_row = lv_obj_create(panel);
+    lv_obj_remove_style_all(test_row);
+    lv_obj_set_size(test_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(test_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(test_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(test_row, 8, 0);
+    lv_obj_remove_flag(test_row, LV_OBJ_FLAG_SCROLLABLE);
+    ui.ota_test_sw = lv_switch_create(test_row);
+    lv_obj_set_style_bg_color(ui.ota_test_sw, C_NEUTRAL_800, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.ota_test_sw, C_NEUTRAL_600, LV_PART_MAIN);
+    lv_obj_set_style_border_color(ui.ota_test_sw, C_ACCENT, LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_set_style_border_width(ui.ota_test_sw, 1, LV_PART_MAIN);
+    lv_obj_set_style_bg_color(ui.ota_test_sw, C_NEUTRAL_800, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(ui.ota_test_sw, C_ACCENT_700, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_set_style_bg_color(ui.ota_test_sw, C_NEUTRAL_300, LV_PART_KNOB);
+    lv_obj_set_style_bg_color(ui.ota_test_sw, C_ACCENT_100, LV_PART_KNOB | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(ui.ota_test_sw, ota_toggle_test_channel_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    if (ui.ota_test_channel) lv_obj_add_state(ui.ota_test_sw, LV_STATE_CHECKED);
+    lv_obj_t *test_lbl = lv_label_create(test_row);
+    lv_label_set_text(test_lbl, s->ota_test_channel);
+    lv_obj_set_style_text_color(test_lbl, C_TEXT, 0);
+    lv_obj_set_style_text_font(test_lbl, FONT_14, 0);
 
     ui.ota_hint_lbl = lv_label_create(panel);
     lv_label_set_text(ui.ota_hint_lbl, s->ota_hint);

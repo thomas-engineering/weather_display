@@ -788,7 +788,7 @@ static void ota_worker_task(void *arg) {
         ESP_LOGE(TAG, "network mutex busy for %ds, aborting OTA check", NETWORK_MUTEX_TIMEOUT_MS / 1000);
         res = (ota_outcome_t){ .status = OTA_RESULT_ERROR, .error = OTA_ERR_NETWORK };
     } else {
-        res = ota_update_run(ota_on_progress, &silent);
+        res = ota_update_run(app_prefs_get_ota_channel(), ota_on_progress, &silent);
         xSemaphoreGive(s_network_mutex);
     }
 
@@ -845,7 +845,7 @@ static void ota_resume_task(void *arg) {
     LV_UNUSED(arg);
     task_heartbeat_touch(HB_OTA_RESUME);
     if (xSemaphoreTake(s_network_mutex, pdMS_TO_TICKS(NETWORK_MUTEX_TIMEOUT_MS)) == pdTRUE) {
-        ota_update_resume_after_boot(app_prefs_get()->ota_update_coprocessor);
+        ota_update_resume_after_boot(app_prefs_get_ota_channel(), app_prefs_get()->ota_update_coprocessor);
         xSemaphoreGive(s_network_mutex);
     } else {
         ESP_LOGE(TAG, "network mutex busy for %ds, skipping post-update coprocessor check",
@@ -1229,6 +1229,10 @@ void app_weather_ota_toggle_auto_update(bool on) {
 
 void app_weather_ota_toggle_update_coprocessor(bool on) {
     app_prefs_save_ota_settings(app_prefs_get()->ota_auto_update, on);
+}
+
+void app_weather_ota_set_test_channel(bool on) {
+    app_prefs_save_ota_channel(on ? OTA_CHANNEL_TEST : OTA_CHANNEL_RELEASE);
 }
 
 void app_weather_ota_resume_after_boot(void) {

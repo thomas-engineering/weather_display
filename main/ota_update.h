@@ -19,6 +19,15 @@
 
 #include <stdbool.h>
 
+/* Which GitHub releases the device looks at. RELEASE is GitHub's "latest"
+ * release, which by definition never includes pre-releases; TEST looks at
+ * the newest release of any kind, so pre-releases built by the release
+ * workflow's test channel become visible. */
+typedef enum {
+    OTA_CHANNEL_RELEASE,
+    OTA_CHANNEL_TEST,
+} ota_channel_t;
+
 typedef enum {
     OTA_RESULT_UP_TO_DATE,
     OTA_RESULT_UPDATED_REBOOTING, /* P4 image flashed and hash-verified; caller must esp_restart() */
@@ -45,13 +54,13 @@ typedef struct {
 typedef void (*ota_progress_cb_t)(int percent, void *ctx);
 #define OTA_PROGRESS_DONE_PCT 100
 
-/* Fetches the latest release, compares its version against the running
+/* Fetches the newest release of `channel`, compares its version against the running
  * firmware, and if newer downloads+flashes the P4 image. Does NOT call
  * esp_restart() itself — the caller does that on OTA_RESULT_UPDATED_REBOOTING
  * so it can update the UI/persist state first. `update_coprocessor` is
  * carried through only to be echoed back by ota_update_resume_after_boot()
  * on the next boot; this call never touches the C6. */
-ota_outcome_t ota_update_run(ota_progress_cb_t on_progress, void *progress_ctx);
+ota_outcome_t ota_update_run(ota_channel_t channel, ota_progress_cb_t on_progress, void *progress_ctx);
 
 /* Cooperative cancel: sets a flag that ota_update_run() polls between HTTP
  * reads/esp_https_ota_perform() iterations. Safe to call from any task
@@ -77,6 +86,6 @@ void ota_update_reset_cancel(void);
  * image), optionally updates the C6 coprocessor per `update_coprocessor`
  * (the persisted app_prefs setting) and then marks the app valid, cancelling
  * the rollback timer. A no-op if the running partition is already valid. */
-void ota_update_resume_after_boot(bool update_coprocessor);
+void ota_update_resume_after_boot(ota_channel_t channel, bool update_coprocessor);
 
 #endif

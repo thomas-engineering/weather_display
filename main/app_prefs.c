@@ -13,6 +13,8 @@
 static const char *TAG = "prefs";
 static const char *NS = "weather";
 #define RECORD_KEY "prefs"
+#define OTA_CHANNEL_RECORD_KEY "ota_chan"
+#define OTA_CHANNEL_RECORD_VERSION 1
 #define RECORD_VERSION 3 /* bumped for ota_auto_update/ota_update_coprocessor (2026-09-19 sync) */
 /* Older layouts still migrated on load. */
 #define RECORD_VERSION_V1 1
@@ -26,6 +28,7 @@ static const char *NS = "weather";
 #define PREFS_SAVE_DEBOUNCE_US (50 * 1000)
 
 static app_prefs_t s_prefs;
+static ota_channel_t s_ota_channel = OTA_CHANNEL_RELEASE;
 
 const app_prefs_t *app_prefs_get(void) { return &s_prefs; }
 
@@ -148,6 +151,13 @@ void app_prefs_load(app_prefs_t *out) {
     s_prefs.auto_refresh_minutes = k_auto_refresh_values[AUTO_REFRESH_DEFAULT_IDX]; /* matches the design's initial autoRefreshMinutes */
     s_prefs.ota_auto_update = true; /* matches the design's initial otaAutoUpdate */
     s_prefs.ota_update_coprocessor = false; /* matches the design's initial otaUpdateCoprocessor */
+
+    uint8_t channel_raw;
+    s_ota_channel = OTA_CHANNEL_RELEASE;
+    if (storage_record_load(&storage_backend_nvs, NS, OTA_CHANNEL_RECORD_KEY, OTA_CHANNEL_RECORD_VERSION,
+                            &channel_raw, sizeof channel_raw) && channel_raw == OTA_CHANNEL_TEST) {
+        s_ota_channel = OTA_CHANNEL_TEST;
+    }
 
     prefs_payload_t p;
     prefs_payload_v1_t p1;
@@ -321,4 +331,12 @@ void app_prefs_save_ota_settings(bool auto_update, bool update_coprocessor) {
     s_prefs.ota_auto_update = auto_update;
     s_prefs.ota_update_coprocessor = update_coprocessor;
     request_save();
+}
+
+ota_channel_t app_prefs_get_ota_channel(void) { return s_ota_channel; }
+
+void app_prefs_save_ota_channel(ota_channel_t channel) {
+    s_ota_channel = channel;
+    uint8_t raw = (uint8_t)channel;
+    storage_record_save(&storage_backend_nvs, NS, OTA_CHANNEL_RECORD_KEY, OTA_CHANNEL_RECORD_VERSION, &raw, sizeof raw);
 }

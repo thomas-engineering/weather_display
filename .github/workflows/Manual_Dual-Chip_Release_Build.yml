@@ -2,6 +2,16 @@ name: Manual Dual-Chip Release Build
 
 on:
   workflow_dispatch: # Allows manual triggering from the GitHub Actions UI
+    inputs:
+      channel:
+        description: >-
+          test = pre-release (tag vX.Y.Z-test.N), only seen by devices with the
+          "Test channel" switch on; release = the real release for all devices
+        type: choice
+        options:
+          - test
+          - release
+        default: test
 
 jobs:
   build-and-release:
@@ -22,16 +32,36 @@ jobs:
     #    what's actually embedded in the built firmware's esp_app_desc. Edit
     #    version.txt by hand to set the release version; there is no manual
     #    input for it anymore, to avoid the two ever disagreeing.
+    #
+    #    channel=test: the tag gets a "-test.<run number>" suffix, no release
+    #    branch is created, and the GitHub release is marked prerelease.
+    #    GitHub's /releases/latest never returns pre-releases, so devices on
+    #    the normal channel cannot see it; the device's "Test channel" switch
+    #    reads the release list instead.
     - name: Create Release Branch & Tag
       id: create_version
       run: |
         RAW_VERSION="$(tr -d '[:space:]' < version.txt)"
-        VERSION="v${RAW_VERSION}"
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        if [ "${{ inputs.channel }}" = "release" ]; then
+          VERSION="v${RAW_VERSION}"
 
-        # Create and push a local branch to freeze the build state
-        git checkout -b "release/$VERSION"
-        git push origin "release/$VERSION"
+          # Create and push a local branch to freeze the build state
+          git checkout -b "release/$VERSION"
+          git push origin "release/$VERSION"
+          echo "target=release/$VERSION" >> $GITHUB_OUTPUT
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+        else
+          VERSION="v${RAW_VERSION}-test.${{ github.run_number }}"
+          # The build embeds version.txt as the running version, and the
+          # device compares that against the manifest. Without the suffix a
+          # test build would report itself as the plain release version,
+          # which semver ranks above every "-test.N" of it, so devices would
+          # never see further test builds as newer. Not committed.
+          echo "${RAW_VERSION}-test.${{ github.run_number }}" > version.txt
+          echo "target=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
 
     # 2. AUTOMATION: Build ESP32-P4 firmware applying project sdkconfig defaults
     - name: Build ESP32-P4 Firmware
@@ -206,14 +236,14 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.create_version.outputs.version }}
-        target_commitish: release/${{ steps.create_version.outputs.version }}
-        name: Release ${{ steps.create_version.outputs.version }}
+        target_commitish: ${{ steps.create_version.outputs.target }}
+        name: ${{ inputs.channel == 'release' && 'Release' || 'Test build' }} ${{ steps.create_version.outputs.version }}
         body: |
           Manually triggered release build for Weather Display (Waveshare P4 Board).
           - ESP-IDF Version: v6.1.0
           - Includes display drivers and esp-hosted SDIO network configuration.
         draft: false
-        prerelease: false
+        prerelease: ${{ steps.create_version.outputs.prerelease }}
         files: |
           firmware_p4.bin
           esp32c6_hosted_slave.bin
