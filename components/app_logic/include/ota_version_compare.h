@@ -8,8 +8,9 @@
  * is ignored on either side. Numeric major/minor/patch compare first;
  * missing components are treated as 0. If major.minor.patch tie, a
  * pre-release suffix ranks lower than none (standard semver precedence:
- * "1.0.0" > "1.0.0-pre1"), and two differing pre-release suffixes fall back
- * to a plain string compare. If neither string parses as at least one
+ * "1.0.0" > "1.0.0-pre1"), and two pre-release suffixes compare by semver
+ * rules on their dot-separated identifiers (numeric ones numerically, so
+ * "1.0.0-test.10" > "1.0.0-test.9"). If neither string parses as at least one
  * leading digit, falls back to a plain strcmp (not-equal treated as "not
  * newer", to fail closed rather than update on garbage input).
  *

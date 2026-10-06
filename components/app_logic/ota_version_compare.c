@@ -29,6 +29,45 @@ static ver_t parse_version(const char *s) {
     return v;
 }
 
+/* Semver precedence for two pre-release strings: dot-separated identifiers
+ * compare left to right; two numeric identifiers compare as numbers (so
+ * "test.10" outranks "test.9"), a numeric one ranks below an alphanumeric
+ * one, two alphanumeric ones compare as text, and the string with more
+ * identifiers wins a tie on the common prefix. Returns <0, 0 or >0. */
+static int compare_prerelease(const char *a, const char *b) {
+    for (;;) {
+        if (*a == '\0' || *b == '\0') return (*a != '\0') - (*b != '\0');
+
+        size_t alen = strcspn(a, ".");
+        size_t blen = strcspn(b, ".");
+        bool a_num = true, b_num = true;
+        for (size_t i = 0; i < alen; i++) if (!isdigit((unsigned char)a[i])) a_num = false;
+        for (size_t i = 0; i < blen; i++) if (!isdigit((unsigned char)b[i])) b_num = false;
+
+        int cmp;
+        if (a_num && b_num) {
+            /* Strip leading zeros, then a longer digit run is the larger number. */
+            const char *an = a, *bn = b;
+            size_t anlen = alen, bnlen = blen;
+            while (anlen > 1 && *an == '0') { an++; anlen--; }
+            while (bnlen > 1 && *bn == '0') { bn++; bnlen--; }
+            cmp = anlen != bnlen ? (anlen > bnlen) - (anlen < bnlen)
+                                 : strncmp(an, bn, anlen);
+        } else if (a_num != b_num) {
+            cmp = a_num ? -1 : 1;
+        } else {
+            size_t common = alen < blen ? alen : blen;
+            cmp = strncmp(a, b, common);
+            if (cmp == 0) cmp = (alen > blen) - (alen < blen);
+        }
+        if (cmp != 0) return cmp;
+
+        a += alen; b += blen;
+        if (*a == '.') a++;
+        if (*b == '.') b++;
+    }
+}
+
 bool ota_is_newer(const char *current, const char *remote) {
     if (!current || !remote) return false;
 
@@ -46,5 +85,5 @@ bool ota_is_newer(const char *current, const char *remote) {
     bool r_pre = r.pre[0] != '\0';
     if (c_pre != r_pre) return c_pre && !r_pre; /* "1.0.0" > "1.0.0-pre1" */
     if (!c_pre && !r_pre) return false;         /* identical release version */
-    return strcmp(r.pre, c.pre) > 0;
+    return compare_prerelease(r.pre, c.pre) > 0;
 }

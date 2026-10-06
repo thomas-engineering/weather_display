@@ -33,6 +33,20 @@ static void test_prerelease_precedence(void) {
     TEST_ASSERT_FALSE(ota_is_newer("0.0.1-pre2", "0.0.1-pre1"));
 }
 
+static void test_prerelease_numeric_identifiers(void) {
+    TEST_ASSERT_TRUE(ota_is_newer("0.0.8-test.9", "0.0.8-test.10"));
+    TEST_ASSERT_FALSE(ota_is_newer("0.0.8-test.10", "0.0.8-test.9"));
+    TEST_ASSERT_FALSE(ota_is_newer("0.0.8-test.3", "0.0.8-test.3"));
+    /* A test build of the next version is newer than the current release,
+     * and the real release of that version outranks its own test builds. */
+    TEST_ASSERT_TRUE(ota_is_newer("0.0.7", "0.0.8-test.1"));
+    TEST_ASSERT_TRUE(ota_is_newer("0.0.8-test.12", "0.0.8"));
+    TEST_ASSERT_FALSE(ota_is_newer("0.0.8", "0.0.8-test.12"));
+    /* More identifiers win a tie; numeric ranks below alphanumeric. */
+    TEST_ASSERT_TRUE(ota_is_newer("0.0.8-test", "0.0.8-test.1"));
+    TEST_ASSERT_TRUE(ota_is_newer("0.0.8-1", "0.0.8-test"));
+}
+
 static void test_missing_components_default_to_zero(void) {
     TEST_ASSERT_TRUE(ota_is_newer("1", "1.0.1"));
     TEST_ASSERT_FALSE(ota_is_newer("1.0.1", "1"));
@@ -47,6 +61,7 @@ static void test_unparseable_input_fails_closed(void) {
 
 void test_ota_version_compare_run(void) {
     RUN_TEST(test_newer_patch);
+    RUN_TEST(test_prerelease_numeric_identifiers);
     RUN_TEST(test_newer_minor_major);
     RUN_TEST(test_equal_is_not_newer);
     RUN_TEST(test_leading_v_ignored);

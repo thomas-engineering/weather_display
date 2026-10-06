@@ -52,8 +52,14 @@ main/
 ├── app_prefs.c/h         NVS-backed settings and selected city
 ├── app_format.c/h        locale dates/times and the "real feel" sentence
 ├── ota_update.c/h        dual-chip OTA: manifest fetch, HTTPS flash, esp-hosted RPC OTA
+├── app_config.h          constants shared across main/
+├── auto_refresh_options.h  shared auto-refresh interval table
 ├── storage_backend_nvs.c/h  NVS implementation of app_logic's storage_backend_t
 ├── save_debounce.c/h     coalesces rapid settings writes into one NVS commit
+├── task_heartbeat.c/h    per-task liveness budgets
+├── display_lock_probe.c/h  warns when the LVGL display lock is held too long
+├── app_heap_probe.c/h    periodic heap report (adapter over app_logic/heap_watch)
+├── lv_mem_psram.c        LVGL allocator that prefers PSRAM over internal RAM
 ├── ui_fonts.h            Inter ⇄ Montserrat font mapping
 ├── weather_chart.c/h     hourly temperature + precipitation chart
 ├── weather_ui.c/h        ── imported from Claude Design ──
@@ -67,11 +73,20 @@ components/app_logic/     hardware-free application logic, host-tested (see Test
 ├── storage_record.c      versioned NVS record round-trip, over storage_backend.h
 ├── weather_forecast_parse.c   Open-Meteo JSON → plain struct
 ├── ota_manifest_parse.c  manifest.json → plain struct
-└── ota_version_compare.c semver-ish "is remote newer" comparison
+├── ota_version_compare.c semver-ish "is remote newer" comparison
+├── wifi_reconnect_policy.c    reconnect back-off decisions
+├── link_health_policy.c  consecutive fetch failures → verify / reconnect escalation
+├── coprocessor_health_policy.c  when to restart the C6 link, with cooldown and give-up
+├── startup_retry_policy.c     retry delays for the initial network steps
+├── network_status_policy.c    error state and refresh-toast transitions
+└── heap_watch.c          low-heap detection and report throttling
 
 host_test/                Unity tests for components/app_logic/, run on the Linux target
-sim/                       LVGL UI ported to desktop SDL, no board or emulator needed
-scripts/                   host-test.sh, sim.sh, fw-build.sh, hw-flash.sh (see Testing)
+sim/                      LVGL UI ported to desktop SDL, no board or emulator needed
+scripts/                  host-test.sh, sim.sh, fw-build.sh, hw-flash.sh,
+                          hil-outage-test.sh (see Testing), C6 UART flash helper
+patches/                  local patches against managed_components/ (see patches/README.md)
+docs/                     screenshots, board schematic, ESP-Hosted RPC v1/v2 notes
 ```
 
 ### Imported vs. authored
@@ -98,15 +113,25 @@ component registry as `espressif/cjson` (already declared in
 `main/idf_component.yml`).
 
 ```sh
-idf.py set-target esp32p4
-idf.py menuconfig      # optional: default city, refresh interval, fallback Wi-Fi
-idf.py build flash monitor
+./scripts/fw-build.sh                  # build into build/, no flashing
+./scripts/hw-flash.sh /dev/ttyACM0     # build, flash, read and check the boot log
 ```
+
+The scripts set up ESP-IDF themselves (`scripts/lib/idf-env.sh`): first
+`~/.espressif/tools/activate_idf_v6.1.sh` (override with `IDF_ACTIVATE`), then
+`$IDF_PATH/export.sh`. Exit code 127 means ESP-IDF was not found. Logs land in
+`.logs/`. For `idf.py menuconfig` (default city, refresh interval, fallback
+Wi-Fi) activate IDF in your own shell; avoid `idf.py monitor` without a TTY.
 
 Dependencies resolve automatically through the component manager
 (`main/idf_component.yml`): the Waveshare BSP `3.0.1`, LVGL `9.5.0`,
-`esp_hosted`/`esp_wifi_remote` for the radio, and `esp_video`/`esp_cam_sensor`
-for the optional camera.
+`esp_hosted` `3.0.*` / `esp_wifi_remote` for the radio, and
+`esp_video`/`esp_cam_sensor` for the optional camera.
+
+`managed_components/` is gitignored and never edited directly. Required
+changes live in `patches/` (currently `esp_hosted_sdio_reserve.patch`, which
+reserves SDIO transport buffers) and must be re-applied after the dependencies
+are re-resolved — see `patches/README.md`.
 
 ### First boot
 
@@ -145,8 +170,25 @@ screen.
 Releases are built by `.github/workflows/Manual_Dual-Chip_Release_Build.yml`
 (manual `workflow_dispatch`), which builds both chips' firmware from this
 repo and the pinned `esp_hosted` version's matching coprocessor example, and
-publishes `firmware_p4.bin` + `esp32c6_hosted_slave.bin` + `manifest.json` to
-a release tagged from `version.txt`.
+publishes `firmware_p4.bin` + `esp32c6_hosted_slave.bin` + `manifest.json`.
+
+The workflow has a `channel` input:
+
+| `channel` | Tag | GitHub release | Who sees it |
+|---|---|---|---|
+| `test` (default) | `v<version.txt>-test.<run number>` | pre-release, no `release/` branch | only devices with the **Test channel** switch on |
+| `release` | `v<version.txt>` | regular release, `release/v…` branch | all devices |
+
+Devices on the normal channel read GitHub's `/releases/latest`, which never
+returns pre-releases. The **Test channel** switch in the update dialog
+(Settings → Network → Update) makes the device look at the newest release of
+any kind instead; it is stored in NVS and defaults to off. Test builds embed
+`<version.txt>-test.<run number>` as their version, so bump `version.txt`
+above the version the device is running before a test run, or the device
+will not consider the test build newer. Switching back to the normal channel
+never downgrades: a test build only updates to a newer real release. With
+Auto-update on, a device on the test channel installs new test builds
+unattended.
 
 ## Fonts
 
@@ -179,12 +221,14 @@ the full rationale. In order of speed:
 | `components/app_logic/**` | `./scripts/host-test.sh` |
 | UI rendering (`weather_ui.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, fonts) | `./scripts/sim.sh --shots <dir>` |
 | everything else in `main/`, sdkconfig, dependencies, CMake | `./scripts/fw-build.sh` |
-| peripherals, startup, Wi-Fi, OTA, timing, memory layout | additionally `./scripts/hw-flash.sh [/dev/ttyACM0]` |
+| peripherals, startup, Wi-Fi, OTA, timing, memory layout | additionally `./scripts/hw-flash.sh [/dev/ttyACM0]` (`REQUIRE_IP=1` for Wi-Fi/OTA) |
+| Wi-Fi recovery (`app_wifi.c`, reconnect and link-health policies) | additionally `./scripts/hil-outage-test.sh` (a human triggers the outage) |
 
 - **`host_test/`** runs Unity tests for every `components/app_logic/` module
   natively on the Linux target — no chip needed. This is where
-  manifest/JSON parsing, version comparison, favorites logic, and the
-  ambient-light policy are actually verified.
+  manifest/JSON parsing, version comparison, favorites logic, the
+  ambient-light policy and the Wi-Fi/link/coprocessor recovery policies are
+  actually verified.
 - **`sim/`** builds the UI layer (`weather_ui.c`, `weather_chart.c`,
   `weather_icons.c`, `weather_i18n.c`, `app_format.c`) against desktop LVGL
   at the same resolution and color depth, in an SDL window — see
@@ -215,12 +259,16 @@ OTA progress.
 ./scripts/sim.sh                              # interactive: mouse is the touchscreen
 ./scripts/sim.sh --screen settings            # open one screen straight away
 ./scripts/sim.sh --shots shots/               # capture all screens as PNG
+./scripts/sim.sh --screen settings --screenshot settings.bmp   # one screen
 ```
+
+Running `sim.sh` without `--shots` or `--screenshot` opens a window and
+blocks until it is closed.
 
 Screens: `main`, `search`, `settings`, `settings-adaptive-on`, `device-info`,
 `forecast-icon-tap`, `refresh-toast`, `detail`, `wifi`,
 `wifi-forget-confirm`, `favorite-tap`, `ota`, `ota-done`, plus the first-boot
-state via `--wifi-setup`. The capture path is headless
+state via `--wifi-setup` (captured as `first-boot` by `--shots`). The capture path is headless
 (`SDL_VIDEODRIVER=dummy`), so it works over SSH. Screens are opened by
 walking the object tree for a known label and clicking its owner, not by
 clicking fixed coordinates — a layout change moves the target without
@@ -310,20 +358,27 @@ one request rather than one TLS handshake per character.
 - **A real over-the-air update has been completed on hardware**: the device
   fetched a published GitHub Release, downloaded and flashed a newer P4
   image over HTTPS, verified its SHA-256 against the manifest, and rebooted
-  into it successfully. The ESP32-C6 coprocessor OTA path has not yet been
-  exercised on hardware.
+  into it successfully.
+- **The ESP32-C6 coprocessor OTA has completed on hardware too**: a full
+  image streamed over SDIO, SHA-256 verified, activated, and the next boot
+  negotiated matching host/coprocessor versions (3.0.7). A bug where a
+  successful C6 update rolled back the P4 image that triggered it was found
+  and fixed, and confirmed by a real GitHub Release update of both chips.
+- **Wi-Fi outage recovery** was exercised with `hil-outage-test.sh`
+  (`HIL_OUTAGE_OK`, ~79 s recovery after a stuck connect attempt).
 - **Host-run unit tests** (`./scripts/host-test.sh`) cover every
   `components/app_logic/` module — forecast parsing, OTA manifest parsing,
-  version comparison, favorites, and the ambient-light policy — all passing.
+  version comparison, favorites, the ambient-light policy, and the
+  Wi-Fi/link/coprocessor/startup/network-status/heap policies.
 - **Touch geometry verified by measurement** — corner taps land within ~45 px of
   the true corners on a 1024×600 panel.
 - All generated Inter faces are confirmed linked into the ELF.
 
-**Still unverified:** the ESP32-C6 coprocessor OTA path (implemented, modeled
-on esp-hosted's own reference example, never exercised end to end), and the
-finer visual detail against a physical photo of the panel — specifically
-whether the generated Inter faces render the German/Spanish/French accented
-characters correctly on the real display.
+**Still unverified:** the finer visual detail against a physical photo of the
+panel — specifically whether the generated Inter faces render the
+German/Spanish/French accented characters correctly on the real display — and
+a stall seen twice where the RPC/SDIO link to the C6 wedges, likely under heavy
+SDIO load such as an OTA download.
 
 If taps ever land in the wrong place on a different unit, build with
 `CONFIG_WEATHER_TOUCH_DEBUG=y`, tap the four corners, and read the reported
@@ -341,10 +396,21 @@ STA netif on IDF 6 and boot-loop on an lwip `netif already added` assert. If
 you change these versions, delete `sdkconfig` — stale esp_hosted values persist,
 including the SDIO reset polarity.
 
-The boot log carries one benign error: `major version mismatch — OTA coprocessor
-from host` (host esp-hosted 3.0.7 vs the C6's 2.6.7 firmware). Everything works;
-updating the co-processor firmware (see [Firmware updates](#firmware-updates))
-would silence it.
+Host and C6 esp-hosted versions must match (host `3.0.*`, slave firmware
+3.0.7, binaries in `scripts/c6_firmware_via_UART/binaries_v3.0.7`). A C6 still
+on older firmware (e.g. 2.6.7) logs `major version mismatch — OTA coprocessor
+from host`; update it via [Firmware updates](#firmware-updates) or, if the OTA
+path itself is unusable on that firmware, flash it over UART with
+`scripts/c6_firmware_via_UART/flash_c6_via_uart.sh` (background in
+`docs/esp-hosted-rpc-v1-vs-v2.md`).
+
+The C6 only forwards inbound UDP/TCP packets to the P4 when the destination
+port is in **49152–61439**; everything else is silently dropped (outbound
+traffic, DHCP and ping are unaffected). With stock lwIP, about 80% of DNS
+lookups and a quarter of TCP connections failed because of it, which broke
+startup DNS/SNTP. The top-level `CMakeLists.txt` therefore pins lwIP's
+local-port ranges (`HOST_PORT_FIRST`/`HOST_PORT_COUNT`) to that window. If the
+C6 firmware's range ever changes, change them to match.
 
 This P4's ECDSA hardware peripheral isn't available on rev 1.3 silicon, so
 mbedTLS's PSA driver logs `ECDSA peripheral not supported on this chip

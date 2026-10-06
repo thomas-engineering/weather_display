@@ -651,6 +651,7 @@ static void on_ota_cancel(void) { s_ota_cancelled = true; }
 
 static void on_ota_toggle_auto_update(bool on) { (void)on; }
 static void on_ota_toggle_update_coprocessor(bool on) { (void)on; }
+static void on_ota_toggle_test_channel(bool on) { (void)on; }
 
 static void on_favorite_remove(int slot_index)
 {
@@ -1112,6 +1113,7 @@ int main(int argc, char **argv)
     weather_ui_set_brightness_callback(on_brightness);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
     weather_ui_set_ota_callbacks(on_ota_start, on_ota_cancel, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
+    weather_ui_set_ota_test_channel_callback(on_ota_toggle_test_channel);
     /* The simulator has no camera; render the adaptive switch the way a real
      * board with nothing on the MIPI-CSI connector would. */
     weather_ui_set_brightness_adaptive_available(false);
@@ -1123,6 +1125,7 @@ int main(int argc, char **argv)
      * directly, same reasoning as the auto-refresh default above. */
     weather_ui_set_ota_auto_update(true);
     weather_ui_set_ota_update_coprocessor(false);
+    weather_ui_set_ota_test_channel(false);
     push_favorites_to_ui_sim(); /* all-empty, s_favorites is zero-initialized like a fresh device */
 
     if (open_wifi_setup) {

@@ -51,7 +51,11 @@ void ota_update_reset_cancel(void) {
     s_cancel_requested = false;
 }
 
-#define GITHUB_RELEASES_URL "https://api.github.com/repos/thomas-engineering/weather_display/releases/latest"
+#define GITHUB_RELEASES_BASE_URL "https://api.github.com/repos/thomas-engineering/weather_display/releases"
+/* "latest" skips drafts and pre-releases; the plain list is newest-first and
+ * includes pre-releases, so one entry is the newest release of any kind. */
+#define GITHUB_RELEASE_URL_RELEASE GITHUB_RELEASES_BASE_URL "/latest"
+#define GITHUB_RELEASE_URL_TEST    GITHUB_RELEASES_BASE_URL "?per_page=1"
 #define OTA_USER_AGENT       "esp32-p4-weather-display"
 #define JSON_BUF_MAX         (32 * 1024)
 #define URL_MAX              256
@@ -190,22 +194,31 @@ static bool find_asset_url(const cJSON *release, const char *asset_name, char *o
 
 /* Fetches the latest release's asset list and the manifest.json it points
  * to. Returns false (logging why) on any network/parse failure. */
-static bool fetch_manifest_and_urls(ota_manifest_t *manifest,
+static bool fetch_manifest_and_urls(ota_channel_t channel, ota_manifest_t *manifest,
                                      char *p4_url, size_t p4_url_len,
                                      char *c6_url, size_t c6_url_len) {
-    char *release_json = fetch_small(GITHUB_RELEASES_URL);
-    if (!release_json) { ESP_LOGE(TAG, "could not fetch %s", GITHUB_RELEASES_URL); return false; }
+    const char *releases_url = channel == OTA_CHANNEL_TEST ? GITHUB_RELEASE_URL_TEST : GITHUB_RELEASE_URL_RELEASE;
+    char *release_json = fetch_small(releases_url);
+    if (!release_json) { ESP_LOGE(TAG, "could not fetch %s", releases_url); return false; }
 
     cJSON *release = cJSON_Parse(release_json);
     free(release_json);
     if (!release) { ESP_LOGE(TAG, "release JSON did not parse"); return false; }
+
+    if (channel == OTA_CHANNEL_TEST) {
+        /* The list endpoint wraps the release in an array. */
+        cJSON *first = cJSON_IsArray(release) ? cJSON_DetachItemFromArray(release, 0) : NULL;
+        cJSON_Delete(release);
+        release = first;
+        if (!release) { ESP_LOGE(TAG, "no release found for the test channel"); return false; }
+    }
 
     char manifest_url[URL_MAX];
     bool ok = find_asset_url(release, "manifest.json", manifest_url, sizeof manifest_url) &&
               find_asset_url(release, "firmware_p4.bin", p4_url, p4_url_len) &&
               find_asset_url(release, "esp32c6_hosted_slave.bin", c6_url, c6_url_len);
     cJSON_Delete(release);
-    if (!ok) { ESP_LOGE(TAG, "latest release is missing one of manifest.json/firmware_p4.bin/esp32c6_hosted_slave.bin"); return false; }
+    if (!ok) { ESP_LOGE(TAG, "release is missing one of manifest.json/firmware_p4.bin/esp32c6_hosted_slave.bin"); return false; }
 
     char *manifest_json = fetch_small(manifest_url);
     if (!manifest_json) { ESP_LOGE(TAG, "could not fetch %s", manifest_url); return false; }
@@ -367,17 +380,17 @@ static ota_outcome_t run_p4_update(const char *p4_url, const char *expected_sha2
     return out;
 }
 
-ota_outcome_t ota_update_run(ota_progress_cb_t on_progress, void *progress_ctx) {
+ota_outcome_t ota_update_run(ota_channel_t channel, ota_progress_cb_t on_progress, void *progress_ctx) {
     ota_manifest_t manifest;
     char p4_url[URL_MAX], c6_url[URL_MAX];
-    if (!fetch_manifest_and_urls(&manifest, p4_url, sizeof p4_url, c6_url, sizeof c6_url)) {
+    if (!fetch_manifest_and_urls(channel, &manifest, p4_url, sizeof p4_url, c6_url, sizeof c6_url)) {
         return (ota_outcome_t){ .status = OTA_RESULT_ERROR, .error = OTA_ERR_MANIFEST };
     }
     if (s_cancel_requested) return (ota_outcome_t){ .status = OTA_RESULT_ERROR, .error = OTA_ERR_CANCELLED };
 
     const esp_app_desc_t *running = esp_app_get_description();
     if (!ota_is_newer(running->version, manifest.version)) {
-        ESP_LOGI(TAG, "up to date: running %s, latest release %s", running->version, manifest.version);
+        ESP_LOGI(TAG, "up to date: running %s, newest release %s", running->version, manifest.version);
         return (ota_outcome_t){ .status = OTA_RESULT_UP_TO_DATE, .error = OTA_ERR_NONE };
     }
     if (s_cancel_requested) return (ota_outcome_t){ .status = OTA_RESULT_ERROR, .error = OTA_ERR_CANCELLED };
@@ -528,7 +541,7 @@ done:
     return ok;
 }
 
-void ota_update_resume_after_boot(bool update_coprocessor) {
+void ota_update_resume_after_boot(ota_channel_t channel, bool update_coprocessor) {
     const esp_partition_t *running = esp_ota_get_running_partition();
     esp_ota_img_states_t state;
     if (esp_ota_get_state_partition(running, &state) != ESP_OK || state != ESP_OTA_IMG_PENDING_VERIFY) {
@@ -540,7 +553,7 @@ void ota_update_resume_after_boot(bool update_coprocessor) {
     if (update_coprocessor) {
         ota_manifest_t manifest;
         char p4_url[URL_MAX], c6_url[URL_MAX];
-        if (fetch_manifest_and_urls(&manifest, p4_url, sizeof p4_url, c6_url, sizeof c6_url)) {
+        if (fetch_manifest_and_urls(channel, &manifest, p4_url, sizeof p4_url, c6_url, sizeof c6_url)) {
             if (run_c6_update(c6_url, manifest.c6_sha256)) {
                 ESP_LOGI(TAG, "C6 coprocessor updated; restarting host to resync");
                 /* Mark this P4 image valid before restarting — otherwise it

@@ -69,6 +69,7 @@ static void on_ota_start(void)                    { app_weather_ota_start(); }
 static void on_ota_cancel(void)                   { app_weather_ota_cancel(); }
 static void on_ota_toggle_auto_update(bool on)    { app_weather_ota_toggle_auto_update(on); }
 static void on_ota_toggle_update_coprocessor(bool on) { app_weather_ota_toggle_update_coprocessor(on); }
+static void on_ota_toggle_test_channel(bool on)       { app_weather_ota_set_test_channel(on); }
 
 static void on_wifi_connect(const char *ssid, const char *password) {
     app_weather_wifi_connect(ssid, password);
@@ -333,6 +334,7 @@ void app_main(void) {
     weather_ui_set_brightness_adaptive_callback(on_brightness_adaptive);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
     weather_ui_set_ota_callbacks(on_ota_start, on_ota_cancel, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
+    weather_ui_set_ota_test_channel_callback(on_ota_toggle_test_channel);
     /* FIX: weather_ui_set_language()/weather_ui_set_units() both end by firing
      * the settings-changed callback (so language/unit-only edits from the UI
      * get persisted), which re-saves *every* field of app_prefs including
@@ -346,6 +348,7 @@ void app_main(void) {
     weather_ui_set_auto_refresh(prefs.auto_refresh_minutes);
     weather_ui_set_ota_auto_update(prefs.ota_auto_update);
     weather_ui_set_ota_update_coprocessor(prefs.ota_update_coprocessor);
+    weather_ui_set_ota_test_channel(app_prefs_get_ota_channel() == OTA_CHANNEL_TEST);
     weather_ui_set_language(prefs.lang);
     weather_ui_set_units(prefs.temp_unit, prefs.wind_unit, prefs.time_fmt);
     weather_ui_set_brightness(prefs.brightness);

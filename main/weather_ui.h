@@ -113,6 +113,8 @@ typedef void (*weather_ui_ota_start_cb_t)(void);
 typedef void (*weather_ui_ota_cancel_cb_t)(void);
 typedef void (*weather_ui_ota_toggle_auto_update_cb_t)(bool on);
 typedef void (*weather_ui_ota_toggle_update_coprocessor_cb_t)(bool on);
+/* on = use the test channel (pre-releases), off = regular releases. */
+typedef void (*weather_ui_ota_toggle_test_channel_cb_t)(bool on);
 
 /* Builds the whole 1024x600 screen as a child of `parent` (typically lv_screen_active()). */
 void weather_ui_create(lv_obj_t *parent);
@@ -130,6 +132,8 @@ void weather_ui_set_ota_callbacks(weather_ui_ota_start_cb_t on_start,
                                    weather_ui_ota_cancel_cb_t on_cancel,
                                    weather_ui_ota_toggle_auto_update_cb_t on_toggle_auto_update,
                                    weather_ui_ota_toggle_update_coprocessor_cb_t on_toggle_update_coprocessor);
+
+void weather_ui_set_ota_test_channel_callback(weather_ui_ota_toggle_test_channel_cb_t on_toggle);
 
 void weather_ui_set_language(weather_lang_t lang);
 void weather_ui_set_units(wx_temp_unit_t temp, wx_wind_unit_t wind, wx_time_fmt_t time_fmt);
@@ -167,6 +171,7 @@ void weather_ui_set_ota_error(const char *message);
  * than looping back through these. */
 void weather_ui_set_ota_auto_update(bool on);
 void weather_ui_set_ota_update_coprocessor(bool on);
+void weather_ui_set_ota_test_channel(bool on);
 /* True while any modal dialog (Settings, Wi-Fi setup/forget-confirm, Device
  * info, day detail, city search, or this dialog itself) is open. Added for
  * the silent 12h OTA auto-check (see app_weather.c) to avoid rebooting into

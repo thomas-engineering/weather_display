@@ -2,6 +2,7 @@
 #ifndef APP_PREFS_H
 #define APP_PREFS_H
 
+#include "ota_update.h"
 #include "weather_ui.h"
 #include "weather_i18n.h"
 
@@ -40,6 +41,14 @@ void app_prefs_save_settings(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit
 void app_prefs_save_brightness(int percent);
 void app_prefs_save_brightness_adaptive(bool enabled);
 void app_prefs_save_ota_settings(bool auto_update, bool update_coprocessor);
+
+/* Update channel (release vs. test). Kept in its own small record, not in
+ * prefs_payload_t, so adding it needs no migration of the main prefs record
+ * and a downgrade to older firmware simply ignores it. Loaded by
+ * app_prefs_load(); defaults to OTA_CHANNEL_RELEASE. Written synchronously:
+ * it changes rarely, from a settings tap. */
+ota_channel_t app_prefs_get_ota_channel(void);
+void app_prefs_save_ota_channel(ota_channel_t channel);
 
 /* Live copy, kept in sync by the save_* calls above. */
 const app_prefs_t *app_prefs_get(void);
