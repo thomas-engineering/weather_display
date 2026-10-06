@@ -179,6 +179,11 @@ The workflow has a `channel` input:
 | `test` (default) | `v<version.txt>-test.<run number>` | pre-release, no `release/` branch | only devices with the **Test channel** switch on |
 | `release` | `v<version.txt>` | regular release, `release/v…` branch | all devices |
 
+The C6 coprocessor firmware follows the channel too: `test` builds the newest
+matching esp-hosted tag, `release` builds exactly the version in
+`c6_release_version.txt`, which is only raised after that firmware passed the
+procedure in `docs/c6-firmware-test.md` (`./scripts/c6-compat-test.sh`).
+
 Devices on the normal channel read GitHub's `/releases/latest`, which never
 returns pre-releases. The **Test channel** switch in the update dialog
 (Settings → Network → Update) makes the device look at the newest release of
