@@ -128,6 +128,13 @@ Dependencies resolve automatically through the component manager
 `esp_hosted` `3.0.*` / `esp_wifi_remote` for the radio, and
 `esp_video`/`esp_cam_sensor` for the optional camera.
 
+`dependencies.lock` is committed. It pins the component versions that the local
+ESP-IDF installation resolved (for example `esp_hosted` 3.0.7), so local builds,
+the release workflow and its test channel build the same versions; the workflow
+fails if its own resolution would change the lock. To move to newer versions run
+`idf.py update-dependencies`, re-apply the patch below, test on the board and
+commit the lock.
+
 `managed_components/` is gitignored and never edited directly. Required
 changes live in `patches/` (currently `esp_hosted_sdio_reserve.patch`, which
 reserves SDIO transport buffers) and must be re-applied after the dependencies
