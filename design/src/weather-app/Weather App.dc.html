@@ -297,7 +297,52 @@
         </div>
         <div class="field">
           <label data-lv="label.caption">{{ t.network }}</label>
-          <button data-lv="button.secondary" class="btn btn-secondary btn-block" onClick="{{ openWifi }}" style="min-height:44px;padding:10px 18px;font-size:15px">{{ t.configureNetwork }}</button>
+          <div style="display:flex;gap:var(--space-3)">
+            <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ openWifi }}" style="flex:1;min-height:44px;padding:10px 18px;font-size:15px">{{ t.configureNetwork }}</button>
+            <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ openOta }}" style="flex:none;min-height:44px;padding:10px 18px;font-size:15px">{{ t.update }}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ otaOpen }}">
+    <div class="dialog-backdrop" style="position:absolute">
+      <div class="dialog" style="width:460px">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div data-lv="label.title" class="dialog-title">{{ t.otaTitle }}</div>
+          <button data-lv="button.icon" class="btn btn-ghost" onClick="{{ closeOta }}" style="width:56px;height:56px">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.4 1.42L10.6 13.4l-6.3 6.3 1.4 1.42 6.3-6.3 6.3 6.3 1.42-1.42-6.3-6.3 6.3-6.3z"></path></svg>
+          </button>
+        </div>
+        <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.currentVersion }}</span>
+            <span data-lv="label.body">{{ deviceInfo.firmwareVersion }}</span>
+          </div><div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.otaStatus }}</span>
+            <span data-lv="label.body">{{ otaStatusLabel }}</span>
+          </div><div style="display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-3)">
+          
+          
+          <sc-if value="{{ otaDownloading }}" hint-placeholder-val="{{ false }}">
+            <div style="height:8px;border-radius:var(--radius-sm);background:var(--color-surface);border:1px solid var(--color-divider);overflow:hidden">
+              <div style="{{ otaProgressBarStyle }}"></div>
+            </div>
+          </sc-if>
+          
+          <div data-lv="switch.option" style="display:inline-flex;align-items:center;gap:var(--space-2);cursor:pointer" onClick="{{ toggleOtaAutoUpdate }}" role="switch" aria-checked="{{ otaAutoUpdate }}">
+            <span style="{{ otaAutoSwitchTrackStyle }}"><span style="{{ otaAutoSwitchThumbStyle }}"></span></span>
+            <span data-lv="label.body" style="font-size:13px">{{ t.otaAutoUpdate }}</span>
+          </div>
+          <div data-lv="switch.option" style="display:inline-flex;align-items:center;gap:var(--space-2);cursor:pointer" onClick="{{ toggleOtaUpdateCoprocessor }}" role="switch" aria-checked="{{ otaUpdateCoprocessor }}">
+            <span style="{{ otaCoproSwitchTrackStyle }}"><span style="{{ otaCoproSwitchThumbStyle }}"></span></span>
+            <span data-lv="label.body" style="font-size:13px">{{ t.otaUpdateCoprocessor }}</span>
+          </div>
+          <p data-lv="label.body" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 60%, transparent);margin:0">{{ t.otaHint }}</p>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:var(--space-3);margin-top:var(--space-5)">
+          <button data-lv="button.secondary" class="btn btn-secondary" onClick="{{ closeOta }}">{{ t.cancel }}</button>
+          <button data-lv="button.primary" class="btn btn-primary" onClick="{{ startOta }}" disabled="{{ otaButtonDisabled }}">{{ otaButtonLabel }}</button>
         </div>
       </div>
     </div>
@@ -306,7 +351,7 @@
   <sc-if value="{{ deviceInfoOpen }}">
     <div class="dialog-backdrop" style="position:absolute">
       
-    <div class="dialog" style="width: 479px; height: 399px">
+    <div class="dialog" style="width:479px;max-height:520px;height:auto;overflow-y:auto">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div data-lv="label.title" class="dialog-title">{{ t.deviceInfo }}</div>
           <button data-lv="button.icon" class="btn btn-ghost" onClick="{{ closeDeviceInfo }}" style="width:56px;height:56px">
@@ -325,6 +370,10 @@
           <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
             <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.firmwareVersion }}</span>
             <span data-lv="label.body" style="white-space:nowrap">{{ deviceInfo.firmwareVersion }}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+            <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.coprocessorVersion }}</span>
+            <span data-lv="label.body" style="white-space:nowrap">{{ deviceInfo.coprocessorVersion }}</span>
           </div>
           <div style="display:flex;justify-content:space-between;gap:var(--space-4)">
             <span data-lv="label.caption" style="color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.lastUpdate }}</span>
@@ -566,6 +615,7 @@ class Component extends DCLogic {
     wifiForgetConfirmOpen: false,
     airQuality: null,
     favorites: new Array(6).fill(null),
+    otaOpen: false, otaStatus: 'idle', otaProgress: 0, otaAutoUpdate: true, otaUpdateCoprocessor: false,
   };
 
   STALE_MS = 60 * 60 * 1000;
@@ -590,7 +640,12 @@ class Component extends DCLogic {
         aqiUnhealthy: 'Unhealthy', aqiVeryUnhealthy: 'Very unhealthy', aqiHazardous: 'Hazardous',
         forgetConfirmTitle: 'Forget this network?', forgetConfirmBody: 'You will need to enter the password again to reconnect.',
         deviceInfo: 'Device information', deviceName: 'Device name', hardwareVersion: 'Hardware version',
-        firmwareVersion: 'Firmware version', ipAddress: 'IP address', dns: 'DNS', gateway: 'Gateway',
+        firmwareVersion: 'Application version', coprocessorVersion: 'Coprocessor version', ipAddress: 'IP address', dns: 'DNS', gateway: 'Gateway',
+        update: 'Update', otaTitle: 'Firmware update', currentVersion: 'Current version', otaStatus: 'Status',
+        otaUpToDate: 'Up to date', otaDownloading: 'Downloading', otaDone: 'Update complete — rebooting',
+        otaStart: 'Check for update', otaHint: '', cancel: 'Cancel',
+        otaAutoUpdate: 'Auto-update (checks every 12 hours)',
+        otaUpdateCoprocessor: 'Update Wi-Fi coprocessor with application',
         notConnected: 'Not connected to the internet',
         lastUpdate: 'Weather data as of', noUpdateYet: 'No update yet',
         space: 'Space', done: 'Done',
@@ -622,7 +677,12 @@ class Component extends DCLogic {
         aqiUnhealthy: 'Ungesund', aqiVeryUnhealthy: 'Sehr ungesund', aqiHazardous: 'Gefährlich',
         forgetConfirmTitle: 'Dieses Netzwerk vergessen?', forgetConfirmBody: 'Du musst das Passwort erneut eingeben, um dich wieder zu verbinden.',
         deviceInfo: 'Geräteinformationen', deviceName: 'Gerätename', hardwareVersion: 'Hardware-Version',
-        firmwareVersion: 'Firmware-Version', ipAddress: 'IP-Adresse', dns: 'DNS', gateway: 'Gateway',
+        firmwareVersion: 'Anwendungsversion', coprocessorVersion: 'Coprozessor-Version', ipAddress: 'IP-Adresse', dns: 'DNS', gateway: 'Gateway',
+        update: 'Update', otaTitle: 'Firmware-Update', currentVersion: 'Aktuelle Version', otaStatus: 'Status',
+        otaUpToDate: 'Aktuell', otaDownloading: 'Wird heruntergeladen', otaDone: 'Update abgeschlossen — Neustart',
+        otaStart: 'Nach Update suchen', otaHint: 'Das Gerät lädt das Update über WLAN (ESP32 OTA) herunter, installiert es und startet neu.', cancel: 'Abbrechen',
+        otaAutoUpdate: 'Automatisches Update (Prüfung alle 12 Stunden)',
+        otaUpdateCoprocessor: 'WLAN-Koprozessor mit Anwendung aktualisieren',
         notConnected: 'Nicht mit dem Internet verbunden',
         lastUpdate: 'Wetterdaten vom', noUpdateYet: 'Noch keine Aktualisierung',
         space: 'Leerzeichen', done: 'Fertig',
@@ -654,7 +714,12 @@ class Component extends DCLogic {
         aqiUnhealthy: 'Insalubre', aqiVeryUnhealthy: 'Muy insalubre', aqiHazardous: 'Peligrosa',
         forgetConfirmTitle: '¿Olvidar esta red?', forgetConfirmBody: 'Deberás introducir la contraseña de nuevo para volver a conectarte.',
         deviceInfo: 'Información del dispositivo', deviceName: 'Nombre del dispositivo', hardwareVersion: 'Versión de hardware',
-        firmwareVersion: 'Versión de firmware', ipAddress: 'Dirección IP', dns: 'DNS', gateway: 'Puerta de enlace',
+        firmwareVersion: 'Versión de la aplicación', coprocessorVersion: 'Versión del coprocesador', ipAddress: 'Dirección IP', dns: 'DNS', gateway: 'Puerta de enlace',
+        update: 'Actualizar', otaTitle: 'Actualización de firmware', currentVersion: 'Versión actual', otaStatus: 'Estado',
+        otaUpToDate: 'Actualizado', otaDownloading: 'Descargando', otaDone: 'Actualización completa — reiniciando',
+        otaStart: 'Buscar actualización', otaHint: 'El dispositivo descarga e instala la actualización por Wi-Fi (ESP32 OTA) y luego se reinicia.', cancel: 'Cancelar',
+        otaAutoUpdate: 'Actualización automática (cada 12 horas)',
+        otaUpdateCoprocessor: 'Actualizar coprocesador Wi-Fi con la aplicación',
         notConnected: 'Sin conexión a Internet',
         lastUpdate: 'Datos meteorológicos del', noUpdateYet: 'Aún sin actualizar',
         space: 'Espacio', done: 'Listo',
@@ -686,7 +751,12 @@ class Component extends DCLogic {
         aqiUnhealthy: 'Malsaine', aqiVeryUnhealthy: 'Très malsaine', aqiHazardous: 'Dangereuse',
         forgetConfirmTitle: 'Oublier ce réseau ?', forgetConfirmBody: 'Vous devrez à nouveau saisir le mot de passe pour vous reconnecter.',
         deviceInfo: 'Informations sur l\u2019appareil', deviceName: 'Nom de l\u2019appareil', hardwareVersion: 'Version du matériel',
-        firmwareVersion: 'Version du micrologiciel', ipAddress: 'Adresse IP', dns: 'DNS', gateway: 'Passerelle',
+        firmwareVersion: 'Version de l\u2019application', coprocessorVersion: 'Version du coprocesseur', ipAddress: 'Adresse IP', dns: 'DNS', gateway: 'Passerelle',
+        update: 'Mettre à jour', otaTitle: 'Mise à jour du micrologiciel', currentVersion: 'Version actuelle', otaStatus: 'Statut',
+        otaUpToDate: 'À jour', otaDownloading: 'Téléchargement', otaDone: 'Mise à jour terminée — redémarrage',
+        otaStart: 'Rechercher une mise à jour', otaHint: 'L\u2019appareil télécharge et installe la mise à jour via Wi-Fi (ESP32 OTA), puis redémarre.', cancel: 'Annuler',
+        otaAutoUpdate: 'Mise à jour automatique (vérifie toutes les 12 heures)',
+        otaUpdateCoprocessor: 'Mettre à jour le coprocesseur Wi-Fi avec l\u2019application',
         notConnected: 'Pas de connexion à Internet',
         lastUpdate: 'Données météo du', noUpdateYet: 'Pas encore de mise à jour',
         space: 'Espace', done: 'Terminé',
@@ -731,7 +801,7 @@ class Component extends DCLogic {
     window.removeEventListener('offline', this.onOffline);
   }
 
-  DEVICE_INFO = { deviceName: 'Weather Display', hardwareVersion: 'ESP32-P4 Rev A', firmwareVersion: '1.4.2', online: true, ip: '192.168.1.42', dns: '1.1.1.1', gateway: '192.168.1.1' };
+  DEVICE_INFO = { deviceName: 'Weather Display', hardwareVersion: 'ESP32-P4 Rev A', firmwareVersion: '1.4.2', coprocessorVersion: '0.9.1', online: true, ip: '192.168.1.42', dns: '1.1.1.1', gateway: '192.168.1.1' };
   openSearch = () => this.setState({ searchOpen: true });
   closeSearch = () => this.setState({ searchOpen: false, searchQuery: '', searchResults: [] });
   openSettings = () => this.setState({ settingsOpen: true });
@@ -740,6 +810,27 @@ class Component extends DCLogic {
   closeSettings = () => this.setState({ settingsOpen: false });
   openDeviceInfo = () => this.setState({ deviceInfoOpen: true });
   closeDeviceInfo = () => this.setState({ deviceInfoOpen: false });
+  openOta = () => this.setState({ otaOpen: true, otaStatus: 'idle', otaProgress: 0 });
+  toggleOtaAutoUpdate = () => this.setState((s) => ({ otaAutoUpdate: !s.otaAutoUpdate }));
+  toggleOtaUpdateCoprocessor = () => this.setState((s) => ({ otaUpdateCoprocessor: !s.otaUpdateCoprocessor }));
+  closeOta = () => {
+    if (this._otaTimer) clearInterval(this._otaTimer);
+    this.setState({ otaOpen: false });
+  };
+  startOta = () => {
+    if (this.state.otaStatus === 'downloading') return;
+    this.setState({ otaStatus: 'downloading', otaProgress: 0 });
+    this._otaTimer = setInterval(() => {
+      this.setState((s) => {
+        const p = Math.min(100, s.otaProgress + 8);
+        if (p >= 100) {
+          clearInterval(this._otaTimer);
+          return { otaProgress: 100, otaStatus: 'done' };
+        }
+        return { otaProgress: p };
+      });
+    }, 250);
+  };
   closeDay = () => {
     this.setState({ sheetClosing: true });
     clearTimeout(this.sheetTimer);
@@ -1056,9 +1147,10 @@ class Component extends DCLogic {
   }
 
   renderVals() {
-    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, deviceInfoOpen, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt, autoRefreshMinutes, wifiForgetConfirmOpen, airQuality, favorites } = this.state;
+    const { location, units, weather, timezone, loading, error, now, searchOpen, searchQuery, searchResults, searching, settingsOpen, brightness, brightnessAdaptive, refreshToast, deviceInfoOpen, selectedDayIndex, sheetClosing, language, wifiOpen, wifiScanning, wifiNetworks, wifiSelectedSsid, wifiPassword, wifiShowPassword, wifiStatus, wifiManualMode, wifiManualSsid, isOnline, lastFetchSuccessAt, autoRefreshMinutes, wifiForgetConfirmOpen, airQuality, favorites, otaOpen, otaStatus, otaProgress, otaAutoUpdate, otaUpdateCoprocessor } = this.state;
     const isDataStale = !!lastFetchSuccessAt && (now.getTime() - lastFetchSuccessAt) > this.STALE_MS;
     const strings = this.getStrings(language);
+    const otaStatusLabel = otaStatus === 'downloading' ? `${strings.otaDownloading} ${otaProgress}%` : otaStatus === 'done' ? strings.otaDone : strings.otaUpToDate;
     const locale = this.LOCALE[language] || 'en-US';
     const locationLabel = `${location.name}${location.country ? ', ' + location.country : ''}`;
     const nowTimeStr = this.fmtTime(now, timezone, units.time, locale);
@@ -1117,6 +1209,11 @@ class Component extends DCLogic {
 
     return {
       locationLabel, nowTimeStr, nowDateStr, t: strings, htmlLang: language,
+      otaOpen, openOta: this.openOta, closeOta: this.closeOta, startOta: this.startOta,
+      otaDownloading: otaStatus === 'downloading', otaStatusLabel,
+      otaProgressBarStyle: `height:100%;width:${otaProgress}%;background:var(--color-accent);transition:width 0.2s`,
+      otaButtonDisabled: otaStatus === 'downloading',
+      otaButtonLabel: otaStatus === 'downloading' ? strings.otaDownloading : otaStatus === 'done' ? strings.otaDone : strings.otaStart,
       isOnline, isDataStale,
       netStatusLabel: isOnline ? strings.online : strings.offline,
       netDotColor: isOnline ? 'var(--color-accent)' : 'var(--color-neutral-500)',
@@ -1133,7 +1230,7 @@ class Component extends DCLogic {
       deviceInfo: this.DEVICE_INFO,
       deviceInfoOffline: !this.DEVICE_INFO.online,
       lastUpdateDisplay: lastFetchSuccessAt ? new Date(lastFetchSuccessAt).toLocaleString(locale) : strings.noUpdateYet,
-      deviceInfoNote: 'Created by M. Thomas using Claude Design and Claude Code. \nUsing Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0 \n(https://creativecommons.org/licenses/by/4.0/).\n',
+      deviceInfoNote: 'Created by M. Thomas using Claude Design and Claude Code. \nUsing Data from Open-Meteo.com and OpenAQ.org. Data Licensed under CC BY 4.0 for non-commercial use (https://creativecommons.org/licenses/by/4.0/).\n',
       showContent: !!weather && !(loading && !weather),
       current, days, selectedDay,
       hasSelectedDay: selectedDay != null,
@@ -1164,6 +1261,12 @@ class Component extends DCLogic {
       setBrightness: this.setBrightness, toggleBrightnessAdaptive: this.toggleBrightnessAdaptive,
       switchTrackStyle: `position:relative;display:inline-block;width:36px;height:20px;border-radius:10px;flex-shrink:0;transition:background-color .15s ease,border-color .15s ease;background:${brightnessAdaptive ? 'var(--color-accent-700)' : 'var(--color-neutral-800)'};border:1px solid ${brightnessAdaptive ? 'var(--color-accent)' : 'var(--color-neutral-600)'}`,
       switchThumbStyle: `position:absolute;top:1px;left:${brightnessAdaptive ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${brightnessAdaptive ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
+      otaAutoUpdate, toggleOtaAutoUpdate: this.toggleOtaAutoUpdate,
+      otaAutoSwitchTrackStyle: `position:relative;display:inline-block;width:36px;height:20px;border-radius:10px;flex-shrink:0;transition:background-color .15s ease,border-color .15s ease;background:${otaAutoUpdate ? 'var(--color-accent-700)' : 'var(--color-neutral-800)'};border:1px solid ${otaAutoUpdate ? 'var(--color-accent)' : 'var(--color-neutral-600)'}`,
+      otaAutoSwitchThumbStyle: `position:absolute;top:1px;left:${otaAutoUpdate ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${otaAutoUpdate ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
+      otaUpdateCoprocessor, toggleOtaUpdateCoprocessor: this.toggleOtaUpdateCoprocessor,
+      otaCoproSwitchTrackStyle: `position:relative;display:inline-block;width:36px;height:20px;border-radius:10px;flex-shrink:0;transition:background-color .15s ease,border-color .15s ease;background:${otaUpdateCoprocessor ? 'var(--color-accent-700)' : 'var(--color-neutral-800)'};border:1px solid ${otaUpdateCoprocessor ? 'var(--color-accent)' : 'var(--color-neutral-600)'}`,
+      otaCoproSwitchThumbStyle: `position:absolute;top:1px;left:${otaUpdateCoprocessor ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${otaUpdateCoprocessor ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
       isAutoOff: autoRefreshMinutes === 0, isAuto15: autoRefreshMinutes === 15, isAuto30: autoRefreshMinutes === 30, isAuto60: autoRefreshMinutes === 60,
       setAutoOff: () => this.setState({ autoRefreshMinutes: 0 }), setAuto15: () => this.setState({ autoRefreshMinutes: 15 }),
       setAuto30: () => this.setState({ autoRefreshMinutes: 30 }), setAuto60: () => this.setState({ autoRefreshMinutes: 60 }),
