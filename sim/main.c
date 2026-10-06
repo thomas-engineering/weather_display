@@ -1031,6 +1031,13 @@ int main(int argc, char **argv)
             open_wifi_setup = true;
         } else if (strcmp(argv[i], "--live") == 0) {
             s_live = true;
+        } else if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
+            const char *code = argv[++i];
+            if      (strcmp(code, "en") == 0) s_lang = LANG_EN;
+            else if (strcmp(code, "de") == 0) s_lang = LANG_DE;
+            else if (strcmp(code, "es") == 0) s_lang = LANG_ES;
+            else if (strcmp(code, "fr") == 0) s_lang = LANG_FR;
+            else { fprintf(stderr, "unknown --lang '%s' (en|de|es|fr)\n", code); return 1; }
         } else if (strcmp(argv[i], "--screen") == 0 && i + 1 < argc) {
             const char *name = argv[++i];
             if      (strcmp(name, "main")     == 0) s_screen = SCREEN_MAIN;

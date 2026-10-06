@@ -260,6 +260,7 @@ OTA progress.
 ./scripts/sim.sh --screen settings            # open one screen straight away
 ./scripts/sim.sh --shots shots/               # capture all screens as PNG
 ./scripts/sim.sh --screen settings --screenshot settings.bmp   # one screen
+./scripts/sim.sh --screen ota --lang de --screenshot ota-de.bmp  # language: en|de|es|fr
 ```
 
 Running `sim.sh` without `--shots` or `--screenshot` opens a window and

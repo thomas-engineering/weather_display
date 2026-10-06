@@ -2310,9 +2310,12 @@ static void build_ota_panel(lv_obj_t *parent) {
     lv_obj_remove_flag(ui.ota_progress_fill, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(ui.ota_progress_fill, LV_OBJ_FLAG_SCROLLABLE);
 
+    /* FIX: the three switch rows span the panel and their labels wrap. They
+     * used to be content-sized, so the long auto-update text ran past the
+     * panel edge and was clipped (worse in DE/ES/FR). */
     lv_obj_t *auto_row = lv_obj_create(panel);
     lv_obj_remove_style_all(auto_row);
-    lv_obj_set_size(auto_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_size(auto_row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(auto_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(auto_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(auto_row, 8, 0);
@@ -2332,10 +2335,12 @@ static void build_ota_panel(lv_obj_t *parent) {
     lv_label_set_text(auto_lbl, s->ota_auto_update);
     lv_obj_set_style_text_color(auto_lbl, C_TEXT, 0);
     lv_obj_set_style_text_font(auto_lbl, FONT_14, 0);
+    lv_label_set_long_mode(auto_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(auto_lbl, 1);
 
     lv_obj_t *copro_row = lv_obj_create(panel);
     lv_obj_remove_style_all(copro_row);
-    lv_obj_set_size(copro_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_size(copro_row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(copro_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(copro_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(copro_row, 8, 0);
@@ -2355,12 +2360,14 @@ static void build_ota_panel(lv_obj_t *parent) {
     lv_label_set_text(copro_lbl, s->ota_update_coprocessor);
     lv_obj_set_style_text_color(copro_lbl, C_TEXT, 0);
     lv_obj_set_style_text_font(copro_lbl, FONT_14, 0);
+    lv_label_set_long_mode(copro_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(copro_lbl, 1);
 
     /* FIX: not in the design export — test-channel switch, same row shape as
      * the two above. Re-add after a re-sync from Claude Design. */
     lv_obj_t *test_row = lv_obj_create(panel);
     lv_obj_remove_style_all(test_row);
-    lv_obj_set_size(test_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_size(test_row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(test_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(test_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(test_row, 8, 0);
@@ -2380,6 +2387,8 @@ static void build_ota_panel(lv_obj_t *parent) {
     lv_label_set_text(test_lbl, s->ota_test_channel);
     lv_obj_set_style_text_color(test_lbl, C_TEXT, 0);
     lv_obj_set_style_text_font(test_lbl, FONT_14, 0);
+    lv_label_set_long_mode(test_lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_set_flex_grow(test_lbl, 1);
 
     ui.ota_hint_lbl = lv_label_create(panel);
     lv_label_set_text(ui.ota_hint_lbl, s->ota_hint);
