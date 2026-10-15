@@ -22,6 +22,14 @@ shows the main screen again. `./scripts/sim.sh --shots <dir>` runs all three
 and fails if the dismiss check does not print `OK`. The simulator clock is fixed
 (Thu 2026-10-15 10:08:42) so screenshots are reproducible.
 
+## Hidden trigger (also in release builds)
+
+Hold the clock in the header for **3 seconds**: the screen saver starts at
+once, whatever the timeout setting says (also when it is Off). A tap ends it.
+Nothing in the UI hints at this. `screensaver-hold` in the simulator checks it
+(no saver after 2 s, saver after 3.6 s, prints `SAVER_HOLD OK`); the hold timing
+itself is host-tested in `test_hold_gesture.c`.
+
 ## 3. On the board (not run in CI, needs a human at the display)
 
 Build with the test option so the setting counts seconds, not minutes:
@@ -31,7 +39,7 @@ Build with the test option so the setting counts seconds, not minutes:
    `./scripts/hw-flash.sh /dev/ttyACM0`.
 2. After the first weather fetch (the saver needs the city's UTC offset for its
    clock), open Settings > "Screen saver after inactivity" and pick `15 min`.
-3. Leave the display alone: the saver appears after **15 s** and Settings closes.
+3. (Shortcut: hold the header clock for 3 s instead of waiting.) Leave the display alone: the saver appears after **15 s** and Settings closes.
 4. Tap anywhere: it disappears at once and the tap does not hit what is below.
 5. Wait again: it returns after 15 s. `Off` stops it. Check both colour styles.
 6. Reboot: timeout and style are restored.

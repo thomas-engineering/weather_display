@@ -27,6 +27,7 @@ void test_heap_watch_run(void);
 void test_coprocessor_health_policy_run(void);
 void test_startup_retry_policy_run(void);
 void test_screensaver_policy_run(void);
+void test_hold_gesture_run(void);
 
 void app_main(void) {
     UNITY_BEGIN();
@@ -43,5 +44,6 @@ void app_main(void) {
     test_coprocessor_health_policy_run();
     test_startup_retry_policy_run();
     test_screensaver_policy_run();
+    test_hold_gesture_run();
     exit(UNITY_END());
 }

@@ -116,6 +116,9 @@ static void fill_hourly(weather_hourly_t *h, int day)
  * Wird auch nach jeder Einstellungsaenderung erneut aufgerufen, weil Datums-,
  * Wochentags- und "Real feel"-Texte von der App vorformatiert kommen — genau wie
  * in main.c auf dem Geraet. */
+/* Header clock text as last published; the hold test finds the clock by it. */
+static char s_clock_text[16];
+
 static void publish_weather(void)
 {
     const time_t now = time(NULL);
@@ -125,6 +128,7 @@ static void publish_weather(void)
     snprintf(cur.location_name, sizeof(cur.location_name), "%s", s_city);
     snprintf(cur.location_country, sizeof(cur.location_country), "%s", s_country);
     fmt_time(cur.time_str, sizeof(cur.time_str), &lt, s_time_fmt);
+    snprintf(s_clock_text, sizeof s_clock_text, "%s", cur.time_str);
     fmt_date(cur.date_str, sizeof(cur.date_str), &lt, s_lang);
 
     cur.weather_code = k_code[0];
@@ -295,6 +299,7 @@ static bool publish_weather_live(void) {
     snprintf(cur.location_name, sizeof(cur.location_name), "%s", s_city);
     snprintf(cur.location_country, sizeof(cur.location_country), "%s", s_country);
     fmt_time(cur.time_str, sizeof(cur.time_str), &lt, s_time_fmt);
+    snprintf(s_clock_text, sizeof s_clock_text, "%s", cur.time_str);
     fmt_date(cur.date_str, sizeof(cur.date_str), &lt, s_lang);
     cur.weather_code = f.weather_code;
     cur.temp_c = f.temp_c;
@@ -516,11 +521,18 @@ typedef enum {
     ACT_OTA_TICK,
     ACT_SAVER_TAP,
     ACT_SAVER_CHECK,
+    ACT_HOLD_EARLY,
+    ACT_HOLD_CHECK,
 } sim_action_t;
 
 static void open_screen(void);
 static void click_favorite_star_in_search(void);
 static void synth_tap(int x, int y);
+static void synth_mouse(bool down, int x, int y);
+#define HOLD_EARLY_CHECK_MS 2000 /* still no saver 2 s into the hold */
+#define HOLD_FINAL_CHECK_MS 3600 /* saver is up after the 3 s hold */
+static bool s_hold_early_active;
+static int s_hold_x, s_hold_y;
 #define SAVER_TAP_DELAY_MS 800   /* after the saver has been up for a few frames */
 #define SAVER_CHECK_DELAY_MS 300 /* long enough for the indev to deliver the press */
 static void defer(sim_action_t action, uint32_t delay_ms);
@@ -577,6 +589,17 @@ static void deferred_cb(lv_timer_t *timer)
          * this is the path a finger takes on the device. */
         synth_tap(SIM_HOR_RES / 2, SIM_VER_RES / 2);
         defer(ACT_SAVER_CHECK, SAVER_CHECK_DELAY_MS);
+        break;
+
+    case ACT_HOLD_EARLY:
+        s_hold_early_active = weather_ui_screensaver_active();
+        break;
+
+    case ACT_HOLD_CHECK:
+        /* Parsed by scripts/sim.sh --shots; do not change. */
+        printf("SAVER_HOLD %s\n", (!s_hold_early_active && weather_ui_screensaver_active()) ? "OK" : "FAIL");
+        fflush(stdout);
+        synth_mouse(false, s_hold_x, s_hold_y);
         break;
 
     case ACT_SAVER_CHECK:
@@ -790,6 +813,7 @@ typedef enum {
     SCREEN_SAVER,
     SCREEN_SAVER_ORANGE,
     SCREEN_SAVER_DISMISS,
+    SCREEN_SAVER_HOLD,
 } sim_screen_t;
 
 static sim_screen_t s_screen = SCREEN_MAIN;
@@ -807,25 +831,20 @@ extern void lv_sdl_mouse_handler(SDL_Event *event);
  * shortcut. Needed for bugs that are specifically about hit-testing at a
  * coordinate — click_owner_of() bypasses LVGL's indev press/release pipeline
  * entirely, so it can't reproduce them. */
-static void synth_tap(int x, int y) {
+static void synth_mouse(bool down, int x, int y) {
     SDL_Window *win = lv_sdl_window_get_window(s_disp);
-    Uint32 win_id = SDL_GetWindowID(win);
+    SDL_Event ev = {0};
+    ev.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+    ev.button.windowID = SDL_GetWindowID(win);
+    ev.button.button = SDL_BUTTON_LEFT;
+    ev.button.x = x;
+    ev.button.y = y;
+    lv_sdl_mouse_handler(&ev);
+}
 
-    SDL_Event down = {0};
-    down.type = SDL_MOUSEBUTTONDOWN;
-    down.button.windowID = win_id;
-    down.button.button = SDL_BUTTON_LEFT;
-    down.button.x = x;
-    down.button.y = y;
-    lv_sdl_mouse_handler(&down);
-
-    SDL_Event up = {0};
-    up.type = SDL_MOUSEBUTTONUP;
-    up.button.windowID = win_id;
-    up.button.button = SDL_BUTTON_LEFT;
-    up.button.x = x;
-    up.button.y = y;
-    lv_sdl_mouse_handler(&up);
+static void synth_tap(int x, int y) {
+    synth_mouse(true, x, y);
+    synth_mouse(false, x, y);
 }
 
 static lv_obj_t *find_label(lv_obj_t *parent, const char *text)
@@ -1016,6 +1035,21 @@ static void open_screen(void)
         weather_ui_screensaver_force(true);
         break;
 
+    case SCREEN_SAVER_HOLD: {
+        /* Hidden trigger: hold the header clock for 3 s. The press stays down
+         * (no release) until the check has run, like a finger would. */
+        lv_obj_t *clock = find_label(root, s_clock_text);
+        if (clock == NULL) { warn_missing("Uhr im Header"); break; }
+        lv_area_t a;
+        lv_obj_get_coords(clock, &a);
+        s_hold_x = (a.x1 + a.x2) / 2;
+        s_hold_y = (a.y1 + a.y2) / 2;
+        synth_mouse(true, s_hold_x, s_hold_y);
+        defer(ACT_HOLD_EARLY, HOLD_EARLY_CHECK_MS);
+        defer(ACT_HOLD_CHECK, HOLD_FINAL_CHECK_MS);
+        break;
+    }
+
     case SCREEN_SAVER_DISMISS:
         /* Test path for "ends when the display is tapped" without waiting for
          * the timeout: bring the saver up, tap, report whether it ended. */
@@ -1131,9 +1165,10 @@ int main(int argc, char **argv)
             else if (strcmp(name, "screensaver") == 0) s_screen = SCREEN_SAVER;
             else if (strcmp(name, "screensaver-orange") == 0) s_screen = SCREEN_SAVER_ORANGE;
             else if (strcmp(name, "screensaver-dismiss") == 0) s_screen = SCREEN_SAVER_DISMISS;
+            else if (strcmp(name, "screensaver-hold") == 0) s_screen = SCREEN_SAVER_HOLD;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done, screensaver, screensaver-orange, screensaver-dismiss\n", name);
+                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done, screensaver, screensaver-orange, screensaver-dismiss, screensaver-hold\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {

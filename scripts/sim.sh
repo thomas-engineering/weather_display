@@ -104,6 +104,13 @@ if [ "${1:-}" = "--shots" ]; then
     echo "$dismiss_out" | grep -q '^SAVER_DISMISS OK$' \
         || { echo "FEHLER: Tipp auf den Bildschirmschoner hat ihn nicht beendet." >&2; echo "$dismiss_out" >&2; exit 1; }
     echo "  screensaver-dismissed.bmp (SAVER_DISMISS OK)"
+    # Verstecktes Ausloesen: Uhr im Header 3 s halten (screensaver-hold meldet SAVER_HOLD OK/FAIL).
+    hold_out="$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
+        "$BUILD_DIR/weather_sim" --screen screensaver-hold --screenshot "$OUT/screensaver-hold.bmp" --screenshot-after 6000)" \
+        || { echo "FEHLER bei Screen 'screensaver-hold'." >&2; exit 1; }
+    echo "$hold_out" | grep -q '^SAVER_HOLD OK$' \
+        || { echo "FEHLER: Uhr 3 s halten hat den Bildschirmschoner nicht gestartet (oder zu frueh)." >&2; echo "$hold_out" >&2; exit 1; }
+    echo "  screensaver-hold.bmp (SAVER_HOLD OK)"
     # Erstboot ist ein eigener Zustand, kein eigener Screen: offline, ohne Daten.
     SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
         "$BUILD_DIR/weather_sim" --wifi-setup --screenshot "$OUT/first-boot.bmp" \

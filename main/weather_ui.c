@@ -22,6 +22,7 @@
 /* FIX: brightness range shared with app_prefs.c and the ambient-light policy. */
 #include "light_policy.h"
 #include "screensaver_policy.h"
+#include "hold_gesture.h"
 #include "weather_saver.h"
 #include "app_format.h"
 #include <stdio.h>
@@ -98,6 +99,9 @@ typedef struct {
     saver_style_t saver_style;
     screensaver_policy_t saver_policy;
     lv_timer_t *saver_timer;
+    /* Hidden trigger: holding the header clock starts the saver at once. */
+    hold_gesture_t clock_hold;
+    lv_timer_t *clock_hold_timer;
 
     lv_obj_t *wifi_forget_confirm_backdrop;
     lv_obj_t *wifi_forget_confirm_title_lbl, *wifi_forget_confirm_body_lbl;
@@ -183,6 +187,8 @@ static weather_ui_t ui;
 static void set_search_status_text(const char *text);
 static void build_settings_panel(lv_obj_t *parent);
 static void settings_rebuild(bool keep_open);
+static void clock_press_cb(lv_event_t *e);
+static void clock_release_cb(lv_event_t *e);
 static void build_device_info_panel(lv_obj_t *parent);
 static void device_info_rebuild(bool keep_open);
 static void open_device_info_cb(lv_event_t *e);
@@ -466,6 +472,11 @@ static void build_header(lv_obj_t *parent) {
      * the row's own --space-4 gap, on both sides of the clock/date group. */
     lv_obj_set_style_margin_left(time_wrap, 17, 0);
     lv_obj_remove_flag(time_wrap, LV_OBJ_FLAG_SCROLLABLE);
+    /* Hidden: holding the clock for CLOCK_HOLD_MS starts the screen saver. */
+    lv_obj_add_flag(time_wrap, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(time_wrap, clock_press_cb, LV_EVENT_PRESSED, NULL);
+    lv_obj_add_event_cb(time_wrap, clock_release_cb, LV_EVENT_RELEASED, NULL);
+    lv_obj_add_event_cb(time_wrap, clock_release_cb, LV_EVENT_PRESS_LOST, NULL);
     ui.header_time_lbl = lv_label_create(time_wrap);
     lv_label_set_text(ui.header_time_lbl, "--:--");
     lv_obj_set_style_text_color(ui.header_time_lbl, C_TEXT, 0);
@@ -1544,6 +1555,8 @@ static void on_seg_auto_refresh(int idx, void *user) {
 /* ---- screen saver ---------------------------------------------------- */
 
 #define SAVER_TICK_MS 1000
+#define CLOCK_HOLD_MS 3000     /* hold the header clock this long to start the saver */
+#define CLOCK_HOLD_POLL_MS 100
 #define SETTINGS_COLUMN_GAP 17      /* --space-6 */
 #define SETTINGS_PANEL_PAD 20
 #define SETTINGS_PANEL_INITIAL_W 380 /* replaced by the measured width once the columns exist */
@@ -1619,6 +1632,32 @@ static void saver_tick_cb(lv_timer_t *t) {
     if (screensaver_policy_tick(&ui.saver_policy, ui.saver_minutes, lv_display_get_inactive_time(NULL),
                                 SAVER_MS_PER_UNIT) == SAVER_EVENT_START)
         saver_start();
+}
+
+static void clock_hold_stop(void) {
+    hold_gesture_release(&ui.clock_hold);
+    if (ui.clock_hold_timer) {
+        lv_timer_delete(ui.clock_hold_timer);
+        ui.clock_hold_timer = NULL;
+    }
+}
+
+static void clock_hold_poll_cb(lv_timer_t *t) {
+    LV_UNUSED(t);
+    if (!hold_gesture_poll(&ui.clock_hold, lv_tick_get(), CLOCK_HOLD_MS)) return;
+    clock_hold_stop();
+    if (!ui.saver_policy.active) weather_ui_screensaver_force(true);
+}
+
+static void clock_press_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    hold_gesture_press(&ui.clock_hold, lv_tick_get());
+    if (!ui.clock_hold_timer) ui.clock_hold_timer = lv_timer_create(clock_hold_poll_cb, CLOCK_HOLD_POLL_MS, NULL);
+}
+
+static void clock_release_cb(lv_event_t *e) {
+    LV_UNUSED(e);
+    clock_hold_stop();
 }
 
 static void on_seg_saver(int idx, void *user) {
