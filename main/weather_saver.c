@@ -53,6 +53,22 @@
 #define BAR_Y 270
 #define BAR_H 46
 #define BAR_RADIUS 6
+#define BAR_STOPS 4
+#define BAR_LIGHT_EDGE_FRAC 17      /* 3 px of the 46 px bar, in 1/255 */
+#define BAR_SHADE_START_FRAC 178    /* the bottom darkening starts at 70 % */
+#define BAR_SHADE_OPA 89            /* 35 % black at the bottom edge */
+#define BAR_GRAIN_PERIOD_PX 21      /* orange bar: fine grain along the bar's height */
+#define BAR_GRAIN_LONG_PERIOD_PX 330 /* ... and broad bands along its length */
+#define BAR_GRAIN_STOPS 10
+#define BAR_INNER_LIGHT_OPA_THEME 64
+#define BAR_INNER_LIGHT_OPA_ORANGE 46
+#define BAR_SHADOW_OFFSET_THEME 16
+#define BAR_SHADOW_WIDTH_THEME 40
+#define BAR_SHADOW_OPA_THEME 166
+#define BAR_SHADOW_OFFSET_ORANGE 14
+#define BAR_SHADOW_WIDTH_ORANGE 30
+#define BAR_SHADOW_OPA_ORANGE 140
+#define BAR_EDGE_DROP_PX 2
 #define CLOCK_BLOCK_H (BAR_Y + BAR_H)
 #define DATE_ROW_PAD_Y 32
 #define SEPARATOR_SIZE 4
@@ -254,6 +270,86 @@ static void build_dots(lv_obj_t *row, int x, const saver_palette_t *pal) {
     }
 }
 
+/* Gradient descriptors must outlive the style that points at them. */
+static lv_grad_dsc_t s_bar_base, s_bar_shade, s_bar_grain_fine, s_bar_grain_long;
+
+static lv_obj_t *bar_layer(lv_obj_t *bar) {
+    lv_obj_t *l = rect(bar, 0, 0, CLOCK_W, BAR_H, lv_color_black(), LV_OPA_TRANSP, BAR_RADIUS);
+    return l;
+}
+
+static void layer_gradient(lv_obj_t *l, const lv_grad_dsc_t *g) {
+    lv_obj_set_style_bg_grad(l, g, 0);
+    lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
+}
+
+/* Mounting bar across the tube bases, above the tubes. The design stacks a
+ * four-stop metal gradient, a light top edge and a dark bottom edge (and, in
+ * the orange style, a wood grain), with a deep drop shadow. */
+static void build_bar(lv_obj_t *parent, saver_style_t style) {
+    bool orange = style == SAVER_STYLE_ORANGE;
+    static const uint8_t base_fracs[BAR_STOPS] = { 0, 77, 158, 255 };
+    const lv_color_t theme_cols[BAR_STOPS] = { lv_color_hex(0x3F424D), lv_color_hex(0x595D6C),
+                                               lv_color_hex(0x3F424D), lv_color_hex(0x595D6C) };
+    const lv_color_t orange_cols[BAR_STOPS] = { lv_color_hex(0x391F13), lv_color_hex(0x452818),
+                                                lv_color_hex(0x321B12), lv_color_hex(0x3F2415) };
+
+    if (orange) {
+        /* 0 2px 0 oklch(.2 .03 40): a dark lower lip under the bar. */
+        rect(parent, 0, BAR_Y + BAR_EDGE_DROP_PX, CLOCK_W, BAR_H, lv_color_hex(0x22110B), LV_OPA_COVER, BAR_RADIUS);
+    }
+
+    lv_obj_t *bar = bar_layer(parent);
+    lv_obj_set_pos(bar, 0, BAR_Y);
+    lv_obj_set_style_clip_corner(bar, true, 0);
+    lv_obj_set_style_shadow_color(bar, lv_color_black(), 0);
+    lv_obj_set_style_shadow_offset_y(bar, orange ? BAR_SHADOW_OFFSET_ORANGE : BAR_SHADOW_OFFSET_THEME, 0);
+    lv_obj_set_style_shadow_width(bar, orange ? BAR_SHADOW_WIDTH_ORANGE : BAR_SHADOW_WIDTH_THEME, 0);
+    lv_obj_set_style_shadow_opa(bar, orange ? BAR_SHADOW_OPA_ORANGE : BAR_SHADOW_OPA_THEME, 0);
+    if (!orange) { /* --shadow-lg also draws a 1px neutral-500 ring */
+        lv_obj_set_style_outline_width(bar, 1, 0);
+        lv_obj_set_style_outline_color(bar, lv_color_hex(0x9397AB), 0);
+    }
+
+    lv_grad_horizontal_init(&s_bar_base);
+    lv_grad_init_stops(&s_bar_base, orange ? orange_cols : theme_cols, NULL, base_fracs, BAR_STOPS);
+    layer_gradient(bar, &s_bar_base);
+
+    if (orange) {
+        /* Wood grain, from the design's two repeating-linear-gradients. */
+        static const uint8_t fine_fracs[BAR_GRAIN_STOPS] = { 0, 61, 67, 73, 133, 140, 146, 231, 243, 255 };
+        const lv_color_t dark = lv_color_black(), light = lv_color_hex(0xFFC896);
+        const lv_color_t fine_cols[BAR_GRAIN_STOPS] = { dark, dark, dark, dark, dark, light, dark, dark, dark, dark };
+        const lv_opa_t fine_opa[BAR_GRAIN_STOPS] = { 0, 0, 46, 0, 0, 13, 0, 0, 31, 0 };
+        /* 178.6deg is almost straight down: a 1px sideways drift per period. */
+        lv_grad_linear_init(&s_bar_grain_fine, 0, 0, 1, BAR_GRAIN_PERIOD_PX, LV_GRAD_EXTEND_REPEAT);
+        lv_grad_init_stops(&s_bar_grain_fine, fine_cols, fine_opa, fine_fracs, BAR_GRAIN_STOPS);
+        lv_obj_t *fine = bar_layer(bar);
+        layer_gradient(fine, &s_bar_grain_fine);
+
+        static const uint8_t long_fracs[BAR_STOPS] = { 0, 108, 170, 255 };
+        const lv_color_t long_cols[BAR_STOPS] = { dark, dark, dark, dark };
+        const lv_opa_t long_opa[BAR_STOPS] = { 0, 0, 20, 0 };
+        lv_grad_linear_init(&s_bar_grain_long, 0, 0, BAR_GRAIN_LONG_PERIOD_PX, 0, LV_GRAD_EXTEND_REPEAT);
+        lv_grad_init_stops(&s_bar_grain_long, long_cols, long_opa, long_fracs, BAR_STOPS);
+        lv_obj_t *broad = bar_layer(bar);
+        layer_gradient(broad, &s_bar_grain_long);
+    }
+
+    /* Light top edge fading to clear, darkening again towards the bottom. */
+    const lv_color_t hi = orange ? lv_color_hex(0xFFDCB4) : lv_color_hex(0xCFD3E5);
+    const lv_color_t shade_cols[BAR_STOPS] = { hi, hi, lv_color_black(), lv_color_black() };
+    const lv_opa_t shade_opa[BAR_STOPS] = { orange ? 36 : 46, 0, 0, BAR_SHADE_OPA };
+    const uint8_t shade_fracs[BAR_STOPS] = { 0, BAR_LIGHT_EDGE_FRAC, BAR_SHADE_START_FRAC, 255 };
+    lv_grad_vertical_init(&s_bar_shade);
+    lv_grad_init_stops(&s_bar_shade, shade_cols, shade_opa, shade_fracs, BAR_STOPS);
+    layer_gradient(bar_layer(bar), &s_bar_shade);
+
+    /* inset 0 1px 0 <highlight> */
+    rect(bar, BAR_RADIUS, 0, CLOCK_W - 2 * BAR_RADIUS, 1, orange ? lv_color_hex(0xFFD7AA) : lv_color_hex(0xD2CEFD),
+         orange ? BAR_INNER_LIGHT_OPA_ORANGE : BAR_INNER_LIGHT_OPA_THEME, 0);
+}
+
 static void on_press(lv_event_t *e) {
     LV_UNUSED(e);
     if (sv.on_dismiss) sv.on_dismiss();
@@ -288,9 +384,7 @@ void weather_saver_build(saver_style_t style, weather_saver_dismiss_cb_t on_dism
             x += DOT_SIZE + ROW_GAP;
         }
     }
-    /* Mounting bar across the tube bases, above the tubes. */
-    lv_obj_t *bar = rect(sv.clock_block, 0, BAR_Y, CLOCK_W, BAR_H, pal.bar, LV_OPA_COVER, BAR_RADIUS);
-    glow(bar, lv_color_black(), 30, LV_OPA_50);
+    build_bar(sv.clock_block, style);
 
     sv.date_row = rect(sv.overlay, 0, 0, SCREEN_W, DATE_ROW_H, pal.bg, LV_OPA_TRANSP, 0);
     lv_obj_set_flex_flow(sv.date_row, LV_FLEX_FLOW_ROW);

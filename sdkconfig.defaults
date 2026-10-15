@@ -72,6 +72,11 @@ CONFIG_LV_USE_CLIB_SPRINTF=y
 CONFIG_LV_DEF_REFR_PERIOD=15
 CONFIG_LV_OS_FREERTOS=y
 CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=2
+# Screen saver bar and tubes (main/weather_saver.c) use multi-stop, angled and
+# repeating gradients; the simple renderer only does two-stop horizontal/vertical.
+# 10 stops: the orange bar's wood grain repeats a 10-stop pattern.
+CONFIG_LV_USE_DRAW_SW_COMPLEX_GRADIENTS=y
+CONFIG_LV_GRADIENT_MAX_STOPS=10
 # CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM is not set
 
 # Every size weather_ui.c references. Missing any one of these is a link error.
