@@ -1,6 +1,7 @@
 #include "weather_saver.h"
 #include "weather_saver_digits.h"
 #include "ui_fonts.h"
+#include <math.h>
 #include <string.h>
 
 /* Geometry from the design's saver block (px). */
@@ -38,6 +39,14 @@
 #define DOT_GAP 30
 #define DOT_BOTTOM_MARGIN 22
 #define DOT_HALO_LAYERS 4
+/* Wire mesh over the digits: three line sets at 0/60/120 degrees, 4 px gap + 0.6 px line. */
+#define MESH_GAP_PX 4.0f
+#define MESH_PERIOD_PX 4.6f
+#define MESH_OPA LV_OPA_50
+#define MESH_SUBSAMPLES 3
+#define MESH_ANGLE_COUNT 3
+#define MESH_ANGLE_STEP_DEG 60
+#define DEG_TO_RAD 0.01745329252f
 #define DOT_CORE_SIZE 4 /* the design's gradient is near-white over the inner 25 % */
 #define CLOCK_PAD_X 30
 #define CLOCK_W (3 * GROUP_W + 2 * DOT_SIZE + 4 * ROW_GAP + 2 * CLOCK_PAD_X)
@@ -63,7 +72,7 @@ static const struct { uint8_t width; uint8_t opa; uint8_t color_idx; } k_layers[
 #define DIGIT_NONE 0xFF
 
 typedef struct {
-    lv_color_t bg, bar, cage, cage_ring, pin1, pin2, ghost;
+    lv_color_t bg, bar, cage, cage_ring, pin1, pin2, ghost, mesh;
     lv_color_t glow[4];       /* g1..g4 */
     lv_color_t dot_core, dot, dot_halo[DOT_HALO_LAYERS], text, text_glow;
 } saver_palette_t;
@@ -73,7 +82,7 @@ static saver_palette_t palette_theme(void) {
     return (saver_palette_t){
         .bg = lv_color_hex(0x161826), .bar = lv_color_hex(0x3F424D), .cage = lv_color_hex(0x353350),
         .cage_ring = lv_color_hex(0x595D6C), .pin1 = lv_color_hex(0x595D6C), .pin2 = lv_color_hex(0x3F424D),
-        .ghost = lv_color_hex(0x9397AB),
+        .ghost = lv_color_hex(0x9397AB), .mesh = lv_color_hex(0x75798C),
         .glow = { lv_color_hex(0x796CBF), lv_color_hex(0x9184D9), lv_color_hex(0xD2CEFD), lv_color_hex(0xF5F4FF) },
         .dot_core = lv_color_hex(0xF5F4FF), .dot = lv_color_hex(0xD2CEFD),
         .dot_halo = { lv_color_hex(0xD2CEFD), lv_color_hex(0x9184D9), lv_color_hex(0x796CBF), lv_color_hex(0x5D5294) },
@@ -86,12 +95,48 @@ static saver_palette_t palette_orange(void) {
     return (saver_palette_t){
         .bg = lv_color_hex(0x18120F), .bar = lv_color_hex(0x452818), .cage = lv_color_hex(0x501A0A),
         .cage_ring = lv_color_hex(0x37322E), .pin1 = lv_color_hex(0x322D29), .pin2 = lv_color_hex(0x28231F),
-        .ghost = lv_color_hex(0x8A7462),
+        .ghost = lv_color_hex(0x8A7462), .mesh = lv_color_hex(0x564B42),
         .glow = { lv_color_hex(0xE03000), lv_color_hex(0xFF6A10), lv_color_hex(0xFFA040), lv_color_hex(0xFFE6B0) },
         .dot_core = lv_color_hex(0xFFE0A4), .dot = lv_color_hex(0xFF8E41),
         .dot_halo = { lv_color_hex(0xFF7F34), lv_color_hex(0xF34F08), lv_color_hex(0xDB3008), lv_color_hex(0xC21B0D) },
         .text = lv_color_hex(0xB44400), .text_glow = lv_color_hex(0xE03000),
     };
+}
+
+/* One alpha mask shared by all tubes; recoloured per style. */
+static lv_image_dsc_t s_mesh_img;
+static uint8_t *s_mesh_buf;
+
+static void mesh_ensure(void) {
+    if (s_mesh_buf) return;
+    s_mesh_buf = lv_malloc(CAGE_W * CAGE_H);
+    if (!s_mesh_buf) return;
+    for (int y = 0; y < CAGE_H; y++) {
+        for (int x = 0; x < CAGE_W; x++) {
+            int hits = 0;
+            for (int sy = 0; sy < MESH_SUBSAMPLES; sy++) {
+                for (int sx = 0; sx < MESH_SUBSAMPLES; sx++) {
+                    float px = x + (sx + 0.5f) / MESH_SUBSAMPLES, py = y + (sy + 0.5f) / MESH_SUBSAMPLES;
+                    bool on = false;
+                    for (int a = 0; a < MESH_ANGLE_COUNT && !on; a++) {
+                        float rad = a * MESH_ANGLE_STEP_DEG * DEG_TO_RAD; /* CSS angle: 0 = towards the top */
+                        float along = px * sinf(rad) - py * cosf(rad);
+                        along -= MESH_PERIOD_PX * floorf(along / MESH_PERIOD_PX);
+                        on = along >= MESH_GAP_PX;
+                    }
+                    if (on) hits++;
+                }
+            }
+            s_mesh_buf[y * CAGE_W + x] = (uint8_t)(LV_OPA_COVER * hits / (MESH_SUBSAMPLES * MESH_SUBSAMPLES));
+        }
+    }
+    s_mesh_img.header.magic = LV_IMAGE_HEADER_MAGIC;
+    s_mesh_img.header.cf = LV_COLOR_FORMAT_A8;
+    s_mesh_img.header.w = CAGE_W;
+    s_mesh_img.header.h = CAGE_H;
+    s_mesh_img.header.stride = CAGE_W;
+    s_mesh_img.data_size = CAGE_W * CAGE_H;
+    s_mesh_img.data = s_mesh_buf;
 }
 
 typedef struct {
@@ -167,6 +212,16 @@ static void build_tube(lv_obj_t *row, int x, tube_t *t, const saver_palette_t *p
         lv_obj_add_flag(t->lit[i], LV_OBJ_FLAG_HIDDEN);
     }
     t->shown = DIGIT_NONE;
+
+    mesh_ensure();
+    if (s_mesh_buf) {
+        lv_obj_t *mesh = deco(lv_image_create(tube));
+        lv_image_set_src(mesh, &s_mesh_img);
+        lv_obj_set_pos(mesh, CAGE_X, CAGE_Y);
+        lv_obj_set_style_image_recolor(mesh, pal->mesh, 0);
+        lv_obj_set_style_image_recolor_opa(mesh, LV_OPA_COVER, 0);
+        lv_obj_set_style_image_opa(mesh, MESH_OPA, 0);
+    }
 
     rect(tube, PIN_X, PIN_TOP_Y, PIN_SIZE, PIN_SIZE, pal->pin1, LV_OPA_COVER, LV_RADIUS_CIRCLE);
     rect(tube, PIN_X, PIN_BOTTOM_Y, PIN_SIZE, PIN_SIZE, pal->pin2, LV_OPA_COVER, LV_RADIUS_CIRCLE);
