@@ -282,7 +282,7 @@
           <div data-lv="panel.frame" style="display:flex;flex-direction:column;padding:var(--space-3) var(--space-4);border:1px solid var(--color-neutral-700);border-radius:var(--radius-md)">
           <label data-lv="label.caption" style="display:block;font-size:12px;margin-bottom:5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">{{ t.brightness }}</label>
           <div style="padding:14px 0">
-            <input data-lv="input.range" type="range" min="10" max="100" step="1" value="{{ brightness }}" onInput="{{ setBrightness }}" style="display:block;width:100%;margin:0;accent-color:var(--color-accent)">
+            <input data-lv="input.range" type="range" min="4" max="100" step="1" value="{{ brightness }}" onInput="{{ setBrightness }}" style="display:block;width:100%;margin:0;accent-color:var(--color-accent)">
           </div>
           <div data-lv="switch.option" style="display:inline-flex;align-items:center;gap:var(--space-2);margin-top:var(--space-1);cursor:pointer" onClick="{{ toggleBrightnessAdaptive }}" role="switch" aria-checked="{{ brightnessAdaptive }}">
             <span style="{{ switchTrackStyle }}"><span style="{{ switchThumbStyle }}"></span></span>
