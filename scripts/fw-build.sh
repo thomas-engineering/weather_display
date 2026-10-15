@@ -30,7 +30,9 @@ set +e
         idf.py -B "$BUILD_DIR" set-target esp32p4 || exit $?
     fi
     echo "== Build =="
-    idf.py -B "$BUILD_DIR" build
+    # SAVER_FAST_TEST=1: screen saver timeout counts seconds (docs/screensaver-test.md).
+    # Passed on every run so switching it back and forth only recompiles weather_ui.c.
+    idf.py -B "$BUILD_DIR" -DWEATHER_SAVER_FAST_TEST="$([ "${SAVER_FAST_TEST:-0}" = 1 ] && echo ON || echo OFF)" build
 } >"$LOG" 2>&1
 status=$?
 set -e

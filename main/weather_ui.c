@@ -1563,7 +1563,7 @@ static void on_seg_auto_refresh(int idx, void *user) {
 #define SETTINGS_COLUMN_ROW_GAP 14
 #define SLIDER_KNOB_INSET 16        /* room for the knob, which overhangs the track at both ends */
 #define SETTINGS_CAPTION_MIX 178     /* 70 % text over the surface, like the design's color-mix */
-#ifdef CONFIG_WEATHER_SCREENSAVER_FAST_TEST
+#ifdef WEATHER_SAVER_FAST_TEST
 #define SAVER_MS_PER_UNIT SAVER_MS_PER_SECOND /* test build: "15 min" fires after 15 s */
 #else
 #define SAVER_MS_PER_UNIT SAVER_MS_PER_MINUTE

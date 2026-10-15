@@ -34,9 +34,9 @@ itself is host-tested in `test_hold_gesture.c`.
 
 Build with the test option so the setting counts seconds, not minutes:
 
-1. `CONFIG_WEATHER_SCREENSAVER_FAST_TEST=y` in the generated `sdkconfig`
-   (or `idf.py menuconfig` > Weather display), then
-   `./scripts/hw-flash.sh /dev/ttyACM0`.
+1. `SAVER_FAST_TEST=1 ./scripts/hw-flash.sh /dev/ttyACM0` (build option, only
+   `weather_ui.c` is recompiled when you switch it on or off). The board then
+   counts the timeout setting in seconds.
 2. After the first weather fetch (the saver needs the city's UTC offset for its
    clock), open Settings > "Screen saver after inactivity" and pick `15 min`.
 3. (Shortcut: hold the header clock for 3 s instead of waiting.) Leave the display alone: the saver appears after **15 s** and Settings closes.

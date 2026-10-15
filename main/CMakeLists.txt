@@ -31,6 +31,16 @@ idf_component_register(
                   esp_app_format espressif__esp_hosted app_update esp_https_ota
                   esp_partition mbedtls)
 
+# Screen saver test switch (docs/screensaver-test.md): with
+#   SAVER_FAST_TEST=1 ./scripts/hw-flash.sh /dev/ttyACM0
+# the Settings > Screen saver options count seconds instead of minutes.
+# Deliberately a compile definition on weather_ui.c alone, not a Kconfig
+# option: a Kconfig change rewrites sdkconfig.h, which nearly every file
+# includes, and means a full rebuild each way.
+if(WEATHER_SAVER_FAST_TEST)
+    set_source_files_properties("weather_ui.c" PROPERTIES COMPILE_DEFINITIONS WEATHER_SAVER_FAST_TEST=1)
+endif()
+
 # Warnings in our own code are errors; scoped to this component so warnings
 # from managed_components/ don't break the build.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Werror)
