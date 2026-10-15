@@ -90,6 +90,20 @@ if [ "${1:-}" = "--shots" ]; then
             || { echo "FEHLER bei Screen '$screen'." >&2; exit 1; }
         echo "  $screen.bmp"
     done
+    # Bildschirmschoner: beide Farbstile, dazu der Test "Tipp beendet ihn" ohne
+    # das Timeout abzuwarten (screensaver-dismiss meldet SAVER_DISMISS OK/FAIL).
+    for screen in screensaver screensaver-orange; do
+        SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
+            "$BUILD_DIR/weather_sim" --screen "$screen" --screenshot "$OUT/$screen.bmp" \
+            || { echo "FEHLER bei Screen '$screen'." >&2; exit 1; }
+        echo "  $screen.bmp"
+    done
+    dismiss_out="$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
+        "$BUILD_DIR/weather_sim" --screen screensaver-dismiss --screenshot "$OUT/screensaver-dismissed.bmp")" \
+        || { echo "FEHLER bei Screen 'screensaver-dismiss'." >&2; exit 1; }
+    echo "$dismiss_out" | grep -q '^SAVER_DISMISS OK$' \
+        || { echo "FEHLER: Tipp auf den Bildschirmschoner hat ihn nicht beendet." >&2; echo "$dismiss_out" >&2; exit 1; }
+    echo "  screensaver-dismissed.bmp (SAVER_DISMISS OK)"
     # Erstboot ist ein eigener Zustand, kein eigener Screen: offline, ohne Daten.
     SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
         "$BUILD_DIR/weather_sim" --wifi-setup --screenshot "$OUT/first-boot.bmp" \

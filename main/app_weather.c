@@ -446,6 +446,15 @@ static void ui_error(const char *msg, bool is_manual) {
  * weather_ui_set_hourly() rebuilds the whole chart (~40 objects, several
  * lv_obj_update_layout() calls), all inside the same bsp_display_lock() the
  * LVGL renderer task also needs. */
+bool app_weather_get_local_time(struct tm *local, int64_t *unix_seconds) {
+    if (!s_have_forecast) return false;
+    time_t now_utc = time(NULL);
+    time_t shifted = now_utc + s_utc_offset;
+    gmtime_r(&shifted, local);
+    *unix_seconds = (int64_t)now_utc;
+    return true;
+}
+
 static void push_forecast_to_ui(bool full) {
     if (!s_have_forecast) return;
     const app_prefs_t *p = app_prefs_get();

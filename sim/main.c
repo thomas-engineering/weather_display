@@ -513,10 +513,15 @@ typedef enum {
     ACT_OPEN_SCREEN,
     ACT_CLICK_FAVORITE_STAR,
     ACT_OTA_TICK,
+    ACT_SAVER_TAP,
+    ACT_SAVER_CHECK,
 } sim_action_t;
 
 static void open_screen(void);
 static void click_favorite_star_in_search(void);
+static void synth_tap(int x, int y);
+#define SAVER_TAP_DELAY_MS 800   /* after the saver has been up for a few frames */
+#define SAVER_CHECK_DELAY_MS 300 /* long enough for the indev to deliver the press */
 static void defer(sim_action_t action, uint32_t delay_ms);
 
 /* Firmware update dialog's fake-progress simulation state — see
@@ -564,6 +569,19 @@ static void deferred_cb(lv_timer_t *timer)
         /* Erst nach publish_weather(): ein Detailpanel ohne Daten zeigt leere
          * Felder, und der Chart darin misst sich auf Hoehe null. */
         open_screen();
+        break;
+
+    case ACT_SAVER_TAP:
+        /* A real tap in the middle of the screen, through the mouse indev:
+         * this is the path a finger takes on the device. */
+        synth_tap(SIM_HOR_RES / 2, SIM_VER_RES / 2);
+        defer(ACT_SAVER_CHECK, SAVER_CHECK_DELAY_MS);
+        break;
+
+    case ACT_SAVER_CHECK:
+        /* Parsed by scripts/sim.sh --shots; do not change. */
+        printf("SAVER_DISMISS %s\n", weather_ui_screensaver_active() ? "FAIL" : "OK");
+        fflush(stdout);
         break;
 
     case ACT_CLICK_FAVORITE_STAR:
@@ -697,6 +715,30 @@ static void on_wifi_connect(const char *ssid, const char *password)
 
 /* The simulator has no real backlight to drive; this only needs to exist so
  * weather_ui_set_brightness_callback() has a target. */
+/* Fixed clock for the saver so screenshots are reproducible: Thursday
+ * 2026-10-15 10:08:42 (the device reads its real clock here). */
+static bool sim_local_time(struct tm *local, int64_t *unix_seconds)
+{
+    memset(local, 0, sizeof *local);
+    local->tm_year = 2026 - 1900;
+    local->tm_mon = 10 - 1;
+    local->tm_mday = 15;
+    local->tm_hour = 10;
+    local->tm_min = 8;
+    local->tm_sec = 42;
+    time_t t = timegm(local);
+    local->tm_wday = 4;
+    *unix_seconds = (int64_t)t;
+    return true;
+}
+
+/* The simulator keeps no prefs; the UI already holds the new values. */
+static void on_screensaver(int minutes, saver_style_t style)
+{
+    LV_UNUSED(minutes);
+    LV_UNUSED(style);
+}
+
 static void on_brightness(int percent, bool final)
 {
     (void)percent;
@@ -735,6 +777,9 @@ typedef enum {
     SCREEN_FAVORITE_TAP,
     SCREEN_OTA,
     SCREEN_OTA_DONE,
+    SCREEN_SAVER,
+    SCREEN_SAVER_ORANGE,
+    SCREEN_SAVER_DISMISS,
 } sim_screen_t;
 
 static sim_screen_t s_screen = SCREEN_MAIN;
@@ -952,6 +997,22 @@ static void open_screen(void)
         break;
     }
 
+    case SCREEN_SAVER:
+        weather_ui_screensaver_force(true);
+        break;
+
+    case SCREEN_SAVER_ORANGE:
+        weather_ui_set_screensaver(0, SAVER_STYLE_ORANGE);
+        weather_ui_screensaver_force(true);
+        break;
+
+    case SCREEN_SAVER_DISMISS:
+        /* Test path for "ends when the display is tapped" without waiting for
+         * the timeout: bring the saver up, tap, report whether it ended. */
+        weather_ui_screensaver_force(true);
+        defer(ACT_SAVER_TAP, SAVER_TAP_DELAY_MS);
+        break;
+
     case SCREEN_OTA_DONE: {
         /* Same path as SCREEN_OTA, then presses "Check for update" too —
          * on_ota_start() -> ACT_OTA_TICK reposts every SIM_LATENCY_MS/2
@@ -1055,9 +1116,12 @@ int main(int argc, char **argv)
             else if (strcmp(name, "favorite-tap") == 0) s_screen = SCREEN_FAVORITE_TAP;
             else if (strcmp(name, "ota") == 0) s_screen = SCREEN_OTA;
             else if (strcmp(name, "ota-done") == 0) s_screen = SCREEN_OTA_DONE;
+            else if (strcmp(name, "screensaver") == 0) s_screen = SCREEN_SAVER;
+            else if (strcmp(name, "screensaver-orange") == 0) s_screen = SCREEN_SAVER_ORANGE;
+            else if (strcmp(name, "screensaver-dismiss") == 0) s_screen = SCREEN_SAVER_DISMISS;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done\n", name);
+                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done, screensaver, screensaver-orange, screensaver-dismiss\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
@@ -1120,6 +1184,8 @@ int main(int argc, char **argv)
     weather_ui_set_callbacks(on_search, on_select_city, on_refresh, on_settings_changed);
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
+    weather_ui_set_screensaver_callback(on_screensaver);
+    weather_ui_set_local_time_callback(sim_local_time);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
     weather_ui_set_ota_callbacks(on_ota_start, on_ota_cancel, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
     weather_ui_set_ota_test_channel_callback(on_ota_toggle_test_channel);

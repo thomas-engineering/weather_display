@@ -5,7 +5,7 @@ idf_component_register(
     SRCS "startup_retry_policy.c" "light_policy.c" "storage_record.c" "weather_forecast_parse.c" "favorites.c"
          "ota_manifest_parse.c" "ota_version_compare.c" "network_status_policy.c"
          "wifi_reconnect_policy.c" "link_health_policy.c" "heap_watch.c"
-         "coprocessor_health_policy.c"
+         "coprocessor_health_policy.c" "screensaver_policy.c"
     INCLUDE_DIRS "include"
     PRIV_REQUIRES espressif__cjson
 )
@@ -13,3 +13,7 @@ idf_component_register(
 # Warnings in our own code are errors; scoped to this component so warnings
 # from managed_components/ don't break the build.
 target_compile_options(${COMPONENT_LIB} PRIVATE -Werror)
+
+# screensaver_policy.c uses sin(); the Linux host target does not link libm
+# on its own (the chip toolchains do).
+target_link_libraries(${COMPONENT_LIB} PUBLIC m)

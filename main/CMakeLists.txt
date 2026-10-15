@@ -20,6 +20,7 @@ idf_component_register(
         "display_lock_probe.c"
         "weather_ui.c"
         "weather_chart.c"
+        "weather_saver.c"
         "weather_icons.c"
         "weather_i18n.c"
         ${WEATHER_FONT_SRCS}

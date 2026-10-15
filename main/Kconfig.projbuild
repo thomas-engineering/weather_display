@@ -10,6 +10,15 @@ menu "Weather Display Configuration"
             faces are ASCII-only, so German, Spanish and French text will show
             blanks where accented characters belong.
 
+    config WEATHER_SCREENSAVER_FAST_TEST
+        bool "Screen saver test: count the timeout setting in seconds"
+        default n
+        help
+            Makes the Settings > Screen saver options (15 min / 30 min / 1 h) fire
+            after 15 / 30 / 60 seconds instead, so the saver and its tap-to-dismiss
+            can be checked on the board without waiting. Never leave this on in a
+            release build. See docs/screensaver-test.md.
+
     config WEATHER_TOUCH_DEBUG
         bool "Log raw touch coordinates to the console"
         default n

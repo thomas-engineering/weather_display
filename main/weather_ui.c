@@ -21,6 +21,9 @@
 #include "auto_refresh_options.h"
 /* FIX: brightness range shared with app_prefs.c and the ambient-light policy. */
 #include "light_policy.h"
+#include "screensaver_policy.h"
+#include "weather_saver.h"
+#include "app_format.h"
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
@@ -39,6 +42,7 @@
 #define C_DIVIDER     lv_color_hex(0x3A3D4A)
 #define C_NEUTRAL_800 lv_color_hex(0x3F424D)
 #define C_NEUTRAL_600 lv_color_hex(0x75798C)
+#define C_NEUTRAL_700 lv_color_hex(0x595D6C)
 #define C_NEUTRAL_300 lv_color_hex(0xCFD3E5)
 #define C_GOOD        lv_color_hex(0x7FBF8F)  /* status: online */
 #define C_WARN        lv_color_hex(0xD9C184)  /* status: stale data */
@@ -88,6 +92,12 @@ typedef struct {
     lv_obj_t *seg_lang[4], *seg_temp[2], *seg_wind[3], *seg_time[2], *seg_auto[4];
     lv_obj_t *brightness_slider, *brightness_adaptive_sw;
     int auto_refresh_minutes; /* 0/15/30/60 */
+    /* Screen saver (2026-10-15 sync): inactivity timeout (minutes, 0 = off) and colour style. */
+    lv_obj_t *seg_saver[SAVER_TIMEOUT_OPTION_COUNT], *seg_saver_style[SAVER_STYLE_COUNT];
+    int saver_minutes;
+    saver_style_t saver_style;
+    screensaver_policy_t saver_policy;
+    lv_timer_t *saver_timer;
 
     lv_obj_t *wifi_forget_confirm_backdrop;
     lv_obj_t *wifi_forget_confirm_title_lbl, *wifi_forget_confirm_body_lbl;
@@ -155,6 +165,8 @@ typedef struct {
     weather_ui_wifi_connect_cb_t on_wifi_connect;
     weather_ui_wifi_forget_cb_t on_wifi_forget;
     weather_ui_brightness_cb_t on_brightness;
+    weather_ui_screensaver_cb_t on_screensaver;
+    weather_ui_local_time_cb_t local_time;
     weather_ui_brightness_adaptive_cb_t on_brightness_adaptive;
     weather_ui_favorite_toggle_cb_t on_favorite_toggle;
     weather_ui_favorite_select_cb_t on_favorite_select;
@@ -170,6 +182,7 @@ static weather_ui_t ui;
 
 static void set_search_status_text(const char *text);
 static void build_settings_panel(lv_obj_t *parent);
+static void settings_rebuild(bool keep_open);
 static void build_device_info_panel(lv_obj_t *parent);
 static void device_info_rebuild(bool keep_open);
 static void open_device_info_cb(lv_event_t *e);
@@ -1528,6 +1541,127 @@ static void on_seg_auto_refresh(int idx, void *user) {
     notify_settings_changed();
 }
 
+/* ---- screen saver ---------------------------------------------------- */
+
+#define SAVER_TICK_MS 1000
+#define SETTINGS_COLUMN_GAP 17      /* --space-6 */
+#define SETTINGS_PANEL_PAD 20
+#define SETTINGS_PANEL_INITIAL_W 380 /* replaced by the measured width once the columns exist */
+#define SETTINGS_COLUMN_ROW_GAP 14
+#define SETTINGS_CAPTION_MIX 178     /* 70 % text over the surface, like the design's color-mix */
+#ifdef CONFIG_WEATHER_SCREENSAVER_FAST_TEST
+#define SAVER_MS_PER_UNIT SAVER_MS_PER_SECOND /* test build: "15 min" fires after 15 s */
+#else
+#define SAVER_MS_PER_UNIT SAVER_MS_PER_MINUTE
+#endif
+
+static lv_obj_t *settings_column(lv_obj_t *parent) {
+    lv_obj_t *col = lv_obj_create(parent);
+    lv_obj_remove_style_all(col);
+    lv_obj_set_size(col, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(col, SETTINGS_COLUMN_ROW_GAP, 0);
+    lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE);
+    return col;
+}
+
+static void settings_fix_column_width(lv_obj_t *col) {
+    lv_obj_update_layout(col);
+    int32_t widest = 0;
+    for (uint32_t i = 0; i < lv_obj_get_child_count(col); i++) {
+        lv_obj_t *c = lv_obj_get_child(col, i);
+        if (lv_obj_get_style_width(c, LV_PART_MAIN) == LV_PCT(100)) continue; /* sized by the column, not the other way round */
+        int32_t w = lv_obj_get_width(c);
+        if (w > widest) widest = w;
+    }
+    lv_obj_set_width(col, widest);
+}
+
+static void saver_notify_changed(void) {
+    if (ui.on_screensaver) ui.on_screensaver(ui.saver_minutes, ui.saver_style);
+}
+
+static void saver_dismiss_cb(void) {
+    if (screensaver_policy_on_touch(&ui.saver_policy) == SAVER_EVENT_STOP) weather_saver_hide();
+}
+
+static void saver_render(void) {
+    struct tm lt;
+    int64_t unix_s = 0;
+    if (ui.local_time) {
+        if (!ui.local_time(&lt, &unix_s)) return;
+    } else {
+        time_t now = time(NULL);
+        gmtime_r(&now, &lt);
+        unix_s = now;
+    }
+    char date[48];
+    fmt_date(date, sizeof date, &lt, ui.lang);
+    char temp[16] = "";
+    if (ui.has_data) snprintf(temp, sizeof temp, "%d\xC2\xB0%c", temp_disp(ui.cur.temp_c), temp_unit_ch());
+    weather_saver_update(&lt, ui.time_fmt == WX_TIME_12, unix_s, date, temp);
+}
+
+static void saver_start(void) {
+    /* The design closes Settings when the saver comes up. */
+    if (ui.settings_backdrop) lv_obj_add_flag(ui.settings_backdrop, LV_OBJ_FLAG_HIDDEN);
+    weather_saver_show();
+    saver_render();
+}
+
+static void saver_tick_cb(lv_timer_t *t) {
+    LV_UNUSED(t);
+    if (ui.saver_policy.active) {
+        saver_render();
+        return;
+    }
+    if (screensaver_policy_tick(&ui.saver_policy, ui.saver_minutes, lv_display_get_inactive_time(NULL),
+                                SAVER_MS_PER_UNIT) == SAVER_EVENT_START)
+        saver_start();
+}
+
+static void on_seg_saver(int idx, void *user) {
+    LV_UNUSED(user);
+    if (idx < 0 || idx >= SAVER_TIMEOUT_OPTION_COUNT) return;
+    ui.saver_minutes = k_saver_timeout_minutes[idx];
+    saver_notify_changed();
+}
+
+static void on_seg_saver_style(int idx, void *user) {
+    LV_UNUSED(user);
+    if (!saver_style_valid(idx)) return;
+    ui.saver_style = (saver_style_t)idx;
+    weather_saver_build(ui.saver_style, saver_dismiss_cb);
+    saver_notify_changed();
+}
+
+void weather_ui_set_screensaver_callback(weather_ui_screensaver_cb_t cb) { ui.on_screensaver = cb; }
+void weather_ui_set_local_time_callback(weather_ui_local_time_cb_t cb) { ui.local_time = cb; }
+
+void weather_ui_set_screensaver(int minutes, saver_style_t style) {
+    if (!saver_timeout_valid(minutes)) minutes = k_saver_timeout_minutes[SAVER_TIMEOUT_DEFAULT_IDX];
+    if (!saver_style_valid(style)) style = SAVER_STYLE_THEME;
+    bool style_changed = style != ui.saver_style;
+    ui.saver_minutes = minutes;
+    ui.saver_style = style;
+    if (style_changed) weather_saver_build(ui.saver_style, saver_dismiss_cb);
+    if (ui.settings_backdrop) {
+        bool was_open = !lv_obj_has_flag(ui.settings_backdrop, LV_OBJ_FLAG_HIDDEN);
+        settings_rebuild(was_open);
+    }
+}
+
+void weather_ui_screensaver_force(bool active) {
+    if (active) {
+        ui.saver_policy.active = true;
+        saver_start();
+    } else {
+        saver_dismiss_cb();
+    }
+}
+
+bool weather_ui_screensaver_active(void) { return ui.saver_policy.active; }
+
 /* Applied on every LV_EVENT_VALUE_CHANGED tick while dragging (so the backlight
  * follows the finger), and once more on LV_EVENT_RELEASED so the caller can
  * persist the settled value without writing NVS on every intermediate step. */
@@ -1789,11 +1923,11 @@ static void build_settings_panel(lv_obj_t *parent) {
 
     ui.settings_panel = lv_obj_create(ui.settings_backdrop);
     lv_obj_remove_style_all(ui.settings_panel);
-    lv_obj_set_size(ui.settings_panel, 380, LV_SIZE_CONTENT);
+    lv_obj_set_size(ui.settings_panel, SETTINGS_PANEL_INITIAL_W, LV_SIZE_CONTENT);
     lv_obj_set_style_bg_color(ui.settings_panel, C_SURFACE, 0);
     lv_obj_set_style_bg_opa(ui.settings_panel, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(ui.settings_panel, R_LG, 0);
-    lv_obj_set_style_pad_all(ui.settings_panel, 20, 0);
+    lv_obj_set_style_pad_all(ui.settings_panel, SETTINGS_PANEL_PAD, 0);
     lv_obj_set_flex_flow(ui.settings_panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(ui.settings_panel, 14, 0);
     lv_obj_add_flag(ui.settings_panel, LV_OBJ_FLAG_CLICKABLE); /* swallow clicks so they don't bubble to the backdrop */
@@ -1871,7 +2005,22 @@ static void build_settings_panel(lv_obj_t *parent) {
     /* Order must match weather_lang_t (EN, DE, ES, FR). The export listed
      * Deutsch first while LANG_EN == 0, so picking "Deutsch" selected English. */
     static const char *const lang_labels[4] = { "English", "Deutsch", "Espanol", "Francais" };
-    lv_obj_t *f1 = field_wrap(ui.settings_panel, weather_strings[ui.lang].language);
+
+    /* Synced from Claude Design 2026-10-15: the dialog is two columns now (grid
+     * "max-content max-content", --space-6 apart). Left: language, temperature +
+     * time format, wind speed, brightness frame. Right: auto-refresh, screen
+     * saver timeout and colours. Network stays full width underneath. */
+    lv_obj_t *cols = lv_obj_create(ui.settings_panel);
+    lv_obj_remove_style_all(cols);
+    lv_obj_set_size(cols, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(cols, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(cols, SETTINGS_COLUMN_GAP, 0);
+    lv_obj_remove_flag(cols, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *left = settings_column(cols);
+    lv_obj_t *right = settings_column(cols);
+
+    lv_obj_t *f1 = field_wrap(left, weather_strings[ui.lang].language);
+    lv_obj_set_width(f1, LV_SIZE_CONTENT);
     seg_create(f1, lang_labels, 4, ui.lang, on_seg_lang, NULL, ui.seg_lang);
 
     /* Synced from Claude Design 2026-09-12 (second pass): Temperature and Time
@@ -1879,27 +2028,29 @@ static void build_settings_panel(lv_obj_t *parent) {
      * two full-width fields — field_wrap() hardcodes 100% width for the
      * single-field case, so override each to flex_grow within this row
      * instead of reusing that width. */
-    lv_obj_t *temp_time_row = lv_obj_create(ui.settings_panel);
+    lv_obj_t *temp_time_row = lv_obj_create(left);
     lv_obj_remove_style_all(temp_time_row);
     lv_obj_set_size(temp_time_row, LV_PCT(100), LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(temp_time_row, LV_FLEX_FLOW_ROW);
+    /* 2026-10-15: space-between, Time format right-aligned (design: justify-content:space-between). */
+    lv_obj_set_flex_align(temp_time_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_set_style_pad_column(temp_time_row, 11, 0); /* --space-4 */
     lv_obj_remove_flag(temp_time_row, LV_OBJ_FLAG_SCROLLABLE);
 
     static const char *const temp_labels[2] = { "\xC2\xB0" "C", "\xC2\xB0" "F" };
     lv_obj_t *f2 = field_wrap(temp_time_row, weather_strings[ui.lang].temperature);
     lv_obj_set_width(f2, LV_SIZE_CONTENT);
-    lv_obj_set_flex_grow(f2, 1);
     seg_create(f2, temp_labels, 2, ui.temp_unit, on_seg_temp, NULL, ui.seg_temp);
 
     lv_obj_t *f4 = field_wrap(temp_time_row, weather_strings[ui.lang].time_format);
     lv_obj_set_width(f4, LV_SIZE_CONTENT);
-    lv_obj_set_flex_grow(f4, 1);
+    lv_obj_set_flex_align(f4, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
     const char *time_labels[2] = { weather_strings[ui.lang].h24, weather_strings[ui.lang].h12 };
     seg_create(f4, time_labels, 2, ui.time_fmt, on_seg_time, NULL, ui.seg_time);
 
     static const char *const wind_labels[3] = { "km/h", "mph", "m/s" };
-    lv_obj_t *f3 = field_wrap(ui.settings_panel, weather_strings[ui.lang].wind_speed);
+    lv_obj_t *f3 = field_wrap(left, weather_strings[ui.lang].wind_speed);
+    lv_obj_set_width(f3, LV_SIZE_CONTENT);
     seg_create(f3, wind_labels, 3, ui.wind_unit, on_seg_wind, NULL, ui.seg_wind);
 
     /* Synced from Claude Design 2026-09-12: auto-refresh interval, right after
@@ -1909,14 +2060,45 @@ static void build_settings_panel(lv_obj_t *parent) {
                                       weather_strings[ui.lang].auto_30, weather_strings[ui.lang].auto_60 };
     int auto_idx = 2;
     for (int i = 0; i < AUTO_REFRESH_OPTION_COUNT; i++) if (k_auto_refresh_values[i] == ui.auto_refresh_minutes) auto_idx = i;
-    lv_obj_t *f6 = field_wrap(ui.settings_panel, weather_strings[ui.lang].auto_refresh);
+    lv_obj_t *f6 = field_wrap(right, weather_strings[ui.lang].auto_refresh);
+    lv_obj_set_width(f6, LV_SIZE_CONTENT);
     seg_create(f6, auto_labels_l, 4, auto_idx, on_seg_auto_refresh, NULL, ui.seg_auto);
+
+    /* Screen saver timeout reuses the auto-refresh labels (Off / 15 min / 30 min / 1 h). */
+    int saver_idx = 0;
+    for (int i = 0; i < SAVER_TIMEOUT_OPTION_COUNT; i++) if (k_saver_timeout_minutes[i] == ui.saver_minutes) saver_idx = i;
+    lv_obj_t *f7 = field_wrap(right, weather_strings[ui.lang].screen_saver);
+    lv_obj_set_width(f7, LV_SIZE_CONTENT);
+    seg_create(f7, auto_labels_l, SAVER_TIMEOUT_OPTION_COUNT, saver_idx, on_seg_saver, NULL, ui.seg_saver);
+
+    const char *saver_style_labels[SAVER_STYLE_COUNT] = { weather_strings[ui.lang].saver_style_theme,
+                                                           weather_strings[ui.lang].saver_style_orange };
+    lv_obj_t *f8 = field_wrap(right, weather_strings[ui.lang].saver_style);
+    lv_obj_set_width(f8, LV_SIZE_CONTENT);
+    seg_create(f8, saver_style_labels, SAVER_STYLE_COUNT, ui.saver_style, on_seg_saver_style, NULL, ui.seg_saver_style);
 
     /* Synced from Claude Design 2026-09-09 (the "Weather app with 7-day forecast"
      * project's settingsOpen field grew a brightness slider), with the design's
      * "Adapt to ambient light" toggle added below it now that app_light.c gives
      * it something real to drive (the optional OV5647 on the MIPI-CSI connector). */
-    lv_obj_t *f5 = field_wrap(ui.settings_panel, weather_strings[ui.lang].brightness);
+    /* Synced from Claude Design 2026-10-15: brightness is a bordered frame
+     * (neutral-700, radius-md, padding space-3/space-4) with its caption inside. */
+    lv_obj_t *f5 = lv_obj_create(left);
+    lv_obj_remove_style_all(f5);
+    lv_obj_set_width(f5, LV_SIZE_CONTENT);
+    lv_obj_set_height(f5, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(f5, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(f5, 5, 0);
+    lv_obj_set_style_pad_ver(f5, 8, 0);   /* --space-3 */
+    lv_obj_set_style_pad_hor(f5, 11, 0);  /* --space-4 */
+    lv_obj_set_style_border_width(f5, 1, 0);
+    lv_obj_set_style_border_color(f5, C_NEUTRAL_700, 0);
+    lv_obj_set_style_radius(f5, R_MD, 0);
+    lv_obj_remove_flag(f5, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *brightness_cap = lv_label_create(f5);
+    lv_label_set_text(brightness_cap, weather_strings[ui.lang].brightness);
+    lv_obj_set_style_text_color(brightness_cap, lv_color_mix(C_TEXT, C_SURFACE, SETTINGS_CAPTION_MIX), 0);
+    lv_obj_set_style_text_font(brightness_cap, FONT_12, 0);
     /* FIX: the knob sits half outside the track at each end (it's centered on the
      * value position, which reaches the track's own edge at min/max) — without this
      * inset it got clipped by the field's bounds at full brightness. */
@@ -1987,6 +2169,15 @@ static void build_settings_panel(lv_obj_t *parent) {
      * added, plus (2026-09-19 sync) "Update" next to it opening the firmware
      * update dialog: design switched this from one full-width button to a
      * row (configure-network flex:1, update flex:none). */
+    /* Both columns are as wide as their widest field; measure once the fields
+     * exist, then pin that width so percent-width children (the temperature /
+     * time row) and the full-width Network row resolve against a real number. */
+    settings_fix_column_width(left);
+    settings_fix_column_width(right);
+    lv_obj_update_layout(cols);
+    lv_obj_set_width(ui.settings_panel, lv_obj_get_width(cols) + 2 * SETTINGS_PANEL_PAD);
+    lv_obj_set_width(temp_time_row, LV_PCT(100));
+
     lv_obj_t *fnet = field_wrap(ui.settings_panel, weather_strings[ui.lang].network);
     lv_obj_t *net_row = lv_obj_create(fnet);
     lv_obj_remove_style_all(net_row);
@@ -3174,4 +3365,8 @@ void weather_ui_create(lv_obj_t *parent) {
     build_detail_panel(ui.root);
     build_wifi_screen(ui.root);
     build_wifi_forget_confirm_panel(ui.root);
+
+    screensaver_policy_init(&ui.saver_policy);
+    weather_saver_build(ui.saver_style, saver_dismiss_cb);
+    ui.saver_timer = lv_timer_create(saver_tick_cb, SAVER_TICK_MS, NULL);
 }

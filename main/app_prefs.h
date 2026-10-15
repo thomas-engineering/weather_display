@@ -5,6 +5,7 @@
 #include "ota_update.h"
 #include "weather_ui.h"
 #include "weather_i18n.h"
+#include "screensaver_policy.h"
 
 typedef struct {
     char  name[64];
@@ -21,6 +22,10 @@ typedef struct {
      * own initial state (otaAutoUpdate: true, otaUpdateCoprocessor: false). */
     bool ota_auto_update;
     bool ota_update_coprocessor;
+    /* Screen saver (2026-10-15 sync). Kept in its own small record, see
+     * app_prefs_save_screensaver(). */
+    int screensaver_minutes;      /* 0/15/30/60; 0 = never */
+    saver_style_t screensaver_style;
 } app_prefs_t;
 
 /* Loads prefs from storage (NVS today, see main/storage_backend_nvs.c),
@@ -41,6 +46,12 @@ void app_prefs_save_settings(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit
 void app_prefs_save_brightness(int percent);
 void app_prefs_save_brightness_adaptive(bool enabled);
 void app_prefs_save_ota_settings(bool auto_update, bool update_coprocessor);
+
+/* Screen saver timeout and colour style. Own record (like the update channel
+ * below), so the main prefs record needs no migration and an older firmware
+ * simply ignores it. Debounced like the other saves: it is called from the
+ * LVGL task on a Settings tap. */
+void app_prefs_save_screensaver(int minutes, saver_style_t style);
 
 /* Update channel (release vs. test). Kept in its own small record, not in
  * prefs_payload_t, so adding it needs no migration of the main prefs record

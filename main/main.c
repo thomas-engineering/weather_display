@@ -138,6 +138,10 @@ static void on_ambient_brightness(int percent) {
     }
 }
 
+static void on_screensaver_changed(int minutes, saver_style_t style) {
+    app_prefs_save_screensaver(minutes, style);
+}
+
 static void on_settings_changed(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf, int auto_refresh_minutes) {
     app_prefs_save_settings(lang, t, w, tf, auto_refresh_minutes);
     /* Units are converted for display inside weather_ui.c, but the date/weekday
@@ -331,6 +335,8 @@ void app_main(void) {
     weather_ui_set_callbacks(on_search, on_select_city, on_refresh, on_settings_changed);
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
+    weather_ui_set_screensaver_callback(on_screensaver_changed);
+    weather_ui_set_local_time_callback(app_weather_get_local_time);
     weather_ui_set_brightness_adaptive_callback(on_brightness_adaptive);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
     weather_ui_set_ota_callbacks(on_ota_start, on_ota_cancel, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
@@ -346,6 +352,7 @@ void app_main(void) {
      * which this line does set correctly, just too late to matter to the
      * save that already fired. Setting it first avoids the whole race. */
     weather_ui_set_auto_refresh(prefs.auto_refresh_minutes);
+    weather_ui_set_screensaver(prefs.screensaver_minutes, prefs.screensaver_style);
     weather_ui_set_ota_auto_update(prefs.ota_auto_update);
     weather_ui_set_ota_update_coprocessor(prefs.ota_update_coprocessor);
     weather_ui_set_ota_test_channel(app_prefs_get_ota_channel() == OTA_CHANNEL_TEST);

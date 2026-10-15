@@ -34,6 +34,8 @@ typedef struct {
     const char *uv_low, *uv_moderate, *uv_high, *uv_very_high, *uv_extreme;
     const char *air_quality;
     const char *aqi_good, *aqi_moderate, *aqi_unhealthy_sensitive, *aqi_unhealthy, *aqi_very_unhealthy, *aqi_hazardous;
+    /* Screen saver settings (2026-10-15 sync). */
+    const char *screen_saver, *saver_style, *saver_style_theme, *saver_style_orange;
     const char *auto_refresh, *auto_off, *auto_15, *auto_30, *auto_60;
     const char *forget_confirm_title, *forget_confirm_body;
     const char *favorites, *empty_favorite;

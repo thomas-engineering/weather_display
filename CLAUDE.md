@@ -14,7 +14,7 @@ Das Gerät holt Wetterdaten von Open-Meteo und zeigt sie auf einem 7-Zoll-Touchd
 | Wenn du das geändert hast | Führe das aus |
 |---|---|
 | `components/app_logic/**` | `./scripts/host-test.sh` |
-| UI-Darstellung (`weather_ui.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, `main/fonts/`) | `./scripts/sim.sh --shots <verzeichnis>`, Screenshots ansehen |
+| UI-Darstellung (`weather_ui.c`, `weather_saver.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, `main/fonts/`) | `./scripts/sim.sh --shots <verzeichnis>`, Screenshots ansehen |
 | alles andere in `main/`, sdkconfig, Abhängigkeiten, CMake | `./scripts/fw-build.sh` |
 | Peripherie, Startup, WLAN, OTA, Timing, Speicherlayout | zusätzlich `./scripts/hw-flash.sh /dev/ttyACM0` (bei WLAN/OTA mit `REQUIRE_IP=1`) |
 | WLAN-Wiederherstellung (`app_wifi.c`, `wifi_reconnect_policy`, `link_health_policy`) | zusätzlich `./scripts/hil-outage-test.sh` (Mensch löst den Ausfall aus) |
