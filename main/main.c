@@ -37,6 +37,10 @@ static const char *TAG = "app";
 #define LVGL_STALL_PROBE_PERIOD_MS 20
 /* Gaps above this are noticeable as lag, not routine jitter. */
 #define LVGL_STALL_WARN_MS 60
+/* The adapter's default is 8 KB; the draw path (scrollbar -> events, multi-stop gradient
+ * descriptors with CONFIG_LV_GRADIENT_MAX_STOPS=10) overflowed it on the board
+ * (stack protection fault in "lvgl", 2026-10-15). */
+#define LVGL_TASK_STACK_BYTES (16 * 1024)
 
 #define HEARTBEAT_TIMER_PERIOD_US (5 * 1000 * 1000)
 
@@ -191,6 +195,15 @@ static void touch_probe_cb(lv_timer_t *t) {
  * callback instead. */
 static void lvgl_stall_probe_cb(lv_timer_t *t) {
     LV_UNUSED(t);
+    /* Stack headroom of this (the LVGL) task: log each new low, so a creeping
+     * draw-path stack depth shows up long before a stack-protection fault. */
+    static UBaseType_t lowest_free_bytes = UINT32_MAX;
+    UBaseType_t free_bytes = uxTaskGetStackHighWaterMark(NULL);
+    if (free_bytes < lowest_free_bytes) {
+        lowest_free_bytes = free_bytes;
+        ESP_LOGI(TAG, "lvgl task stack: %u of %u bytes still never used", (unsigned)free_bytes,
+                 (unsigned)LVGL_TASK_STACK_BYTES);
+    }
     static int64_t last_us;
     int64_t now_us = esp_timer_get_time();
     if (last_us != 0) {
@@ -303,6 +316,7 @@ void app_main(void) {
      * a real (if usually small) latency source go unmeasured (found by
      * firmware-auditor Category G). */
     cfg.lv_adapter_cfg.task_core_id = 1;
+    cfg.lv_adapter_cfg.task_stack_size = LVGL_TASK_STACK_BYTES;
     lv_display_t *display = bsp_display_start_with_config(&cfg);
     ESP_ERROR_CHECK(display != NULL ? ESP_OK : ESP_FAIL);
     bsp_display_brightness_set(prefs.brightness);
