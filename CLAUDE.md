@@ -41,8 +41,9 @@ Zustände auf (sieben Screens plus `first-boot`); einzeln:
 | `idf.py flash` direkt | kein Timeout beim anschließenden Lesen | `./scripts/hw-flash.sh` |
 | `idf.py set-target` | löscht das Build-Verzeichnis | die Skripte machen das einmal selbst |
 | `idf.py fullclean`, `rm -rf build*` | erzwingt Full-Rebuild | nur auf ausdrückliche Ansage |
-| `./scripts/sim.sh` ohne `--shots`/`--screenshot` | öffnet ein Fenster, läuft bis zum Schließen | `--shots` oder `--screenshot` |
 | `git push` ohne Rückfrage, `git push --force`, `scripts/gh-push.sh` | Push nur mit Zustimmung, Merge macht der Mensch | vorher fragen und den Branch nennen, dann `git push` |
+<!-- | `./scripts/sim.sh` ohne `--shots`/`--screenshot` | öffnet ein Fenster, läuft bis zum Schließen | `--shots` oder `--screenshot` |
+-->
 
 ## Build-Verzeichnisse
 
