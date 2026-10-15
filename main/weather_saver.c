@@ -39,6 +39,30 @@
 #define DOT_GAP 30
 #define DOT_BOTTOM_MARGIN 22
 #define DOT_HALO_LAYERS 4
+/* Cage backdrop: radial-gradient(65% 55% at 50% 50%, in, out 85%), drawn exactly
+ * (LVGL's radial gradients are circles only) and dithered, since RGB565 bands badly. */
+#define CAGE_RX_PCT 65
+#define CAGE_RY_PCT 55
+#define CAGE_STOP_PCT 85
+#define PCT_DIV 100.0f
+#define CAGE_RING_OUTER_PX 1
+#define CAGE_GLOW_WIDTH 40
+#define CAGE_GLOW_OPA LV_OPA_20
+#define BAYER_SIZE 4
+#define RGB565_R_STEP 8.0f /* 8-bit levels per 5-bit step */
+#define RGB565_G_STEP 4.0f /* ... per 6-bit step */
+/* Screen background: radial-gradient(120% 140% at 20% -10%, in, out 55%) for the
+ * theme style, (80% 60% at 50% 45%, in, out 75%) for orange; ellipses, so also pre-rendered. */
+#define BG_THEME_CX_PCT 20
+#define BG_THEME_CY_PCT (-10)
+#define BG_THEME_RX_PCT 120
+#define BG_THEME_RY_PCT 140
+#define BG_THEME_STOP_PCT 55
+#define BG_ORANGE_CX_PCT 50
+#define BG_ORANGE_CY_PCT 45
+#define BG_ORANGE_RX_PCT 80
+#define BG_ORANGE_RY_PCT 60
+#define BG_ORANGE_STOP_PCT 75
 /* Wire mesh over the digits: three line sets at 0/60/120 degrees, 4 px gap + 0.6 px line. */
 #define MESH_GAP_PX 4.0f
 #define MESH_PERIOD_PX 4.6f
@@ -88,7 +112,8 @@ static const struct { uint8_t width; uint8_t opa; uint8_t color_idx; } k_layers[
 #define DIGIT_NONE 0xFF
 
 typedef struct {
-    lv_color_t bg, bar, cage, cage_ring, pin1, pin2, ghost, mesh;
+    lv_color_t bg, bar, cage_in, cage_out, cage_ring, cage_ring_outer, cage_glow, pin1, pin2, ghost, mesh;
+    lv_color_t bg_in, bg_out; /* background radial gradient */
     lv_color_t glow[4];       /* g1..g4 */
     lv_color_t dot_core, dot, dot_halo[DOT_HALO_LAYERS], text, text_glow;
 } saver_palette_t;
@@ -96,8 +121,10 @@ typedef struct {
 /* "App theme": Nocturne tokens (design/src/nocturne/styles.css). */
 static saver_palette_t palette_theme(void) {
     return (saver_palette_t){
-        .bg = lv_color_hex(0x161826), .bar = lv_color_hex(0x3F424D), .cage = lv_color_hex(0x353350),
-        .cage_ring = lv_color_hex(0x595D6C), .pin1 = lv_color_hex(0x595D6C), .pin2 = lv_color_hex(0x3F424D),
+        .bg = lv_color_hex(0x161826), .bar = lv_color_hex(0x3F424D),
+        .cage_in = lv_color_hex(0x423A6A), .cage_out = lv_color_hex(0x292B31),
+        .cage_ring = lv_color_hex(0x595D6C), .cage_ring_outer = lv_color_hex(0x292B31), .cage_glow = lv_color_hex(0x9184D9),
+        .bg_in = lv_color_hex(0x2B2741), .bg_out = lv_color_hex(0x161826), .pin1 = lv_color_hex(0x595D6C), .pin2 = lv_color_hex(0x3F424D),
         .ghost = lv_color_hex(0x9397AB), .mesh = lv_color_hex(0x75798C),
         .glow = { lv_color_hex(0x796CBF), lv_color_hex(0x9184D9), lv_color_hex(0xD2CEFD), lv_color_hex(0xF5F4FF) },
         .dot_core = lv_color_hex(0xF5F4FF), .dot = lv_color_hex(0xD2CEFD),
@@ -109,8 +136,10 @@ static saver_palette_t palette_theme(void) {
 /* "Nixie orange": the design's oklch values converted by tools/gen_nixie_paths.py. */
 static saver_palette_t palette_orange(void) {
     return (saver_palette_t){
-        .bg = lv_color_hex(0x18120F), .bar = lv_color_hex(0x452818), .cage = lv_color_hex(0x501A0A),
-        .cage_ring = lv_color_hex(0x37322E), .pin1 = lv_color_hex(0x322D29), .pin2 = lv_color_hex(0x28231F),
+        .bg = lv_color_hex(0x18120F), .bar = lv_color_hex(0x452818),
+        .cage_in = lv_color_hex(0x7F230B), .cage_out = lv_color_hex(0x290C06),
+        .cage_ring = lv_color_hex(0x37322E), .cage_ring_outer = lv_color_hex(0x1A1512), .cage_glow = lv_color_hex(0xC43B15),
+        .bg_in = lv_color_hex(0x18120F), .bg_out = lv_color_hex(0x292B31), .pin1 = lv_color_hex(0x322D29), .pin2 = lv_color_hex(0x28231F),
         .ghost = lv_color_hex(0x8A7462), .mesh = lv_color_hex(0x564B42),
         .glow = { lv_color_hex(0xE03000), lv_color_hex(0xFF6A10), lv_color_hex(0xFFA040), lv_color_hex(0xFFE6B0) },
         .dot_core = lv_color_hex(0xFFE0A4), .dot = lv_color_hex(0xFF8E41),
@@ -153,6 +182,80 @@ static void mesh_ensure(void) {
     s_mesh_img.header.stride = CAGE_W;
     s_mesh_img.data_size = CAGE_W * CAGE_H;
     s_mesh_img.data = s_mesh_buf;
+}
+
+static lv_image_dsc_t s_cage_img;
+static uint8_t *s_cage_buf; /* RGB565, CAGE_W x CAGE_H */
+static saver_style_t s_cage_style = SAVER_STYLE_COUNT;
+
+static const uint8_t k_bayer[BAYER_SIZE][BAYER_SIZE] = {
+    { 0, 8, 2, 10 }, { 12, 4, 14, 6 }, { 3, 11, 1, 9 }, { 15, 7, 13, 5 },
+};
+
+static uint16_t dither_rgb565(float r, float g, float b, int x, int y) {
+    float t = (k_bayer[y % BAYER_SIZE][x % BAYER_SIZE] + 0.5f) / (BAYER_SIZE * BAYER_SIZE); /* 0..1 */
+    int rq = (int)((r + t * RGB565_R_STEP) / RGB565_R_STEP), gq = (int)((g + t * RGB565_G_STEP) / RGB565_G_STEP),
+        bq = (int)((b + t * RGB565_R_STEP) / RGB565_R_STEP);
+    if (rq > 31) rq = 31;
+    if (gq > 63) gq = 63;
+    if (bq > 31) bq = 31;
+    return (uint16_t)((rq << 11) | (gq << 5) | bq);
+}
+
+/* Fills an RGB565 buffer with CSS-style radial-gradient(rx ry at cx cy, in, out stop): colour `in`
+ * at the centre, `out` from `stop` (fraction of the ellipse) outwards, dithered. */
+static void radial_fill(uint16_t *px, int w, int h, float cx, float cy, float rx, float ry, float stop,
+                        lv_color_t c_in, lv_color_t c_out) {
+    lv_color32_t a = lv_color_to_32(c_in, LV_OPA_COVER), z = lv_color_to_32(c_out, LV_OPA_COVER);
+    for (int y = 0; y < h; y++) {
+        float dy = (y + 0.5f - cy) / ry;
+        for (int x = 0; x < w; x++) {
+            float dx = (x + 0.5f - cx) / rx;
+            float k = sqrtf(dx * dx + dy * dy) / stop;
+            if (k > 1.0f) k = 1.0f;
+            px[y * w + x] = dither_rgb565(a.red + (z.red - a.red) * k, a.green + (z.green - a.green) * k,
+                                          a.blue + (z.blue - a.blue) * k, x, y);
+        }
+    }
+}
+
+static void image_dsc_rgb565(lv_image_dsc_t *d, uint16_t *px, int w, int h) {
+    d->header.magic = LV_IMAGE_HEADER_MAGIC;
+    d->header.cf = LV_COLOR_FORMAT_RGB565;
+    d->header.w = w;
+    d->header.h = h;
+    d->header.stride = w * sizeof(uint16_t);
+    d->data_size = w * h * sizeof(uint16_t);
+    d->data = (const uint8_t *)px;
+}
+
+static lv_image_dsc_t s_bg_img;
+static uint16_t *s_bg_buf; /* SCREEN_W x SCREEN_H RGB565, rebuilt when the style changes */
+static saver_style_t s_bg_style = SAVER_STYLE_COUNT;
+
+static void cage_ensure(saver_style_t style, const saver_palette_t *pal) {
+    if (!s_cage_buf) s_cage_buf = lv_malloc(CAGE_W * CAGE_H * sizeof(uint16_t));
+    if (s_cage_buf && s_cage_style != style) {
+        s_cage_style = style;
+        radial_fill((uint16_t *)s_cage_buf, CAGE_W, CAGE_H, CAGE_W / 2.0f, CAGE_H / 2.0f,
+                    CAGE_W * CAGE_RX_PCT / PCT_DIV, CAGE_H * CAGE_RY_PCT / PCT_DIV, CAGE_STOP_PCT / PCT_DIV,
+                    pal->cage_in, pal->cage_out);
+        image_dsc_rgb565(&s_cage_img, (uint16_t *)s_cage_buf, CAGE_W, CAGE_H);
+    }
+}
+
+static void background_ensure(saver_style_t style, const saver_palette_t *pal) {
+    if (!s_bg_buf) s_bg_buf = lv_malloc(SCREEN_W * SCREEN_H * sizeof(uint16_t));
+    if (!s_bg_buf || s_bg_style == style) return;
+    s_bg_style = style;
+    bool orange = style == SAVER_STYLE_ORANGE;
+    radial_fill(s_bg_buf, SCREEN_W, SCREEN_H,
+                SCREEN_W * (orange ? BG_ORANGE_CX_PCT : BG_THEME_CX_PCT) / PCT_DIV,
+                SCREEN_H * (orange ? BG_ORANGE_CY_PCT : BG_THEME_CY_PCT) / PCT_DIV,
+                SCREEN_W * (orange ? BG_ORANGE_RX_PCT : BG_THEME_RX_PCT) / PCT_DIV,
+                SCREEN_H * (orange ? BG_ORANGE_RY_PCT : BG_THEME_RY_PCT) / PCT_DIV,
+                (orange ? BG_ORANGE_STOP_PCT : BG_THEME_STOP_PCT) / PCT_DIV, pal->bg_in, pal->bg_out);
+    image_dsc_rgb565(&s_bg_img, s_bg_buf, SCREEN_W, SCREEN_H);
 }
 
 typedef struct {
@@ -213,10 +316,18 @@ static void build_tube(lv_obj_t *row, int x, tube_t *t, const saver_palette_t *p
     lv_obj_set_style_border_opa(glass, GLASS_BORDER_OPA, 0);
     rect(tube, TUBE_W / 2 - CAP_W / 2, -5, CAP_W, CAP_H, lv_color_hex(0xDCE6E4), LV_OPA_20, 4);
 
-    lv_obj_t *cage = rect(tube, CAGE_X, CAGE_Y, CAGE_W, CAGE_H, pal->cage, LV_OPA_COVER, 2);
+    if (s_cage_buf) {
+        lv_obj_t *backdrop = deco(lv_image_create(tube));
+        lv_image_set_src(backdrop, &s_cage_img);
+        lv_obj_set_pos(backdrop, CAGE_X, CAGE_Y);
+    }
+    /* Rings and glow: 0 0 0 2px ring, 0 0 0 3px outer ring, 0 0 40px accent 25 %. */
+    lv_obj_t *cage = rect(tube, CAGE_X, CAGE_Y, CAGE_W, CAGE_H, pal->cage_in, LV_OPA_TRANSP, 2);
     lv_obj_set_style_border_width(cage, 2, 0);
     lv_obj_set_style_border_color(cage, pal->cage_ring, 0);
-    glow(cage, pal->glow[1], 40, LV_OPA_20);
+    lv_obj_set_style_outline_width(cage, CAGE_RING_OUTER_PX, 0);
+    lv_obj_set_style_outline_color(cage, pal->cage_ring_outer, 0);
+    glow(cage, pal->cage_glow, CAGE_GLOW_WIDTH, CAGE_GLOW_OPA);
 
     lv_obj_t *win = rect(tube, WINDOW_X, WINDOW_Y, SAVER_DIGIT_WINDOW_W, SAVER_DIGIT_WINDOW_H, pal->bg, LV_OPA_TRANSP, 0);
     for (int d = 0; d < 10; d++) {
@@ -362,13 +473,20 @@ void weather_saver_build(saver_style_t style, weather_saver_dismiss_cb_t on_dism
     sv.style = style;
     sv.on_dismiss = on_dismiss;
     saver_palette_t pal = (style == SAVER_STYLE_ORANGE) ? palette_orange() : palette_theme();
+    cage_ensure(style, &pal);
+    background_ensure(style, &pal);
 
     sv.overlay = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(sv.overlay);
     lv_obj_set_size(sv.overlay, SCREEN_W, SCREEN_H);
     lv_obj_set_pos(sv.overlay, 0, 0);
-    lv_obj_set_style_bg_color(sv.overlay, pal.bg, 0);
+    lv_obj_set_style_bg_color(sv.overlay, pal.bg_out, 0);
     lv_obj_set_style_bg_opa(sv.overlay, LV_OPA_COVER, 0);
+    if (s_bg_buf) {
+        lv_obj_t *backdrop = deco(lv_image_create(sv.overlay));
+        lv_image_set_src(backdrop, &s_bg_img);
+        lv_obj_set_pos(backdrop, 0, 0);
+    }
     lv_obj_remove_flag(sv.overlay, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(sv.overlay, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(sv.overlay, on_press, LV_EVENT_PRESSED, NULL);
