@@ -258,8 +258,108 @@ static void background_ensure(saver_style_t style, const saver_palette_t *pal) {
     image_dsc_rgb565(&s_bg_img, s_bg_buf, SCREEN_W, SCREEN_H);
 }
 
+/* Digits are drawn once into ARGB images and shown as images. LVGL turns every
+ * polyline segment into its own draw task and its task list handling grows
+ * quadratically, so ~9000 live line segments froze the P4's LVGL task for
+ * 20-36 s per frame (board run 2026-10-15). */
+#define DIGIT_COUNT 10
+#define DIGIT_PAD 16 /* room for the widest glow stroke around the window */
+#define DIGIT_IMG_W (SAVER_DIGIT_WINDOW_W + 2 * DIGIT_PAD)
+#define DIGIT_IMG_H (SAVER_DIGIT_WINDOW_H + 2 * DIGIT_PAD)
+#define ARGB8888_BYTES 4
+
+static lv_image_dsc_t s_digit_img[DIGIT_COUNT], s_ghost_img;
+static uint8_t *s_digit_buf[DIGIT_COUNT], *s_ghost_buf;
+static saver_style_t s_digit_style = SAVER_STYLE_COUNT;
+
+static void polyline(lv_layer_t *layer, const lv_point_precise_t *pts, uint16_t n, lv_color_t c, int width, lv_opa_t opa) {
+    lv_draw_line_dsc_t d;
+    lv_draw_line_dsc_init(&d);
+    d.color = c;
+    d.width = width;
+    d.opa = opa;
+    d.round_start = 1;
+    d.round_end = 1;
+    for (uint16_t i = 1; i < n; i++) {
+        d.p1.x = pts[i - 1].x + DIGIT_PAD;
+        d.p1.y = pts[i - 1].y + DIGIT_PAD;
+        d.p2.x = pts[i].x + DIGIT_PAD;
+        d.p2.y = pts[i].y + DIGIT_PAD;
+        lv_draw_line(layer, &d);
+    }
+}
+
+/* Allocates a transparent ARGB8888 image and lets `fill` draw into it. */
+typedef void (*image_fill_cb_t)(lv_layer_t *layer, int arg, const saver_palette_t *pal);
+
+static uint8_t *image_render(lv_image_dsc_t *dsc, image_fill_cb_t fill, int arg, const saver_palette_t *pal) {
+    uint8_t *buf = lv_malloc(DIGIT_IMG_W * DIGIT_IMG_H * ARGB8888_BYTES);
+    if (!buf) return NULL;
+    lv_obj_t *canvas = lv_canvas_create(lv_layer_top());
+    lv_canvas_set_buffer(canvas, buf, DIGIT_IMG_W, DIGIT_IMG_H, LV_COLOR_FORMAT_ARGB8888);
+    lv_canvas_fill_bg(canvas, lv_color_black(), LV_OPA_TRANSP);
+    lv_layer_t layer;
+    lv_canvas_init_layer(canvas, &layer);
+    fill(&layer, arg, pal);
+    lv_canvas_finish_layer(canvas, &layer);
+    lv_obj_delete(canvas);
+    dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
+    dsc->header.cf = LV_COLOR_FORMAT_ARGB8888;
+    dsc->header.w = DIGIT_IMG_W;
+    dsc->header.h = DIGIT_IMG_H;
+    dsc->header.stride = DIGIT_IMG_W * ARGB8888_BYTES;
+    dsc->data_size = DIGIT_IMG_W * DIGIT_IMG_H * ARGB8888_BYTES;
+    dsc->data = buf;
+    return buf;
+}
+
+static void fill_ghosts(lv_layer_t *layer, int arg, const saver_palette_t *pal) {
+    LV_UNUSED(arg);
+    for (int d = 0; d < DIGIT_COUNT; d++)
+        polyline(layer, k_saver_digits[d].pts, k_saver_digits[d].count, pal->ghost, GHOST_WIDTH, GHOST_OPA);
+}
+
+/* One glow layer drawn fully opaque: overlapping round caps of a translucent
+ * stroke would add up to a string of beads, so the layer's opacity is applied
+ * afterwards, when the whole layer is laid over the digit image. */
+static void fill_stroke(lv_layer_t *layer, int packed, const saver_palette_t *pal) {
+    int digit = packed / LIT_LAYERS, i = packed % LIT_LAYERS;
+    polyline(layer, k_saver_digits[digit].pts, k_saver_digits[digit].count,
+             pal->glow[k_layers[i].color_idx], k_layers[i].width, LV_OPA_COVER);
+}
+
+static lv_image_dsc_t s_stroke_img[LIT_LAYERS];
+static uint8_t *s_stroke_buf[LIT_LAYERS]; /* freed once the digit image is finished */
+
+static void fill_lit(lv_layer_t *layer, int digit, const saver_palette_t *pal) {
+    for (int i = 0; i < LIT_LAYERS; i++) {
+        s_stroke_buf[i] = image_render(&s_stroke_img[i], fill_stroke, digit * LIT_LAYERS + i, pal);
+        if (!s_stroke_buf[i]) continue;
+        lv_draw_image_dsc_t id;
+        lv_draw_image_dsc_init(&id);
+        id.src = &s_stroke_img[i];
+        id.opa = k_layers[i].opa;
+        lv_area_t area = { 0, 0, DIGIT_IMG_W - 1, DIGIT_IMG_H - 1 };
+        lv_draw_image(layer, &id, &area);
+    }
+}
+
+static saver_palette_t s_palette; /* of the style currently built; lit digits render lazily with it */
+
+/* Called when the style changes: drops every cached digit, redraws the ghosts. */
+static void digits_reset(saver_style_t style, const saver_palette_t *pal) {
+    if (s_digit_style == style) return;
+    s_digit_style = style;
+    for (int d = 0; d < DIGIT_COUNT; d++) {
+        if (s_digit_buf[d]) lv_free(s_digit_buf[d]);
+        s_digit_buf[d] = NULL;
+    }
+    if (s_ghost_buf) lv_free(s_ghost_buf);
+    s_ghost_buf = image_render(&s_ghost_img, fill_ghosts, 0, pal);
+}
+
 typedef struct {
-    lv_obj_t *lit[LIT_LAYERS];
+    lv_obj_t *lit;
     uint8_t shown;
 } tube_t;
 
@@ -296,17 +396,6 @@ static void glow(lv_obj_t *o, lv_color_t c, int width, lv_opa_t opa) {
     lv_obj_set_style_shadow_opa(o, opa, 0);
 }
 
-static lv_obj_t *line(lv_obj_t *parent, lv_color_t c, int width, lv_opa_t opa) {
-    lv_obj_t *l = deco(lv_line_create(parent));
-    lv_obj_set_pos(l, 0, 0);
-    lv_obj_set_size(l, SAVER_DIGIT_WINDOW_W, SAVER_DIGIT_WINDOW_H);
-    lv_obj_set_style_line_color(l, c, 0);
-    lv_obj_set_style_line_width(l, width, 0);
-    lv_obj_set_style_line_opa(l, opa, 0);
-    lv_obj_set_style_line_rounded(l, true, 0);
-    return l;
-}
-
 static void build_tube(lv_obj_t *row, int x, tube_t *t, const saver_palette_t *pal) {
     lv_obj_t *tube = rect(row, x, 0, TUBE_W, TUBE_H, pal->bg, LV_OPA_TRANSP, 0);
 
@@ -329,15 +418,14 @@ static void build_tube(lv_obj_t *row, int x, tube_t *t, const saver_palette_t *p
     lv_obj_set_style_outline_color(cage, pal->cage_ring_outer, 0);
     glow(cage, pal->cage_glow, CAGE_GLOW_WIDTH, CAGE_GLOW_OPA);
 
-    lv_obj_t *win = rect(tube, WINDOW_X, WINDOW_Y, SAVER_DIGIT_WINDOW_W, SAVER_DIGIT_WINDOW_H, pal->bg, LV_OPA_TRANSP, 0);
-    for (int d = 0; d < 10; d++) {
-        lv_obj_t *g = line(win, pal->ghost, GHOST_WIDTH, GHOST_OPA);
-        lv_line_set_points(g, k_saver_digits[d].pts, k_saver_digits[d].count);
+    if (s_ghost_buf) {
+        lv_obj_t *ghosts = deco(lv_image_create(tube));
+        lv_image_set_src(ghosts, &s_ghost_img);
+        lv_obj_set_pos(ghosts, WINDOW_X - DIGIT_PAD, WINDOW_Y - DIGIT_PAD);
     }
-    for (int i = 0; i < LIT_LAYERS; i++) {
-        t->lit[i] = line(win, pal->glow[k_layers[i].color_idx], k_layers[i].width, k_layers[i].opa);
-        lv_obj_add_flag(t->lit[i], LV_OBJ_FLAG_HIDDEN);
-    }
+    t->lit = deco(lv_image_create(tube));
+    lv_obj_set_pos(t->lit, WINDOW_X - DIGIT_PAD, WINDOW_Y - DIGIT_PAD);
+    lv_obj_add_flag(t->lit, LV_OBJ_FLAG_HIDDEN);
     t->shown = DIGIT_NONE;
 
     mesh_ensure();
@@ -473,6 +561,8 @@ void weather_saver_build(saver_style_t style, weather_saver_dismiss_cb_t on_dism
     sv.style = style;
     sv.on_dismiss = on_dismiss;
     saver_palette_t pal = (style == SAVER_STYLE_ORANGE) ? palette_orange() : palette_theme();
+    s_palette = pal;
+    digits_reset(style, &pal);
     cage_ensure(style, &pal);
     background_ensure(style, &pal);
 
@@ -540,10 +630,16 @@ bool weather_saver_is_visible(void) { return sv.visible; }
 static void set_digit(tube_t *t, uint8_t d) {
     if (t->shown == d) return;
     t->shown = d;
-    for (int i = 0; i < LIT_LAYERS; i++) {
-        lv_line_set_points(t->lit[i], k_saver_digits[d].pts, k_saver_digits[d].count);
-        lv_obj_remove_flag(t->lit[i], LV_OBJ_FLAG_HIDDEN);
+    if (!s_digit_buf[d]) {
+        s_digit_buf[d] = image_render(&s_digit_img[d], fill_lit, d, &s_palette);
+        for (int i = 0; i < LIT_LAYERS; i++) {
+            if (s_stroke_buf[i]) lv_free(s_stroke_buf[i]);
+            s_stroke_buf[i] = NULL;
+        }
     }
+    if (!s_digit_buf[d]) return;
+    lv_image_set_src(t->lit, &s_digit_img[d]);
+    lv_obj_remove_flag(t->lit, LV_OBJ_FLAG_HIDDEN);
 }
 
 void weather_saver_update(const struct tm *lt, bool use_12h, int64_t unix_seconds,

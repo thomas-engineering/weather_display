@@ -1596,7 +1596,10 @@ static void saver_notify_changed(void) {
 }
 
 static void saver_dismiss_cb(void) {
-    if (screensaver_policy_on_touch(&ui.saver_policy) == SAVER_EVENT_STOP) weather_saver_hide();
+    if (screensaver_policy_on_touch(&ui.saver_policy) == SAVER_EVENT_STOP) {
+        weather_saver_hide();
+        lv_obj_remove_flag(ui.root, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void saver_render(void) {
@@ -1619,6 +1622,9 @@ static void saver_render(void) {
 static void saver_start(void) {
     /* The design closes Settings when the saver comes up. */
     if (ui.settings_backdrop) lv_obj_add_flag(ui.settings_backdrop, LV_OBJ_FLAG_HIDDEN);
+    /* The overlay is opaque, but LVGL would still draw the whole UI underneath
+     * it every frame; hiding the root removes those draw tasks. */
+    lv_obj_add_flag(ui.root, LV_OBJ_FLAG_HIDDEN);
     weather_saver_show();
     saver_render();
 }
