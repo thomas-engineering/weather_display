@@ -1548,6 +1548,7 @@ static void on_seg_auto_refresh(int idx, void *user) {
 #define SETTINGS_PANEL_PAD 20
 #define SETTINGS_PANEL_INITIAL_W 380 /* replaced by the measured width once the columns exist */
 #define SETTINGS_COLUMN_ROW_GAP 14
+#define SLIDER_KNOB_INSET 16        /* room for the knob, which overhangs the track at both ends */
 #define SETTINGS_CAPTION_MIX 178     /* 70 % text over the surface, like the design's color-mix */
 #ifdef CONFIG_WEATHER_SCREENSAVER_FAST_TEST
 #define SAVER_MS_PER_UNIT SAVER_MS_PER_SECOND /* test build: "15 min" fires after 15 s */
@@ -2016,6 +2017,7 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_set_flex_flow(cols, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_column(cols, SETTINGS_COLUMN_GAP, 0);
     lv_obj_remove_flag(cols, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *brightness_frame;
     lv_obj_t *left = settings_column(cols);
     lv_obj_t *right = settings_column(cols);
 
@@ -2084,6 +2086,7 @@ static void build_settings_panel(lv_obj_t *parent) {
     /* Synced from Claude Design 2026-10-15: brightness is a bordered frame
      * (neutral-700, radius-md, padding space-3/space-4) with its caption inside. */
     lv_obj_t *f5 = lv_obj_create(left);
+    brightness_frame = f5;
     lv_obj_remove_style_all(f5);
     lv_obj_set_width(f5, LV_SIZE_CONTENT);
     lv_obj_set_height(f5, LV_SIZE_CONTENT);
@@ -2105,7 +2108,7 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_t *slider_wrap = lv_obj_create(f5);
     lv_obj_remove_style_all(slider_wrap);
     lv_obj_set_size(slider_wrap, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_set_style_pad_hor(slider_wrap, 8, 0);
+    lv_obj_set_style_pad_hor(slider_wrap, SLIDER_KNOB_INSET, 0);
     /* Synced from Claude Design 2026-09-10: 14px vertical padding around the
      * slider, widening its touch area beyond the thin track itself. */
     lv_obj_set_style_pad_ver(slider_wrap, 14, 0);
@@ -2162,8 +2165,9 @@ static void build_settings_panel(lv_obj_t *parent) {
 
     lv_obj_t *adaptive_lbl = lv_label_create(adaptive_row);
     lv_label_set_text(adaptive_lbl, weather_strings[ui.lang].brightness_adaptive);
-    lv_obj_set_style_text_color(adaptive_lbl, C_TEXT, 0);
-    lv_obj_set_style_text_font(adaptive_lbl, FONT_14, 0);
+    /* Synced from Claude Design 2026-10-15: caption style (12px, 70 % text), was body 13px. */
+    lv_obj_set_style_text_color(adaptive_lbl, lv_color_mix(C_TEXT, C_SURFACE, SETTINGS_CAPTION_MIX), 0);
+    lv_obj_set_style_text_font(adaptive_lbl, FONT_12, 0);
 
     /* Network row — the entry point into the on-device Wi-Fi setup the design
      * added, plus (2026-09-19 sync) "Update" next to it opening the firmware
@@ -2177,6 +2181,7 @@ static void build_settings_panel(lv_obj_t *parent) {
     lv_obj_update_layout(cols);
     lv_obj_set_width(ui.settings_panel, lv_obj_get_width(cols) + 2 * SETTINGS_PANEL_PAD);
     lv_obj_set_width(temp_time_row, LV_PCT(100));
+    lv_obj_set_width(brightness_frame, LV_PCT(100)); /* the frame spans the whole column, like the design's field */
 
     lv_obj_t *fnet = field_wrap(ui.settings_panel, weather_strings[ui.lang].network);
     lv_obj_t *net_row = lv_obj_create(fnet);
