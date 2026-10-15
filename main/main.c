@@ -236,6 +236,7 @@ static void heartbeat_check_cb(void *arg) {
      * task at something no single task can see. app_heap_probe rate-limits
      * itself, so 5s here only sets the resolution, not the log volume. */
     app_heap_probe_tick("idle");
+    app_heap_probe_log_task_stacks_once();
 }
 
 /* Investigated using ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE + a hardware panel
@@ -325,6 +326,9 @@ void app_main(void) {
      * firmware-auditor Category G). */
     cfg.lv_adapter_cfg.task_core_id = 1;
     cfg.lv_adapter_cfg.task_stack_size = LVGL_TASK_STACK_BYTES;
+    /* 16 KB of stack in internal RAM would come out of the DMA headroom the SDIO
+     * link needs; this task does no flash writes and hands no stack buffers to DMA. */
+    cfg.lv_adapter_cfg.stack_in_psram = true;
     lv_display_t *display = bsp_display_start_with_config(&cfg);
     ESP_ERROR_CHECK(display != NULL ? ESP_OK : ESP_FAIL);
     bsp_display_brightness_set(prefs.brightness);

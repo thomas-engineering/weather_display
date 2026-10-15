@@ -23,6 +23,9 @@ void app_heap_probe_tick(const char *phase);
 
 /* Unconditional single line, for milestones worth pinning down exactly
  * (boot, OTA start/end) regardless of what the rate limiter thinks. */
+/* Once, 60 s after boot: logs the never-used stack bytes of the tasks that matter
+ * ("heap: stack <name> never used: N bytes"). Cheap, safe from the esp_timer task. */
+void app_heap_probe_log_task_stacks_once(void);
 void app_heap_probe_log_now(const char *phase);
 
 #endif
