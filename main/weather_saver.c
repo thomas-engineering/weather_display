@@ -37,6 +37,8 @@
 #define DOT_SIZE 9
 #define DOT_GAP 30
 #define DOT_BOTTOM_MARGIN 22
+#define DOT_HALO_LAYERS 4
+#define DOT_CORE_SIZE 4 /* the design's gradient is near-white over the inner 25 % */
 #define CLOCK_PAD_X 30
 #define CLOCK_W (3 * GROUP_W + 2 * DOT_SIZE + 4 * ROW_GAP + 2 * CLOCK_PAD_X)
 #define BAR_Y 270
@@ -63,7 +65,7 @@ static const struct { uint8_t width; uint8_t opa; uint8_t color_idx; } k_layers[
 typedef struct {
     lv_color_t bg, bar, cage, cage_ring, pin1, pin2, ghost;
     lv_color_t glow[4];       /* g1..g4 */
-    lv_color_t dot, dot_glow, text, text_glow;
+    lv_color_t dot_core, dot, dot_halo[DOT_HALO_LAYERS], text, text_glow;
 } saver_palette_t;
 
 /* "App theme": Nocturne tokens (design/src/nocturne/styles.css). */
@@ -73,7 +75,8 @@ static saver_palette_t palette_theme(void) {
         .cage_ring = lv_color_hex(0x595D6C), .pin1 = lv_color_hex(0x595D6C), .pin2 = lv_color_hex(0x3F424D),
         .ghost = lv_color_hex(0x9397AB),
         .glow = { lv_color_hex(0x796CBF), lv_color_hex(0x9184D9), lv_color_hex(0xD2CEFD), lv_color_hex(0xF5F4FF) },
-        .dot = lv_color_hex(0xD2CEFD), .dot_glow = lv_color_hex(0x9184D9),
+        .dot_core = lv_color_hex(0xF5F4FF), .dot = lv_color_hex(0xD2CEFD),
+        .dot_halo = { lv_color_hex(0xD2CEFD), lv_color_hex(0x9184D9), lv_color_hex(0x796CBF), lv_color_hex(0x5D5294) },
         .text = lv_color_hex(0xD2CEFD), .text_glow = lv_color_hex(0x9184D9),
     };
 }
@@ -85,7 +88,8 @@ static saver_palette_t palette_orange(void) {
         .cage_ring = lv_color_hex(0x37322E), .pin1 = lv_color_hex(0x322D29), .pin2 = lv_color_hex(0x28231F),
         .ghost = lv_color_hex(0x8A7462),
         .glow = { lv_color_hex(0xE03000), lv_color_hex(0xFF6A10), lv_color_hex(0xFFA040), lv_color_hex(0xFFE6B0) },
-        .dot = lv_color_hex(0xFF8E41), .dot_glow = lv_color_hex(0xF65311),
+        .dot_core = lv_color_hex(0xFFE0A4), .dot = lv_color_hex(0xFF8E41),
+        .dot_halo = { lv_color_hex(0xFF7F34), lv_color_hex(0xF34F08), lv_color_hex(0xDB3008), lv_color_hex(0xC21B0D) },
         .text = lv_color_hex(0xB44400), .text_glow = lv_color_hex(0xE03000),
     };
 }
@@ -173,12 +177,25 @@ static void build_tube(lv_obj_t *row, int x, tube_t *t, const saver_palette_t *p
     rect(tube, SHINE_R_X, SHINE_R_Y, SHINE_R_W, SHINE_R_H, lv_color_white(), LV_OPA_10, 2);
 }
 
+/* The design's four stacked box-shadows around each dot: tight bright ring out to a wide dim bloom. */
+static const struct { uint8_t width; uint8_t spread; lv_opa_t opa; } k_dot_halo[DOT_HALO_LAYERS] = {
+    { 3, 1, LV_OPA_COVER }, { 10, 3, 217 }, { 22, 8, 140 }, { 40, 14, 77 },
+};
+
+/* Two dots, vertically centred on the tube row (the design centres the
+ * column including its bottom margin, so it sits slightly above the middle). */
 static void build_dots(lv_obj_t *row, int x, const saver_palette_t *pal) {
-    int bottom = TUBE_H - DOT_BOTTOM_MARGIN;
+    int column_h = 2 * DOT_SIZE + DOT_GAP + DOT_BOTTOM_MARGIN;
+    int top = (TUBE_H - column_h) / 2;
     for (int i = 0; i < 2; i++) {
-        int y = bottom - 2 * DOT_SIZE - DOT_GAP + i * (DOT_SIZE + DOT_GAP);
-        lv_obj_t *dot = rect(row, x, y, DOT_SIZE, DOT_SIZE, pal->dot, LV_OPA_COVER, LV_RADIUS_CIRCLE);
-        glow(dot, pal->dot_glow, 22, LV_OPA_70);
+        int y = top + i * (DOT_SIZE + DOT_GAP);
+        for (int h = DOT_HALO_LAYERS - 1; h >= 0; h--) {
+            lv_obj_t *layer = rect(row, x, y, DOT_SIZE, DOT_SIZE, pal->dot, LV_OPA_COVER, LV_RADIUS_CIRCLE);
+            glow(layer, pal->dot_halo[h], k_dot_halo[h].width, k_dot_halo[h].opa);
+            lv_obj_set_style_shadow_spread(layer, k_dot_halo[h].spread, 0);
+        }
+        int inset = (DOT_SIZE - DOT_CORE_SIZE) / 2;
+        rect(row, x + inset, y + inset, DOT_CORE_SIZE, DOT_CORE_SIZE, pal->dot_core, LV_OPA_COVER, LV_RADIUS_CIRCLE);
     }
 }
 

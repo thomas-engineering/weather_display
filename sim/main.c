@@ -46,6 +46,7 @@
 
 /* Antwortzeit der gefakten "Netzwerkaufrufe". Lang genug, um Spinner und
  * Ladezustaende tatsaechlich zu sehen, kurz genug, um nicht zu nerven. */
+#define SIM_MS_PER_S        1000
 #define SIM_LATENCY_MS      700
 #define SIM_SCAN_LATENCY_MS 1500
 
@@ -717,6 +718,9 @@ static void on_wifi_connect(const char *ssid, const char *password)
  * weather_ui_set_brightness_callback() has a target. */
 /* Fixed clock for the saver so screenshots are reproducible: Thursday
  * 2026-10-15 10:08:42 (the device reads its real clock here). */
+static bool s_clock_runs; /* --clock-runs: the saver clock advances with real time */
+static uint32_t tick_get_cb(void);
+
 static bool sim_local_time(struct tm *local, int64_t *unix_seconds)
 {
     memset(local, 0, sizeof *local);
@@ -727,6 +731,12 @@ static bool sim_local_time(struct tm *local, int64_t *unix_seconds)
     local->tm_min = 8;
     local->tm_sec = 42;
     time_t t = timegm(local);
+    if (s_clock_runs) {
+        static uint32_t start_ms;
+        if (start_ms == 0) start_ms = tick_get_cb();
+        t += (tick_get_cb() - start_ms) / SIM_MS_PER_S;
+        gmtime_r(&t, local);
+    }
     local->tm_wday = 4;
     *unix_seconds = (int64_t)t;
     return true;
@@ -1092,6 +1102,8 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--wifi-setup") == 0) {
             open_wifi_setup = true;
+        } else if (strcmp(argv[i], "--clock-runs") == 0) {
+            s_clock_runs = true;
         } else if (strcmp(argv[i], "--live") == 0) {
             s_live = true;
         } else if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
