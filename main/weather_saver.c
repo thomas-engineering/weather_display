@@ -2,6 +2,7 @@
 #include "weather_saver_digits.h"
 #include "ui_fonts.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 /* Geometry from the design's saver block (px). */
@@ -184,10 +185,6 @@ static void mesh_ensure(void) {
     s_mesh_img.data = s_mesh_buf;
 }
 
-static lv_image_dsc_t s_cage_img;
-static uint8_t *s_cage_buf; /* RGB565, CAGE_W x CAGE_H */
-static saver_style_t s_cage_style = SAVER_STYLE_COUNT;
-
 static const uint8_t k_bayer[BAYER_SIZE][BAYER_SIZE] = {
     { 0, 8, 2, 10 }, { 12, 4, 14, 6 }, { 3, 11, 1, 9 }, { 15, 7, 13, 5 },
 };
@@ -233,15 +230,166 @@ static lv_image_dsc_t s_bg_img;
 static uint16_t *s_bg_buf; /* SCREEN_W x SCREEN_H RGB565, rebuilt when the style changes */
 static saver_style_t s_bg_style = SAVER_STYLE_COUNT;
 
-static void cage_ensure(saver_style_t style, const saver_palette_t *pal) {
-    if (!s_cage_buf) s_cage_buf = lv_malloc(CAGE_W * CAGE_H * sizeof(uint16_t));
-    if (s_cage_buf && s_cage_style != style) {
-        s_cage_style = style;
-        radial_fill((uint16_t *)s_cage_buf, CAGE_W, CAGE_H, CAGE_W / 2.0f, CAGE_H / 2.0f,
-                    CAGE_W * CAGE_RX_PCT / PCT_DIV, CAGE_H * CAGE_RY_PCT / PCT_DIV, CAGE_STOP_PCT / PCT_DIV,
-                    pal->cage_in, pal->cage_out);
-        image_dsc_rgb565(&s_cage_img, (uint16_t *)s_cage_buf, CAGE_W, CAGE_H);
+/* ---- baked decoration images ---------------------------------------------
+ * Box-shadows (cage glow, dot halos, bar shadow) are re-blurred by LVGL's
+ * software renderer on every redraw that touches them, which is what made
+ * each digit change cost 100-200 ms on the board. They are computed once per
+ * style into ARGB8888 images instead; colours are dithered to RGB565 levels
+ * first so the conversion on screen does not band. */
+
+#define DECOR_BYTES 4
+#define CAGE_BORDER_PX 2
+#define CAGE_GLOW_ALPHA 0.25f
+#define CAGE_IMG_MARGIN (CAGE_GLOW_WIDTH + CAGE_RING_OUTER_PX + 1)
+#define CAGE_IMG_W (CAGE_W + 2 * CAGE_IMG_MARGIN)
+#define CAGE_IMG_H (CAGE_H + 2 * CAGE_IMG_MARGIN)
+#define CAGE_RADIUS_PX 2.0f
+#define DOT_HALO_MAX_REACH 54 /* largest spread + width of the four halos */
+#define DOT_IMG_SIZE (DOT_SIZE + 2 * DOT_HALO_MAX_REACH)
+#define DOT_CORE_RADIUS (DOT_CORE_SIZE / 2.0f)
+#define BYTE_MAX_F 255.0f
+#define R5_TO_R8(v) ((uint8_t)(((v) << 3) | ((v) >> 2)))
+#define G6_TO_G8(v) ((uint8_t)(((v) << 2) | ((v) >> 4)))
+
+typedef struct { float r, g, b, a; } rgba_f;
+
+static rgba_f color_f(lv_color_t c, float a) {
+    lv_color32_t c32 = lv_color_to_32(c, LV_OPA_COVER);
+    return (rgba_f){ (float)c32.red, (float)c32.green, (float)c32.blue, a };
+}
+
+/* Straight-alpha "src over dst". */
+static void over(rgba_f *dst, rgba_f src) {
+    float out_a = src.a + dst->a * (1.0f - src.a);
+    if (out_a <= 0.0f) return;
+    dst->r = (src.r * src.a + dst->r * dst->a * (1.0f - src.a)) / out_a;
+    dst->g = (src.g * src.a + dst->g * dst->a * (1.0f - src.a)) / out_a;
+    dst->b = (src.b * src.a + dst->b * dst->a * (1.0f - src.a)) / out_a;
+    dst->a = out_a;
+}
+
+/* Blur falloff of a box-shadow: 0.5 at the shape's edge, 1 well inside, 0 at `width` outside. */
+static float shadow_falloff(float outside_px, float width) {
+    float s = 0.5f - outside_px / (2.0f * width);
+    s = s < 0.0f ? 0.0f : (s > 1.0f ? 1.0f : s);
+    return s * s * (3.0f - 2.0f * s);
+}
+
+/* Signed distance to a rounded rectangle (negative inside). */
+static float rrect_dist(float px, float py, float x0, float y0, float w, float h, float r) {
+    float hx = w / 2.0f, hy = h / 2.0f;
+    float qx = fabsf(px - (x0 + hx)) - (hx - r), qy = fabsf(py - (y0 + hy)) - (hy - r);
+    float ox = qx > 0.0f ? qx : 0.0f, oy = qy > 0.0f ? qy : 0.0f;
+    float inner = qx > qy ? qx : qy;
+    return sqrtf(ox * ox + oy * oy) + (inner < 0.0f ? inner : 0.0f) - r;
+}
+
+static uint32_t pack_dithered(rgba_f c, int x, int y) {
+    float t = (k_bayer[y % BAYER_SIZE][x % BAYER_SIZE] + 0.5f) / (BAYER_SIZE * BAYER_SIZE);
+    int rq = (int)((c.r + t * RGB565_R_STEP) / RGB565_R_STEP), gq = (int)((c.g + t * RGB565_G_STEP) / RGB565_G_STEP),
+        bq = (int)((c.b + t * RGB565_R_STEP) / RGB565_R_STEP);
+    if (rq > 31) rq = 31;
+    if (gq > 63) gq = 63;
+    if (bq > 31) bq = 31;
+    uint32_t a = (uint32_t)(c.a * BYTE_MAX_F + 0.5f);
+    return (a << 24) | ((uint32_t)R5_TO_R8(rq) << 16) | ((uint32_t)G6_TO_G8(gq) << 8) | R5_TO_R8(bq);
+}
+
+static void image_dsc_argb(lv_image_dsc_t *d, uint32_t *px, int w, int h) {
+    d->header.magic = LV_IMAGE_HEADER_MAGIC;
+    d->header.cf = LV_COLOR_FORMAT_ARGB8888;
+    d->header.w = w;
+    d->header.h = h;
+    d->header.stride = w * DECOR_BYTES;
+    d->data_size = w * h * DECOR_BYTES;
+    d->data = (const uint8_t *)px;
+}
+
+static lv_image_dsc_t s_cage_img, s_dot_img, s_bar_shadow_img;
+static uint32_t *s_cage_buf, *s_dot_buf, *s_bar_shadow_buf;
+static saver_style_t s_decor_style = SAVER_STYLE_COUNT;
+static int s_bar_shadow_margin;
+
+static void cage_render(const saver_palette_t *pal) {
+    lv_color32_t a = lv_color_to_32(pal->cage_in, LV_OPA_COVER), z = lv_color_to_32(pal->cage_out, LV_OPA_COVER);
+    float rx = CAGE_W * CAGE_RX_PCT / PCT_DIV, ry = CAGE_H * CAGE_RY_PCT / PCT_DIV, stop = CAGE_STOP_PCT / PCT_DIV;
+    for (int y = 0; y < CAGE_IMG_H; y++) {
+        for (int x = 0; x < CAGE_IMG_W; x++) {
+            float px = x + 0.5f - CAGE_IMG_MARGIN, py = y + 0.5f - CAGE_IMG_MARGIN;
+            float d = rrect_dist(px, py, 0, 0, CAGE_W, CAGE_H, CAGE_RADIUS_PX);
+            rgba_f c = { 0, 0, 0, 0 };
+            if (d <= -CAGE_BORDER_PX) {
+                float dx = (px - CAGE_W / 2.0f) / rx, dy = (py - CAGE_H / 2.0f) / ry;
+                float k = sqrtf(dx * dx + dy * dy) / stop;
+                if (k > 1.0f) k = 1.0f;
+                c = (rgba_f){ a.red + (z.red - a.red) * k, a.green + (z.green - a.green) * k,
+                              a.blue + (z.blue - a.blue) * k, 1.0f };
+            } else if (d <= 0.0f) {
+                c = color_f(pal->cage_ring, 1.0f);
+            } else if (d <= CAGE_RING_OUTER_PX) {
+                c = color_f(pal->cage_ring_outer, 1.0f);
+            } else {
+                c = color_f(pal->cage_glow, CAGE_GLOW_ALPHA * shadow_falloff(d - CAGE_RING_OUTER_PX, CAGE_GLOW_WIDTH));
+            }
+            s_cage_buf[y * CAGE_IMG_W + x] = pack_dithered(c, x, y);
+        }
     }
+    image_dsc_argb(&s_cage_img, s_cage_buf, CAGE_IMG_W, CAGE_IMG_H);
+}
+
+/* The design's four stacked box-shadows around each dot: tight bright ring out to a wide dim bloom. */
+static const struct { uint8_t width; uint8_t spread; lv_opa_t opa; } k_dot_halo[DOT_HALO_LAYERS] = {
+    { 3, 1, LV_OPA_COVER }, { 10, 3, 217 }, { 22, 8, 140 }, { 40, 14, 77 },
+};
+
+static void dot_render(const saver_palette_t *pal) {
+    float centre = DOT_IMG_SIZE / 2.0f, radius = DOT_SIZE / 2.0f;
+    for (int y = 0; y < DOT_IMG_SIZE; y++) {
+        for (int x = 0; x < DOT_IMG_SIZE; x++) {
+            float r = sqrtf((x + 0.5f - centre) * (x + 0.5f - centre) + (y + 0.5f - centre) * (y + 0.5f - centre));
+            rgba_f c = { 0, 0, 0, 0 };
+            for (int h = DOT_HALO_LAYERS - 1; h >= 0; h--) { /* outermost halo first */
+                float a = k_dot_halo[h].opa / BYTE_MAX_F * shadow_falloff(r - (radius + k_dot_halo[h].spread), k_dot_halo[h].width);
+                over(&c, color_f(pal->dot_halo[h], a));
+            }
+            float body = radius + 0.5f - r, core = DOT_CORE_RADIUS + 0.5f - r;
+            over(&c, color_f(pal->dot, body < 0.0f ? 0.0f : (body > 1.0f ? 1.0f : body)));
+            over(&c, color_f(pal->dot_core, core < 0.0f ? 0.0f : (core > 1.0f ? 1.0f : core)));
+            s_dot_buf[y * DOT_IMG_SIZE + x] = pack_dithered(c, x, y);
+        }
+    }
+    image_dsc_argb(&s_dot_img, s_dot_buf, DOT_IMG_SIZE, DOT_IMG_SIZE);
+}
+
+static void bar_shadow_render(saver_style_t style) {
+    bool orange = style == SAVER_STYLE_ORANGE;
+    int m = orange ? BAR_SHADOW_WIDTH_ORANGE : BAR_SHADOW_WIDTH_THEME;
+    float opa = (orange ? BAR_SHADOW_OPA_ORANGE : BAR_SHADOW_OPA_THEME) / BYTE_MAX_F;
+    int w = CLOCK_W + 2 * m, h = BAR_H + 2 * m;
+    s_bar_shadow_margin = m;
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            float d = rrect_dist(x + 0.5f - m, y + 0.5f - m, 0, 0, CLOCK_W, BAR_H, BAR_RADIUS);
+            s_bar_shadow_buf[y * w + x] = (uint32_t)(opa * shadow_falloff(d, m) * BYTE_MAX_F + 0.5f) << 24;
+        }
+    }
+    image_dsc_argb(&s_bar_shadow_img, s_bar_shadow_buf, w, h);
+}
+
+static void decor_ensure(saver_style_t style, const saver_palette_t *pal) {
+    if (s_decor_style == style && s_cage_buf) return;
+    s_decor_style = style;
+    bool orange = style == SAVER_STYLE_ORANGE;
+    int m = orange ? BAR_SHADOW_WIDTH_ORANGE : BAR_SHADOW_WIDTH_THEME;
+    lv_free(s_cage_buf);
+    lv_free(s_dot_buf);
+    lv_free(s_bar_shadow_buf);
+    s_cage_buf = lv_malloc(CAGE_IMG_W * CAGE_IMG_H * DECOR_BYTES);
+    s_dot_buf = lv_malloc(DOT_IMG_SIZE * DOT_IMG_SIZE * DECOR_BYTES);
+    s_bar_shadow_buf = lv_malloc((CLOCK_W + 2 * m) * (BAR_H + 2 * m) * DECOR_BYTES);
+    if (s_cage_buf) cage_render(pal);
+    if (s_dot_buf) dot_render(pal);
+    if (s_bar_shadow_buf) bar_shadow_render(style);
 }
 
 static void background_ensure(saver_style_t style, const saver_palette_t *pal) {
@@ -367,6 +515,8 @@ static struct {
     lv_obj_t *overlay, *clock_block, *date_row, *date_lbl, *sep, *temp_lbl;
     tube_t tubes[SAVER_DIGIT_COUNT];
     saver_style_t style;
+    char date_text[48], temp_text[16];
+    int clock_x, clock_y, date_x, date_y;
     weather_saver_dismiss_cb_t on_dismiss;
     bool visible;
 } sv;
@@ -396,8 +546,22 @@ static void glow(lv_obj_t *o, lv_color_t c, int width, lv_opa_t opa) {
     lv_obj_set_style_shadow_opa(o, opa, 0);
 }
 
+/* LVGL clips children to the parent's bounds plus its "extended draw size"
+ * (normally derived from shadows and outlines). The baked glow and shadow
+ * images reach this far beyond tubes and clock block. */
+#define BAKED_REACH_PX 64
+static void reach_cb(lv_event_t *e) { lv_event_set_ext_draw_size(e, BAKED_REACH_PX); }
+
+static void allow_reach(lv_obj_t *o) {
+    lv_obj_add_flag(o, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    lv_obj_add_event_cb(o, reach_cb, LV_EVENT_REFR_EXT_DRAW_SIZE, NULL);
+    lv_obj_refresh_ext_draw_size(o);
+}
+
 static void build_tube(lv_obj_t *row, int x, tube_t *t, const saver_palette_t *pal) {
     lv_obj_t *tube = rect(row, x, 0, TUBE_W, TUBE_H, pal->bg, LV_OPA_TRANSP, 0);
+    /* The baked glow images reach beyond the tube; LVGL would clip them at its bounds. */
+    allow_reach(tube);
 
     lv_obj_t *glass = rect(tube, 0, 0, TUBE_W, TUBE_H - GLASS_BOTTOM_INSET, lv_color_white(), GLASS_FILL_OPA, TUBE_W / 2);
     lv_obj_set_style_border_width(glass, 1, 0);
@@ -405,19 +569,12 @@ static void build_tube(lv_obj_t *row, int x, tube_t *t, const saver_palette_t *p
     lv_obj_set_style_border_opa(glass, GLASS_BORDER_OPA, 0);
     rect(tube, TUBE_W / 2 - CAP_W / 2, -5, CAP_W, CAP_H, lv_color_hex(0xDCE6E4), LV_OPA_20, 4);
 
+    /* Backdrop with rings and glow baked in (see "baked decoration images"). */
     if (s_cage_buf) {
-        lv_obj_t *backdrop = deco(lv_image_create(tube));
-        lv_image_set_src(backdrop, &s_cage_img);
-        lv_obj_set_pos(backdrop, CAGE_X, CAGE_Y);
+        lv_obj_t *cage = deco(lv_image_create(tube));
+        lv_image_set_src(cage, &s_cage_img);
+        lv_obj_set_pos(cage, CAGE_X - CAGE_IMG_MARGIN, CAGE_Y - CAGE_IMG_MARGIN);
     }
-    /* Rings and glow: 0 0 0 2px ring, 0 0 0 3px outer ring, 0 0 40px accent 25 %. */
-    lv_obj_t *cage = rect(tube, CAGE_X, CAGE_Y, CAGE_W, CAGE_H, pal->cage_in, LV_OPA_TRANSP, 2);
-    lv_obj_set_style_border_width(cage, 2, 0);
-    lv_obj_set_style_border_color(cage, pal->cage_ring, 0);
-    lv_obj_set_style_outline_width(cage, CAGE_RING_OUTER_PX, 0);
-    lv_obj_set_style_outline_color(cage, pal->cage_ring_outer, 0);
-    glow(cage, pal->cage_glow, CAGE_GLOW_WIDTH, CAGE_GLOW_OPA);
-
     if (s_ghost_buf) {
         lv_obj_t *ghosts = deco(lv_image_create(tube));
         lv_image_set_src(ghosts, &s_ghost_img);
@@ -447,25 +604,18 @@ static void build_tube(lv_obj_t *row, int x, tube_t *t, const saver_palette_t *p
     rect(tube, SHINE_R_X, SHINE_R_Y, SHINE_R_W, SHINE_R_H, lv_color_white(), LV_OPA_10, 2);
 }
 
-/* The design's four stacked box-shadows around each dot: tight bright ring out to a wide dim bloom. */
-static const struct { uint8_t width; uint8_t spread; lv_opa_t opa; } k_dot_halo[DOT_HALO_LAYERS] = {
-    { 3, 1, LV_OPA_COVER }, { 10, 3, 217 }, { 22, 8, 140 }, { 40, 14, 77 },
-};
-
 /* Two dots, vertically centred on the tube row (the design centres the
  * column including its bottom margin, so it sits slightly above the middle). */
 static void build_dots(lv_obj_t *row, int x, const saver_palette_t *pal) {
+    LV_UNUSED(pal);
     int column_h = 2 * DOT_SIZE + DOT_GAP + DOT_BOTTOM_MARGIN;
     int top = (TUBE_H - column_h) / 2;
+    if (!s_dot_buf) return;
     for (int i = 0; i < 2; i++) {
         int y = top + i * (DOT_SIZE + DOT_GAP);
-        for (int h = DOT_HALO_LAYERS - 1; h >= 0; h--) {
-            lv_obj_t *layer = rect(row, x, y, DOT_SIZE, DOT_SIZE, pal->dot, LV_OPA_COVER, LV_RADIUS_CIRCLE);
-            glow(layer, pal->dot_halo[h], k_dot_halo[h].width, k_dot_halo[h].opa);
-            lv_obj_set_style_shadow_spread(layer, k_dot_halo[h].spread, 0);
-        }
-        int inset = (DOT_SIZE - DOT_CORE_SIZE) / 2;
-        rect(row, x + inset, y + inset, DOT_CORE_SIZE, DOT_CORE_SIZE, pal->dot_core, LV_OPA_COVER, LV_RADIUS_CIRCLE);
+        lv_obj_t *dot = deco(lv_image_create(row));
+        lv_image_set_src(dot, &s_dot_img);
+        lv_obj_set_pos(dot, x - DOT_HALO_MAX_REACH, y - DOT_HALO_MAX_REACH);
     }
 }
 
@@ -498,13 +648,16 @@ static void build_bar(lv_obj_t *parent, saver_style_t style) {
         rect(parent, 0, BAR_Y + BAR_EDGE_DROP_PX, CLOCK_W, BAR_H, lv_color_hex(0x22110B), LV_OPA_COVER, BAR_RADIUS);
     }
 
+    if (s_bar_shadow_buf) {
+        lv_obj_t *shadow = deco(lv_image_create(parent));
+        lv_image_set_src(shadow, &s_bar_shadow_img);
+        lv_obj_set_pos(shadow, -s_bar_shadow_margin,
+                       BAR_Y + (orange ? BAR_SHADOW_OFFSET_ORANGE : BAR_SHADOW_OFFSET_THEME) - s_bar_shadow_margin);
+    }
+
     lv_obj_t *bar = bar_layer(parent);
     lv_obj_set_pos(bar, 0, BAR_Y);
     lv_obj_set_style_clip_corner(bar, true, 0);
-    lv_obj_set_style_shadow_color(bar, lv_color_black(), 0);
-    lv_obj_set_style_shadow_offset_y(bar, orange ? BAR_SHADOW_OFFSET_ORANGE : BAR_SHADOW_OFFSET_THEME, 0);
-    lv_obj_set_style_shadow_width(bar, orange ? BAR_SHADOW_WIDTH_ORANGE : BAR_SHADOW_WIDTH_THEME, 0);
-    lv_obj_set_style_shadow_opa(bar, orange ? BAR_SHADOW_OPA_ORANGE : BAR_SHADOW_OPA_THEME, 0);
     if (!orange) { /* --shadow-lg also draws a 1px neutral-500 ring */
         lv_obj_set_style_outline_width(bar, 1, 0);
         lv_obj_set_style_outline_color(bar, lv_color_hex(0x9397AB), 0);
@@ -563,7 +716,7 @@ void weather_saver_build(saver_style_t style, weather_saver_dismiss_cb_t on_dism
     saver_palette_t pal = (style == SAVER_STYLE_ORANGE) ? palette_orange() : palette_theme();
     s_palette = pal;
     digits_reset(style, &pal);
-    cage_ensure(style, &pal);
+    decor_ensure(style, &pal);
     background_ensure(style, &pal);
 
     sv.overlay = lv_obj_create(lv_layer_top());
@@ -582,6 +735,7 @@ void weather_saver_build(saver_style_t style, weather_saver_dismiss_cb_t on_dism
     lv_obj_add_event_cb(sv.overlay, on_press, LV_EVENT_PRESSED, NULL);
 
     sv.clock_block = rect(sv.overlay, 0, 0, CLOCK_W, CLOCK_BLOCK_H, pal.bg, LV_OPA_TRANSP, 0);
+    allow_reach(sv.clock_block); /* bar shadow and dot halos */
     int x = CLOCK_PAD_X, tube = 0;
     for (int group = 0; group < 3; group++) {
         for (int k = 0; k < 2; k++, tube++) build_tube(sv.clock_block, x + k * (TUBE_W + TUBE_GAP), &sv.tubes[tube], &pal);
@@ -649,11 +803,18 @@ void weather_saver_update(const struct tm *lt, bool use_12h, int64_t unix_second
     screensaver_split_digits(lt->tm_hour, lt->tm_min, lt->tm_sec, use_12h, digits);
     for (int i = 0; i < SAVER_DIGIT_COUNT; i++) set_digit(&sv.tubes[i], digits[i]);
 
-    lv_label_set_text(sv.date_lbl, date ? date : "");
-    bool has_temp = temp && temp[0];
-    lv_label_set_text(sv.temp_lbl, has_temp ? temp : "");
-    if (has_temp) { lv_obj_remove_flag(sv.sep, LV_OBJ_FLAG_HIDDEN); lv_obj_remove_flag(sv.temp_lbl, LV_OBJ_FLAG_HIDDEN); }
-    else          { lv_obj_add_flag(sv.sep, LV_OBJ_FLAG_HIDDEN);    lv_obj_add_flag(sv.temp_lbl, LV_OBJ_FLAG_HIDDEN); }
+    /* Every change invalidates and redraws, so only touch what actually changed. */
+    if (strcmp(sv.date_text, date ? date : "") != 0) {
+        snprintf(sv.date_text, sizeof sv.date_text, "%s", date ? date : "");
+        lv_label_set_text(sv.date_lbl, sv.date_text);
+    }
+    const char *temp_text = (temp && temp[0]) ? temp : "";
+    if (strcmp(sv.temp_text, temp_text) != 0) {
+        snprintf(sv.temp_text, sizeof sv.temp_text, "%s", temp_text);
+        lv_label_set_text(sv.temp_lbl, sv.temp_text);
+        if (temp_text[0]) { lv_obj_remove_flag(sv.sep, LV_OBJ_FLAG_HIDDEN); lv_obj_remove_flag(sv.temp_lbl, LV_OBJ_FLAG_HIDDEN); }
+        else              { lv_obj_add_flag(sv.sep, LV_OBJ_FLAG_HIDDEN);    lv_obj_add_flag(sv.temp_lbl, LV_OBJ_FLAG_HIDDEN); }
+    }
 
     /* The clock sits centred in the space the date row leaves free; the date
      * row swaps between bottom and top every ten minutes. */
@@ -661,6 +822,13 @@ void weather_saver_update(const struct tm *lt, bool use_12h, int64_t unix_second
     int free_h = SCREEN_H - DATE_ROW_H;
     int clock_y = (d.date_above ? DATE_ROW_H : 0) + (free_h - TUBE_H) / 2; /* the bar overhangs the tubes, like in the design */
     int date_y = d.date_above ? 0 : SCREEN_H - DATE_ROW_H;
-    lv_obj_set_pos(sv.clock_block, (SCREEN_W - CLOCK_W) / 2 + d.dx, clock_y + d.dy);
-    lv_obj_set_pos(sv.date_row, d.dx, date_y + d.dy);
+    int clock_x = (SCREEN_W - CLOCK_W) / 2 + d.dx;
+    if (clock_x != sv.clock_x || clock_y + d.dy != sv.clock_y || date_y + d.dy != sv.date_y || d.dx != sv.date_x) {
+        sv.clock_x = clock_x;
+        sv.clock_y = clock_y + d.dy;
+        sv.date_x = d.dx;
+        sv.date_y = date_y + d.dy;
+        lv_obj_set_pos(sv.clock_block, sv.clock_x, sv.clock_y);
+        lv_obj_set_pos(sv.date_row, sv.date_x, sv.date_y);
+    }
 }

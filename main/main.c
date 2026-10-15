@@ -215,6 +215,14 @@ static void lvgl_stall_probe_cb(lv_timer_t *t) {
         }
     }
     last_us = now_us;
+
+    /* Screen saver transitions, for the board test (docs/screensaver-test.md). */
+    static bool saver_was_active;
+    bool saver_active = weather_ui_screensaver_active();
+    if (saver_active != saver_was_active) {
+        saver_was_active = saver_active;
+        ESP_LOGI(TAG, "screensaver: %s", saver_active ? "start" : "stop");
+    }
 }
 
 /* Periodic liveness check for this project's own tasks — see
