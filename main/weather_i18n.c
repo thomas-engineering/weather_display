@@ -56,6 +56,15 @@ const weather_real_feel_t weather_real_feel[LANG_COUNT] = {
     },
 };
 
+/* Compass points N, NE, E, SE, S, SW, W, NW, same order as wdm_compass_index()
+ * (components/app_logic/weather_display_math.h); the design's compass() table. */
+const char *const weather_compass[LANG_COUNT][8] = {
+    /* EN */ { "N", "NE", "E", "SE", "S", "SW", "W", "NW" },
+    /* DE */ { "N", "NO", "O", "SO", "S", "SW", "W", "NW" },
+    /* ES */ { "N", "NE", "E", "SE", "S", "SO", "O", "NO" },
+    /* FR */ { "N", "NE", "E", "SE", "S", "SO", "O", "NO" },
+};
+
 const weather_strings_t weather_strings[LANG_COUNT] = {
     [LANG_EN] = {
         .cancel = "Cancel", .retry = "Retry", .search_placeholder = "Search for a city...",
@@ -63,7 +72,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .temperature = "Temperature", .wind_speed = "Wind speed", .time_format = "Time format",
         .language = "Language", .h24 = "24-hour", .h12 = "12-hour", .brightness = "Screen-Brightness",
         .brightness_adaptive = "Adapt to ambient light", .humidity = "Humidity",
-        .feels_like = "Feels like", .wind = "Wind", .precip = "Precip.", .forecast = "7-Day Forecast",
+        .feels_like = "Feels like", .wind = "Wind", .precip = "Precip.", .gusts = "Gusts", .rain_chance = "Rain chance", .forecast = "7-Day Forecast",
         .loading = "Loading weather...", .today = "Today", .tomorrow = "Tomorrow",
         .error = "Could not load weather", .space = "Space", .done = "Done",
         .humid_dry = "Dry", .humid_comfortable = "Comfortable", .humid_humid = "Humid", .humid_very_humid = "Very Humid",
@@ -112,7 +121,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .temperature = "Temperatur", .wind_speed = "Windgeschwindigkeit", .time_format = "Zeitformat",
         .language = "Sprache", .h24 = "24 Std.", .h12 = "12 Std.", .brightness = "Bildschirmhelligkeit",
         .brightness_adaptive = "An Umgebungslicht anpassen", .humidity = "Luftfeuchte",
-        .feels_like = "Gefühlt", .wind = "Wind", .precip = "Niederschlag", .forecast = "7-Tage-Vorhersage",
+        .feels_like = "Gefühlt", .wind = "Wind", .precip = "Niederschlag", .gusts = "Böen", .rain_chance = "Regenrisiko", .forecast = "7-Tage-Vorhersage",
         .loading = "Wetter wird geladen...", .today = "Heute", .tomorrow = "Morgen",
         .error = "Wetter konnte nicht geladen werden", .space = "Leerzeichen", .done = "Fertig",
         .humid_dry = "Trocken", .humid_comfortable = "Angenehm", .humid_humid = "Feucht", .humid_very_humid = "Sehr feucht",
@@ -157,7 +166,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .temperature = "Temperatura", .wind_speed = "Velocidad del viento", .time_format = "Formato de hora",
         .language = "Idioma", .h24 = "24 h", .h12 = "12 h", .brightness = "Brillo de pantalla",
         .brightness_adaptive = "Adaptar a la luz ambiental", .humidity = "Humedad",
-        .feels_like = "Sensación", .wind = "Viento", .precip = "Precip.", .forecast = "Pronóstico de 7 días",
+        .feels_like = "Sensación", .wind = "Viento", .precip = "Precip.", .gusts = "Rachas", .rain_chance = "Prob. lluvia", .forecast = "Pronóstico de 7 días",
         .loading = "Cargando el clima...", .today = "Hoy", .tomorrow = "Mañana",
         .error = "No se pudo cargar el clima", .space = "Espacio", .done = "Listo",
         .humid_dry = "Seco", .humid_comfortable = "Agradable", .humid_humid = "Húmedo", .humid_very_humid = "Muy húmedo",
@@ -202,7 +211,7 @@ const weather_strings_t weather_strings[LANG_COUNT] = {
         .temperature = "Température", .wind_speed = "Vitesse du vent", .time_format = "Format de l'heure",
         .language = "Langue", .h24 = "24 h", .h12 = "12 h", .brightness = "Luminosité de l'écran",
         .brightness_adaptive = "Adapter à la lumière ambiante", .humidity = "Humidité",
-        .feels_like = "Ressenti", .wind = "Vent", .precip = "Précip.", .forecast = "Prévisions sur 7 jours",
+        .feels_like = "Ressenti", .wind = "Vent", .precip = "Précip.", .gusts = "Rafales", .rain_chance = "Risque pluie", .forecast = "Prévisions sur 7 jours",
         .loading = "Chargement de la météo...", .today = "Aujourd'hui", .tomorrow = "Demain",
         .error = "Impossible de charger la météo", .space = "Espace", .done = "Terminé",
         .humid_dry = "Sec", .humid_comfortable = "Confortable", .humid_humid = "Humide", .humid_very_humid = "Très humide",

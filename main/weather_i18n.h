@@ -36,6 +36,8 @@ typedef struct {
     const char *aqi_good, *aqi_moderate, *aqi_unhealthy_sensitive, *aqi_unhealthy, *aqi_very_unhealthy, *aqi_hazardous;
     /* Screen saver settings (2026-10-15 sync). */
     const char *screen_saver, *saver_style, *saver_style_theme, *saver_style_orange;
+    /* Wind gusts and the hourly rain-chance legend entry (2026-10-19 sync). */
+    const char *gusts, *rain_chance;
     const char *auto_refresh, *auto_off, *auto_15, *auto_30, *auto_60;
     const char *forget_confirm_title, *forget_confirm_body;
     const char *favorites, *empty_favorite;
@@ -57,6 +59,9 @@ typedef struct {
 extern const char *weather_cond_text[LANG_COUNT][8];
 
 extern const weather_strings_t weather_strings[LANG_COUNT];
+
+/* Compass point names, indexed [lang][0..7] = N, NE, E, SE, S, SW, W, NW. */
+extern const char *const weather_compass[LANG_COUNT][8];
 
 /* Short weekday names (Sunday-first, matching struct tm's tm_wday) and short
  * month names — used by app_format.c's fmt_date()/fmt_day_date()/fmt_day_label(). */

@@ -18,7 +18,11 @@
 #include "lvgl.h"
 #include "weather_ui.h"
 
-/* Creates an empty chart of the given size. Feed it with weather_chart_set_data(). */
+/* 2026-10-19 sync: a third series, the hourly rain chance, is drawn as a dotted
+ * line over the bars (0-100 % over the full plot height, no axis of its own)
+ * with a legend row "· ·" + `rain_chance_label`.
+ *
+ * Creates an empty chart of the given size. Feed it with weather_chart_set_data(). */
 lv_obj_t *weather_chart_create(lv_obj_t *parent, int32_t w, int32_t h);
 
 /* Redraws the chart for one day's hourly series. `h` may be NULL, which blanks
@@ -28,6 +32,6 @@ lv_obj_t *weather_chart_create(lv_obj_t *parent, int32_t w, int32_t h);
  * .precip), so the legend keeps up with a language change the same way the
  * rest of the chart data does whenever this is called again. */
 void weather_chart_set_data(lv_obj_t *chart, const weather_hourly_t *h, bool fahrenheit,
-                             const char *temp_label, const char *precip_label);
+                             const char *temp_label, const char *precip_label, const char *rain_chance_label);
 
 #endif

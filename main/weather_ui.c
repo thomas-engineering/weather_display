@@ -22,6 +22,7 @@
 /* FIX: brightness range shared with app_prefs.c and the ambient-light policy. */
 #include "light_policy.h"
 #include "screensaver_policy.h"
+#include "weather_display_math.h"
 #include "hold_gesture.h"
 #include "weather_saver.h"
 #include "app_format.h"
@@ -57,6 +58,10 @@ typedef struct {
     lv_obj_t *current_card, *current_icon, *current_cond_tag, *current_temp_lbl, *current_feel_lbl;
     lv_obj_t *stat_humidity_val, *stat_humidity_sub, *stat_feel_val, *stat_wind_val, *stat_precip_val;
     lv_obj_t *stat_humidity_cap, *stat_feel_cap, *stat_wind_cap, *stat_precip_cap;
+    /* 2026-10-19 sync: wind direction arrow and the gusts line of the wind tiles. */
+    lv_obj_t *stat_wind_arrow, *stat_wind_gust_lbl;
+    lv_obj_t *detail_wind_arrow, *detail_wind_gust_lbl;
+    lv_obj_t *detail_stat_boxes[3];
     lv_obj_t *forecast_title, *forecast_strip;
     lv_obj_t *day_cards[WEATHER_UI_DAYS];
     lv_obj_t *day_icons[WEATHER_UI_DAYS];
@@ -541,6 +546,37 @@ static lv_obj_t *stat_box_create(lv_obj_t *parent, const char *label, lv_obj_t *
 
 static void day_card_click_cb(lv_event_t *e);
 
+#define WIND_ARROW_PX 14       /* design: 14x14 svg next to the wind value */
+#define WIND_ROW_GAP_PX 4
+
+/* The design's wind tile: the value gets a rotated arrow in front of it, and a
+ * muted "Gusts ..." line below. Re-parents the value label of a tile made by
+ * stat_box_create() into a row [arrow][value] right under the caption, and adds
+ * the gust label as the last line. */
+static void wind_tile_extend(lv_obj_t *box, lv_obj_t *val, lv_obj_t **arrow_out, lv_obj_t **gust_out, int32_t gap) {
+    lv_obj_t *row = lv_obj_create(box);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, gap, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    *arrow_out = weather_arrow_create(row, WIND_ARROW_PX, C_ACCENT);
+    lv_obj_set_parent(val, row);
+    lv_obj_set_width(val, LV_SIZE_CONTENT);
+    lv_label_set_long_mode(val, LV_LABEL_LONG_CLIP);
+    lv_obj_move_to_index(row, 1); /* right below the caption */
+
+    lv_obj_t *gust = lv_label_create(box);
+    lv_label_set_text(gust, "");
+    lv_label_set_long_mode(gust, LV_LABEL_LONG_CLIP);
+    lv_obj_set_width(gust, LV_PCT(100));
+    lv_obj_set_style_text_color(gust, C_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(gust, FONT_10, 0);
+    *gust_out = gust;
+}
+
 /* FIX: sync from Claude Design 2026-09-13 — this used to be its own bordered
  * card (bg/radius/fixed 150px height), a flat sibling of the extras row and
  * the chart below it. The design instead wraps all three in one card (see
@@ -606,6 +642,7 @@ static void build_current_card(lv_obj_t *parent) {
     stat_boxes[0] = stat_box_create(stats, weather_strings[ui.lang].humidity, &ui.stat_humidity_val, &ui.stat_humidity_cap, &ui.stat_humidity_sub, 128, 12, true);
     stat_boxes[1] = stat_box_create(stats, weather_strings[ui.lang].feels_like, &ui.stat_feel_val, &ui.stat_feel_cap, NULL, 96, 8, true);
     stat_boxes[2] = stat_box_create(stats, weather_strings[ui.lang].wind, &ui.stat_wind_val, &ui.stat_wind_cap, NULL, 96, 8, true);
+    wind_tile_extend(stat_boxes[2], ui.stat_wind_val, &ui.stat_wind_arrow, &ui.stat_wind_gust_lbl, WIND_ROW_GAP_PX);
     stat_boxes[3] = stat_box_create(stats, weather_strings[ui.lang].precip, &ui.stat_precip_val, &ui.stat_precip_cap, NULL, 96, 8, true);
     /* FIX: the design is a CSS grid, which stretches every cell in a row to the
      * tallest one by default — the Humidity box is 3 lines (label/value/pct)
@@ -819,7 +856,7 @@ static void render_current(void) {
 
     int bucket = wmo_bucket(ui.cur.weather_code);
     lv_label_set_text(ui.current_cond_tag, weather_cond_text[ui.lang][bucket]);
-    weather_icon_set_type(ui.current_icon, weather_icon_from_wmo(ui.cur.weather_code), 72, C_TEXT);
+    weather_icon_set_type(ui.current_icon, weather_icon_from_wmo_night(ui.cur.weather_code, ui.cur.is_night), 72, C_TEXT);
     lv_label_set_text_fmt(ui.current_temp_lbl, "%d\xC2\xB0%c", temp_disp(ui.cur.temp_c), temp_unit_ch());
     lv_label_set_text(ui.current_feel_lbl, ui.cur.real_feel_text);
 
@@ -827,6 +864,9 @@ static void render_current(void) {
     lv_label_set_text_fmt(ui.stat_humidity_sub, "%d%%", ui.cur.humidity_pct);
     lv_label_set_text_fmt(ui.stat_feel_val, "%d\xC2\xB0%c", temp_disp(ui.cur.feels_like_c), temp_unit_ch());
     lv_label_set_text_fmt(ui.stat_wind_val, "%d %s", (int)lroundf(wind_disp(ui.cur.wind_kmh)), wind_unit_str());
+    weather_arrow_set_rotation(ui.stat_wind_arrow, ui.cur.wind_arrow_deg);
+    lv_label_set_text_fmt(ui.stat_wind_gust_lbl, "%s %d %s", weather_strings[ui.lang].gusts,
+                          (int)lroundf(wind_disp(ui.cur.wind_gust_kmh)), wind_unit_str());
     lv_label_set_text_fmt(ui.stat_precip_val, "%d%%", ui.cur.precip_pct);
 
     /* Stat captions and the forecast heading are language-dependent too. */
@@ -853,7 +893,9 @@ static void render_days(void) {
         /* FIX: the design's tempStr() appends the unit — "28°C", not "28°". */
         lv_label_set_text_fmt(ui.day_hi_lbl[i], "%d\xC2\xB0%c", temp_disp(d->temp_max_c), temp_unit_ch());
         lv_label_set_text_fmt(ui.day_lo_lbl[i], "%d\xC2\xB0%c", temp_disp(d->temp_min_c), temp_unit_ch());
-        lv_label_set_text_fmt(ui.day_precip_lbl[i], "%d%%", d->precip_pct);
+        char psum[16];
+        wdm_format_precip_mm(psum, sizeof psum, d->precip_sum_mm);
+        lv_label_set_text_fmt(ui.day_precip_lbl[i], "%d%% \xC2\xB7 %s", d->precip_pct, psum);
     }
 }
 
@@ -972,9 +1014,13 @@ static void build_detail_panel(lv_obj_t *parent) {
     lv_obj_t *feel_box = stat_box_create(stats, weather_strings[ui.lang].feels_like, &ui.detail_feel_lbl, &ui.detail_feel_cap, NULL, 90, 10, false);
     lv_obj_t *precip_box = stat_box_create(stats, weather_strings[ui.lang].precip, &ui.detail_precip_lbl, &ui.detail_precip_cap, NULL, 90, 10, false);
     lv_obj_t *wind_box = stat_box_create(stats, weather_strings[ui.lang].wind, &ui.detail_wind_lbl, &ui.detail_wind_cap, NULL, 90, 10, false);
+    wind_tile_extend(wind_box, ui.detail_wind_lbl, &ui.detail_wind_arrow, &ui.detail_wind_gust_lbl, WIND_ROW_GAP_PX);
     lv_obj_set_flex_grow(feel_box, 1);
     lv_obj_set_flex_grow(precip_box, 1);
     lv_obj_set_flex_grow(wind_box, 1);
+    ui.detail_stat_boxes[0] = feel_box;
+    ui.detail_stat_boxes[1] = precip_box;
+    ui.detail_stat_boxes[2] = wind_box;
 
     ui.detail_chart = weather_chart_create(ui.detail_panel, LV_PCT(100), 150);
 
@@ -1016,15 +1062,32 @@ static void day_card_click_cb(lv_event_t *e) {
     lv_label_set_text(ui.detail_precip_cap, weather_strings[ui.lang].precip);
     lv_label_set_text(ui.detail_wind_cap, weather_strings[ui.lang].wind);
     lv_label_set_text_fmt(ui.detail_feel_lbl, "%d\xC2\xB0 / %d\xC2\xB0", temp_disp(d->feels_max_c), temp_disp(d->feels_min_c));
-    lv_label_set_text_fmt(ui.detail_precip_lbl, "%d%%", d->precip_pct);
-    lv_label_set_text_fmt(ui.detail_wind_lbl, "%d %s", (int)lroundf(wind_disp(d->wind_max_kmh)), wind_unit_str());
+    char psum[16];
+    wdm_format_precip_mm(psum, sizeof psum, d->precip_sum_mm);
+    lv_label_set_text_fmt(ui.detail_precip_lbl, "%d%% \xC2\xB7 %s", d->precip_pct, psum);
+    lv_label_set_text_fmt(ui.detail_wind_lbl, "%s \xC2\xB7 %d %s", weather_compass[ui.lang][d->wind_compass_idx & (WDM_COMPASS_POINTS - 1)],
+                          (int)lroundf(wind_disp(d->wind_max_kmh)), wind_unit_str());
+    weather_arrow_set_rotation(ui.detail_wind_arrow, d->wind_arrow_deg);
+    lv_label_set_text_fmt(ui.detail_wind_gust_lbl, "%s %d %s", weather_strings[ui.lang].gusts,
+                          (int)lroundf(wind_disp(d->wind_gust_kmh)), wind_unit_str());
     detail_slide(true);
     /* After the backdrop is visible: a hidden parent is skipped by flex layout, so
      * measuring the chart before this point yields a zero-sized, blank plot. */
     lv_obj_update_layout(ui.detail_panel);
+    /* The design's grid stretches the three tiles to the tallest one (the wind
+     * tile has the extra gusts line); flex here cannot, so pin them like the
+     * current-weather tiles do. Only measurable now that the panel is visible. */
+    int32_t tallest = 0;
+    for (int b = 0; b < 3; b++) {
+        lv_obj_set_height(ui.detail_stat_boxes[b], LV_SIZE_CONTENT);
+    }
+    lv_obj_update_layout(ui.detail_panel);
+    for (int b = 0; b < 3; b++) tallest = LV_MAX(tallest, lv_obj_get_height(ui.detail_stat_boxes[b]));
+    for (int b = 0; b < 3; b++) lv_obj_set_height(ui.detail_stat_boxes[b], tallest);
     weather_chart_set_data(ui.detail_chart, ui.hourly_day_valid[i] ? &ui.hourly_days[i] : NULL,
                            ui.temp_unit == WX_UNIT_F,
-                           weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip);
+                           weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip,
+                           weather_strings[ui.lang].rain_chance);
 }
 
 /* ---- search overlay (native on-screen keyboard, no physical keys needed) - */
@@ -1532,7 +1595,8 @@ static void notify_settings_changed(void) {
     if (ui.today_chart)
         weather_chart_set_data(ui.today_chart, ui.hourly_today_valid ? &ui.hourly_today : NULL,
                                ui.temp_unit == WX_UNIT_F,
-                               weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip);
+                               weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip,
+                           weather_strings[ui.lang].rain_chance);
     if (ui.on_settings_changed) ui.on_settings_changed(ui.lang, ui.temp_unit, ui.wind_unit, ui.time_fmt, ui.auto_refresh_minutes);
 }
 
@@ -3335,7 +3399,8 @@ void weather_ui_set_hourly(const weather_hourly_t *today, const weather_hourly_t
     if (ui.today_chart)
         weather_chart_set_data(ui.today_chart, ui.hourly_today_valid ? &ui.hourly_today : NULL,
                                ui.temp_unit == WX_UNIT_F,
-                               weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip);
+                               weather_strings[ui.lang].temperature, weather_strings[ui.lang].precip,
+                           weather_strings[ui.lang].rain_chance);
 }
 
 void weather_ui_set_network_status(wx_net_status_t status) {

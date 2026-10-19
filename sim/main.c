@@ -37,6 +37,7 @@
 #include "app_format.h"
 #include "cJSON.h"
 #include "favorites.h"
+#include "weather_display_math.h"
 #include "weather_forecast_parse.h"
 #include "weather_i18n.h"
 #include "weather_ui.h"
@@ -88,6 +89,14 @@ static const int   k_precip[WEATHER_UI_DAYS]    = {  35,    80,    65,    15,   
  * beim Start leer und man sieht die Haelfte der Darstellung nie. */
 static const float k_precip_mm[WEATHER_UI_DAYS] = { 0.8f,  4.2f,  2.6f,  0.0f,  0.0f,  1.8f,  7.5f };
 
+/* Design sync 2026-10-19: Boeen, Windrichtung (woher der Wind weht), Regensumme,
+ * Nacht-Schalter fuer die Mond-Icons (--night). */
+static const float k_gust[WEATHER_UI_DAYS]      = { 21.0f, 41.5f, 52.8f, 16.0f, 11.2f, 33.0f, 71.4f };
+static const float k_wind_dir[WEATHER_UI_DAYS]  = { 225.0f, 90.0f, 315.0f, 0.0f, 180.0f, 45.0f, 270.0f };
+static const float k_psum[WEATHER_UI_DAYS]      = { 0.8f, 12.6f, 6.4f, 0.0f, 0.0f, 3.2f, 21.0f };
+static bool s_night;
+static int s_night_code = -1; /* --night / --night-clear: Wettercode fuer das aktuelle Icon, sonst Fixture */
+
 static const int s_humidity = 68;
 
 /* Tagesgang: Minimum kurz vor Sonnenaufgang, Maximum am spaeten Nachmittag.
@@ -109,6 +118,9 @@ static void fill_hourly(weather_hourly_t *h, int day)
                           : (i >= 12 && i <= 19) ? 0.25f
                           : 0.0f;
         h->precip_mm[i] = k_precip_mm[day] * share;
+        /* Regenrisiko: folgt der Tageswahrscheinlichkeit, mit Verlauf ueber den Tag. */
+        float wave = 0.65f + 0.35f * sinf((float)i / 24.0f * 2.0f * (float)M_PI);
+        h->precip_prob_pct[i] = (int)lroundf(k_precip[day] * wave);
     }
 }
 
@@ -140,6 +152,10 @@ static void publish_weather(void)
     cur.humidity_pct = s_humidity;
     cur.wind_kmh = k_wind[0];
     cur.precip_pct = k_precip[0];
+    cur.wind_arrow_deg = wdm_arrow_deg(k_wind_dir[0]);
+    cur.wind_gust_kmh = k_gust[0];
+    cur.is_night = s_night;
+    if (s_night_code >= 0) cur.weather_code = s_night_code;
     fmt_real_feel(cur.real_feel_text, sizeof(cur.real_feel_text),
                   cur.feels_like_c, cur.temp_c, cur.wind_kmh, cur.precip_pct, s_lang);
 
@@ -176,6 +192,10 @@ static void publish_weather(void)
         days[i].feels_min_c = k_tmin[i] - 2.0f;
         days[i].wind_max_kmh = k_wind[i];
         days[i].precip_pct = k_precip[i];
+        days[i].precip_sum_mm = k_psum[i];
+        days[i].wind_gust_kmh = k_gust[i];
+        days[i].wind_arrow_deg = wdm_arrow_deg(k_wind_dir[i]);
+        days[i].wind_compass_idx = wdm_compass_index(k_wind_dir[i]);
 
         fill_hourly(&hourly[i], i);
         hourly_ptr[i] = &hourly[i];
@@ -307,6 +327,9 @@ static bool publish_weather_live(void) {
     cur.humidity_pct = f.humidity_pct;
     cur.wind_kmh = f.wind_kmh;
     cur.precip_pct = f.precip_pct;
+    cur.wind_arrow_deg = wdm_arrow_deg(f.wind_dir_deg);
+    cur.wind_gust_kmh = f.wind_gust_kmh;
+    cur.is_night = f.is_night || s_night;
     fmt_real_feel(cur.real_feel_text, sizeof(cur.real_feel_text),
                   cur.feels_like_c, cur.temp_c, cur.wind_kmh, cur.precip_pct, s_lang);
 
@@ -360,12 +383,17 @@ static bool publish_weather_live(void) {
         days[i].feels_min_c = f.days[i].feels_min_c;
         days[i].wind_max_kmh = f.days[i].wind_max_kmh;
         days[i].precip_pct = f.days[i].precip_pct;
+        days[i].precip_sum_mm = f.days[i].precip_sum_mm;
+        days[i].wind_gust_kmh = f.days[i].wind_gust_max_kmh;
+        days[i].wind_arrow_deg = wdm_arrow_deg(f.days[i].wind_dir_deg);
+        days[i].wind_compass_idx = wdm_compass_index(f.days[i].wind_dir_deg);
 
         hourly[i].count = f.hourly[i].count;
         for (int h = 0; h < f.hourly[i].count; h++) {
             hourly[i].hour[h] = f.hourly[i].hour[h];
             hourly[i].temp_c[h] = f.hourly[i].temp_c[h];
             hourly[i].precip_mm[h] = f.hourly[i].precip_mm[h];
+            hourly[i].precip_prob_pct[h] = f.hourly[i].precip_prob_pct[h];
         }
         hourly_ptr[i] = f.hourly[i].valid ? &hourly[i] : NULL;
     }
@@ -1138,6 +1166,9 @@ int main(int argc, char **argv)
             open_wifi_setup = true;
         } else if (strcmp(argv[i], "--clock-runs") == 0) {
             s_clock_runs = true;
+        } else if (strcmp(argv[i], "--night") == 0 || strcmp(argv[i], "--night-clear") == 0) {
+            s_night = true;
+            s_night_code = strcmp(argv[i], "--night") == 0 ? 2 : 0; /* 2 = teils bewoelkt, 0 = klar */
         } else if (strcmp(argv[i], "--live") == 0) {
             s_live = true;
         } else if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {

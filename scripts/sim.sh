@@ -90,6 +90,12 @@ if [ "${1:-}" = "--shots" ]; then
             || { echo "FEHLER bei Screen '$screen'." >&2; exit 1; }
         echo "  $screen.bmp"
     done
+    # Nacht-Variante der Icons (Mond), Design-Sync 2026-10-19: teils bewoelkt.
+    SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
+        "$BUILD_DIR/weather_sim" --night --screenshot "$OUT/main-night.bmp" \
+        || { echo "FEHLER bei Zustand 'main-night'." >&2; exit 1; }
+    echo "  main-night.bmp"
+
     # Bildschirmschoner: beide Farbstile, dazu der Test "Tipp beendet ihn" ohne
     # das Timeout abzuwarten (screensaver-dismiss meldet SAVER_DISMISS OK/FAIL).
     for screen in screensaver screensaver-orange; do
