@@ -327,7 +327,9 @@ void app_main(void) {
     cfg.lv_adapter_cfg.task_core_id = 1;
     cfg.lv_adapter_cfg.task_stack_size = LVGL_TASK_STACK_BYTES;
     /* 16 KB of stack in internal RAM would come out of the DMA headroom the SDIO
-     * link needs; this task does no flash writes and hands no stack buffers to DMA. */
+     * link needs. Rule that makes this safe: flash access (NVS) only via the debounced
+     * esp_timer callbacks (save_debounce_fire), never directly from an LVGL callback, and
+     * no stack buffers handed to DMA. */
     cfg.lv_adapter_cfg.stack_in_psram = true;
     lv_display_t *display = bsp_display_start_with_config(&cfg);
     ESP_ERROR_CHECK(display != NULL ? ESP_OK : ESP_FAIL);

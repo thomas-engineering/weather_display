@@ -517,7 +517,6 @@ static struct {
     saver_style_t style;
     char date_text[48], temp_text[16];
     int clock_x, clock_y, date_x, date_y;
-    weather_saver_dismiss_cb_t on_dismiss;
     bool visible;
 } sv;
 
@@ -702,17 +701,19 @@ static void build_bar(lv_obj_t *parent, saver_style_t style) {
          orange ? BAR_INNER_LIGHT_OPA_ORANGE : BAR_INNER_LIGHT_OPA_THEME, 0);
 }
 
+static saver_style_t s_wanted_style = SAVER_STYLE_THEME;
+static weather_saver_dismiss_cb_t s_dismiss_cb;
+
 static void on_press(lv_event_t *e) {
     LV_UNUSED(e);
-    if (sv.on_dismiss) sv.on_dismiss();
+    if (s_dismiss_cb) s_dismiss_cb();
 }
 
-void weather_saver_build(saver_style_t style, weather_saver_dismiss_cb_t on_dismiss) {
-    bool was_visible = sv.visible;
-    if (sv.overlay) lv_obj_delete(sv.overlay);
+/* Builds the overlay (hidden) in the wanted style, computing the baked images first. */
+static void build_overlay(void) {
+    saver_style_t style = s_wanted_style;
     memset(&sv, 0, sizeof sv);
     sv.style = style;
-    sv.on_dismiss = on_dismiss;
     saver_palette_t pal = (style == SAVER_STYLE_ORANGE) ? palette_orange() : palette_theme();
     s_palette = pal;
     digits_reset(style, &pal);
@@ -761,11 +762,27 @@ void weather_saver_build(saver_style_t style, weather_saver_dismiss_cb_t on_dism
     lv_obj_set_style_text_font(sv.temp_lbl, FONT_22, 0);
     lv_obj_set_style_text_color(sv.temp_lbl, pal.text, 0);
 
-    if (!was_visible) lv_obj_add_flag(sv.overlay, LV_OBJ_FLAG_HIDDEN);
-    sv.visible = was_visible;
+    lv_obj_add_flag(sv.overlay, LV_OBJ_FLAG_HIDDEN);
+    sv.visible = false;
+}
+
+void weather_saver_set_style(saver_style_t style, weather_saver_dismiss_cb_t on_dismiss) {
+    s_wanted_style = style;
+    s_dismiss_cb = on_dismiss;
+    if (!sv.overlay || sv.style == style) return;
+    /* An overlay in the old style exists: drop it, the next show builds the new one. If it is
+     * on screen right now, rebuild at once so it does not vanish. */
+    bool was_visible = sv.visible;
+    lv_obj_delete(sv.overlay);
+    memset(&sv, 0, sizeof sv);
+    if (was_visible) {
+        build_overlay();
+        weather_saver_show();
+    }
 }
 
 void weather_saver_show(void) {
+    if (!sv.overlay) build_overlay();
     if (!sv.overlay) return;
     for (int i = 0; i < SAVER_DIGIT_COUNT; i++) sv.tubes[i].shown = DIGIT_NONE; /* force a full redraw */
     lv_obj_remove_flag(sv.overlay, LV_OBJ_FLAG_HIDDEN);

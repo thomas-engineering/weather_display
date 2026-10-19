@@ -42,7 +42,7 @@ Referenz vom Stand vor dem Schoner (`master`) liegt nicht vor.
   `CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y` ist schon gesetzt. Das gibt die
   16 KB im internen RAM komplett frei, also 8 KB mehr als vor dem Schoner.
 - Risiken: PSRAM ist langsamer; ein Flash-Schreibzugriff aus diesem Task wäre
-  verboten (macht der Task nicht, NVS läuft im Timer-Task); DMA-Puffer auf dem
+  verboten (der Testkanal-Schalter tat es doch, Audit B vom 2026-10-19; jetzt über den Timer-Task); DMA-Puffer auf dem
   Stack gehen nicht. Braucht einen Test auf der Hardware.
 - Prüfung: HIL-Boot, Schoner-Zyklus, Touch-Latenz (`lvgl_stall`-Zeilen) mit und
   ohne die Änderung.

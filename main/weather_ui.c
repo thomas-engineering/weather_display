@@ -1554,7 +1554,10 @@ static void on_seg_auto_refresh(int idx, void *user) {
 
 /* ---- screen saver ---------------------------------------------------- */
 
-#define SAVER_TICK_MS 1000
+/* Sub-second tick: LVGL restarts a timer's period after each run, so a 1000 ms timer drifts
+ * against the wall clock and sooner or later skips a second on screen. Ticking faster costs
+ * nothing, the saver only redraws what changed. */
+#define SAVER_TICK_MS 250
 #define CLOCK_HOLD_MS 3000     /* hold the header clock this long to start the saver */
 #define CLOCK_HOLD_POLL_MS 100
 #define SETTINGS_COLUMN_GAP 17      /* --space-6 */
@@ -1677,7 +1680,7 @@ static void on_seg_saver_style(int idx, void *user) {
     LV_UNUSED(user);
     if (!saver_style_valid(idx)) return;
     ui.saver_style = (saver_style_t)idx;
-    weather_saver_build(ui.saver_style, saver_dismiss_cb);
+    weather_saver_set_style(ui.saver_style, saver_dismiss_cb);
     saver_notify_changed();
 }
 
@@ -1690,7 +1693,7 @@ void weather_ui_set_screensaver(int minutes, saver_style_t style) {
     bool style_changed = style != ui.saver_style;
     ui.saver_minutes = minutes;
     ui.saver_style = style;
-    if (style_changed) weather_saver_build(ui.saver_style, saver_dismiss_cb);
+    if (style_changed) weather_saver_set_style(ui.saver_style, saver_dismiss_cb);
     if (ui.settings_backdrop) {
         bool was_open = !lv_obj_has_flag(ui.settings_backdrop, LV_OBJ_FLAG_HIDDEN);
         settings_rebuild(was_open);
@@ -3417,6 +3420,6 @@ void weather_ui_create(lv_obj_t *parent) {
     build_wifi_forget_confirm_panel(ui.root);
 
     screensaver_policy_init(&ui.saver_policy);
-    weather_saver_build(ui.saver_style, saver_dismiss_cb);
+    weather_saver_set_style(ui.saver_style, saver_dismiss_cb);
     ui.saver_timer = lv_timer_create(saver_tick_cb, SAVER_TICK_MS, NULL);
 }

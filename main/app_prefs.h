@@ -56,8 +56,9 @@ void app_prefs_save_screensaver(int minutes, saver_style_t style);
 /* Update channel (release vs. test). Kept in its own small record, not in
  * prefs_payload_t, so adding it needs no migration of the main prefs record
  * and a downgrade to older firmware simply ignores it. Loaded by
- * app_prefs_load(); defaults to OTA_CHANNEL_RELEASE. Written synchronously:
- * it changes rarely, from a settings tap. */
+ * app_prefs_load(); defaults to OTA_CHANNEL_RELEASE. Saved asynchronously on the
+ * esp_timer task like the other settings: it is called from the LVGL task, whose stack is in
+ * PSRAM and which must not touch flash. */
 ota_channel_t app_prefs_get_ota_channel(void);
 void app_prefs_save_ota_channel(ota_channel_t channel);
 

@@ -367,8 +367,20 @@ void app_prefs_save_ota_settings(bool auto_update, bool update_coprocessor) {
 
 ota_channel_t app_prefs_get_ota_channel(void) { return s_ota_channel; }
 
+static esp_timer_handle_t s_channel_save_timer;
+
+static void persist_channel_cb(void *arg) {
+    (void)arg;
+    uint8_t raw = (uint8_t)s_ota_channel;
+    storage_record_save(&storage_backend_nvs, NS, OTA_CHANNEL_RECORD_KEY, OTA_CHANNEL_RECORD_VERSION, &raw, sizeof raw);
+}
+
+/* Called from the LVGL task (Settings > Update > test channel switch). It must not touch NVS
+ * itself: the LVGL task's stack lives in PSRAM, and a flash write that has to disable the
+ * cache aborts on such a stack (cache_utils.c, esp_task_stack_is_sane_cache_disabled()); even
+ * when it does not, it would stall rendering and touch. Same debounced esp_timer path as every
+ * other setting. */
 void app_prefs_save_ota_channel(ota_channel_t channel) {
     s_ota_channel = channel;
-    uint8_t raw = (uint8_t)channel;
-    storage_record_save(&storage_backend_nvs, NS, OTA_CHANNEL_RECORD_KEY, OTA_CHANNEL_RECORD_VERSION, &raw, sizeof raw);
+    save_debounce_fire(&s_channel_save_timer, "ota_chan_save", persist_channel_cb, PREFS_SAVE_DEBOUNCE_US);
 }

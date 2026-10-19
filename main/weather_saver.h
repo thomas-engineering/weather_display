@@ -16,9 +16,11 @@
 /* Fired on a press anywhere on the overlay. */
 typedef void (*weather_saver_dismiss_cb_t)(void);
 
-/* Builds the overlay hidden. Calling it again rebuilds it in the new style
- * (keeping the visible/hidden state), which is how a style change is applied. */
-void weather_saver_build(saver_style_t style, weather_saver_dismiss_cb_t on_dismiss);
+/* Chooses the colour style and registers the dismiss callback. Cheap: nothing is drawn or
+ * allocated here. The overlay and its ~2 MB of pre-rendered images are built when the saver
+ * is first shown (and rebuilt on the next show after a style change), so a device whose saver
+ * is off never pays for them and Settings never stalls on a style switch. */
+void weather_saver_set_style(saver_style_t style, weather_saver_dismiss_cb_t on_dismiss);
 
 void weather_saver_show(void);
 void weather_saver_hide(void);
