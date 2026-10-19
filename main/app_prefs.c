@@ -15,6 +15,8 @@ static const char *NS = "weather";
 #define RECORD_KEY "prefs"
 #define OTA_CHANNEL_RECORD_KEY "ota_chan"
 #define OTA_CHANNEL_RECORD_VERSION 1
+#define SAVER_RECORD_KEY "saver"
+#define SAVER_RECORD_VERSION 1
 #define RECORD_VERSION 3 /* bumped for ota_auto_update/ota_update_coprocessor (2026-09-19 sync) */
 /* Older layouts still migrated on load. */
 #define RECORD_VERSION_V1 1
@@ -26,6 +28,12 @@ static const char *NS = "weather";
 
 #define BRIGHTNESS_DEFAULT_PCT LIGHT_POLICY_BRIGHTNESS_MAX
 #define PREFS_SAVE_DEBOUNCE_US (50 * 1000)
+
+/* On-disk layout of the screen saver record (packed, like prefs_payload_t). */
+typedef struct __attribute__((packed)) {
+    uint8_t minutes; /* 0/15/30/60 */
+    uint8_t style;   /* saver_style_t */
+} saver_payload_t;
 
 static app_prefs_t s_prefs;
 static ota_channel_t s_ota_channel = OTA_CHANNEL_RELEASE;
@@ -151,6 +159,16 @@ void app_prefs_load(app_prefs_t *out) {
     s_prefs.auto_refresh_minutes = k_auto_refresh_values[AUTO_REFRESH_DEFAULT_IDX]; /* matches the design's initial autoRefreshMinutes */
     s_prefs.ota_auto_update = true; /* matches the design's initial otaAutoUpdate */
     s_prefs.ota_update_coprocessor = false; /* matches the design's initial otaUpdateCoprocessor */
+
+    /* Screen saver: off + app theme unless a valid record says otherwise. */
+    s_prefs.screensaver_minutes = k_saver_timeout_minutes[SAVER_TIMEOUT_DEFAULT_IDX];
+    s_prefs.screensaver_style = SAVER_STYLE_THEME;
+    saver_payload_t saver_raw;
+    if (storage_record_load(&storage_backend_nvs, NS, SAVER_RECORD_KEY, SAVER_RECORD_VERSION,
+                            &saver_raw, sizeof saver_raw)) {
+        if (saver_timeout_valid(saver_raw.minutes)) s_prefs.screensaver_minutes = saver_raw.minutes;
+        if (saver_style_valid(saver_raw.style)) s_prefs.screensaver_style = (saver_style_t)saver_raw.style;
+    }
 
     uint8_t channel_raw;
     s_ota_channel = OTA_CHANNEL_RELEASE;
@@ -327,6 +345,20 @@ void app_prefs_save_brightness_adaptive(bool enabled) {
     request_save();
 }
 
+static esp_timer_handle_t s_saver_save_timer;
+
+static void persist_saver_cb(void *arg) {
+    (void)arg;
+    saver_payload_t p = { .minutes = (uint8_t)s_prefs.screensaver_minutes, .style = (uint8_t)s_prefs.screensaver_style };
+    storage_record_save(&storage_backend_nvs, NS, SAVER_RECORD_KEY, SAVER_RECORD_VERSION, &p, sizeof p);
+}
+
+void app_prefs_save_screensaver(int minutes, saver_style_t style) {
+    s_prefs.screensaver_minutes = minutes;
+    s_prefs.screensaver_style = style;
+    save_debounce_fire(&s_saver_save_timer, "saver_save", persist_saver_cb, PREFS_SAVE_DEBOUNCE_US);
+}
+
 void app_prefs_save_ota_settings(bool auto_update, bool update_coprocessor) {
     s_prefs.ota_auto_update = auto_update;
     s_prefs.ota_update_coprocessor = update_coprocessor;
@@ -335,8 +367,20 @@ void app_prefs_save_ota_settings(bool auto_update, bool update_coprocessor) {
 
 ota_channel_t app_prefs_get_ota_channel(void) { return s_ota_channel; }
 
+static esp_timer_handle_t s_channel_save_timer;
+
+static void persist_channel_cb(void *arg) {
+    (void)arg;
+    uint8_t raw = (uint8_t)s_ota_channel;
+    storage_record_save(&storage_backend_nvs, NS, OTA_CHANNEL_RECORD_KEY, OTA_CHANNEL_RECORD_VERSION, &raw, sizeof raw);
+}
+
+/* Called from the LVGL task (Settings > Update > test channel switch). It must not touch NVS
+ * itself: the LVGL task's stack lives in PSRAM, and a flash write that has to disable the
+ * cache aborts on such a stack (cache_utils.c, esp_task_stack_is_sane_cache_disabled()); even
+ * when it does not, it would stall rendering and touch. Same debounced esp_timer path as every
+ * other setting. */
 void app_prefs_save_ota_channel(ota_channel_t channel) {
     s_ota_channel = channel;
-    uint8_t raw = (uint8_t)channel;
-    storage_record_save(&storage_backend_nvs, NS, OTA_CHANNEL_RECORD_KEY, OTA_CHANNEL_RECORD_VERSION, &raw, sizeof raw);
+    save_debounce_fire(&s_channel_save_timer, "ota_chan_save", persist_channel_cb, PREFS_SAVE_DEBOUNCE_US);
 }

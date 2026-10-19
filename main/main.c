@@ -37,6 +37,10 @@ static const char *TAG = "app";
 #define LVGL_STALL_PROBE_PERIOD_MS 20
 /* Gaps above this are noticeable as lag, not routine jitter. */
 #define LVGL_STALL_WARN_MS 60
+/* The adapter's default is 8 KB; the draw path (scrollbar -> events, multi-stop gradient
+ * descriptors with CONFIG_LV_GRADIENT_MAX_STOPS=10) overflowed it on the board
+ * (stack protection fault in "lvgl", 2026-10-15). */
+#define LVGL_TASK_STACK_BYTES (16 * 1024)
 
 #define HEARTBEAT_TIMER_PERIOD_US (5 * 1000 * 1000)
 
@@ -138,6 +142,10 @@ static void on_ambient_brightness(int percent) {
     }
 }
 
+static void on_screensaver_changed(int minutes, saver_style_t style) {
+    app_prefs_save_screensaver(minutes, style);
+}
+
 static void on_settings_changed(weather_lang_t lang, wx_temp_unit_t t, wx_wind_unit_t w, wx_time_fmt_t tf, int auto_refresh_minutes) {
     app_prefs_save_settings(lang, t, w, tf, auto_refresh_minutes);
     /* Units are converted for display inside weather_ui.c, but the date/weekday
@@ -187,6 +195,15 @@ static void touch_probe_cb(lv_timer_t *t) {
  * callback instead. */
 static void lvgl_stall_probe_cb(lv_timer_t *t) {
     LV_UNUSED(t);
+    /* Stack headroom of this (the LVGL) task: log each new low, so a creeping
+     * draw-path stack depth shows up long before a stack-protection fault. */
+    static UBaseType_t lowest_free_bytes = UINT32_MAX;
+    UBaseType_t free_bytes = uxTaskGetStackHighWaterMark(NULL);
+    if (free_bytes < lowest_free_bytes) {
+        lowest_free_bytes = free_bytes;
+        ESP_LOGI(TAG, "lvgl task stack: %u of %u bytes still never used", (unsigned)free_bytes,
+                 (unsigned)LVGL_TASK_STACK_BYTES);
+    }
     static int64_t last_us;
     int64_t now_us = esp_timer_get_time();
     if (last_us != 0) {
@@ -198,6 +215,14 @@ static void lvgl_stall_probe_cb(lv_timer_t *t) {
         }
     }
     last_us = now_us;
+
+    /* Screen saver transitions, for the board test (docs/screensaver-test.md). */
+    static bool saver_was_active;
+    bool saver_active = weather_ui_screensaver_active();
+    if (saver_active != saver_was_active) {
+        saver_was_active = saver_active;
+        ESP_LOGI(TAG, "screensaver: %s", saver_active ? "start" : "stop");
+    }
 }
 
 /* Periodic liveness check for this project's own tasks — see
@@ -211,6 +236,7 @@ static void heartbeat_check_cb(void *arg) {
      * task at something no single task can see. app_heap_probe rate-limits
      * itself, so 5s here only sets the resolution, not the log volume. */
     app_heap_probe_tick("idle");
+    app_heap_probe_log_task_stacks_once();
 }
 
 /* Investigated using ESP_LV_ADAPTER_TEAR_AVOID_MODE_NONE + a hardware panel
@@ -299,6 +325,12 @@ void app_main(void) {
      * a real (if usually small) latency source go unmeasured (found by
      * firmware-auditor Category G). */
     cfg.lv_adapter_cfg.task_core_id = 1;
+    cfg.lv_adapter_cfg.task_stack_size = LVGL_TASK_STACK_BYTES;
+    /* 16 KB of stack in internal RAM would come out of the DMA headroom the SDIO
+     * link needs. Rule that makes this safe: flash access (NVS) only via the debounced
+     * esp_timer callbacks (save_debounce_fire), never directly from an LVGL callback, and
+     * no stack buffers handed to DMA. */
+    cfg.lv_adapter_cfg.stack_in_psram = true;
     lv_display_t *display = bsp_display_start_with_config(&cfg);
     ESP_ERROR_CHECK(display != NULL ? ESP_OK : ESP_FAIL);
     bsp_display_brightness_set(prefs.brightness);
@@ -331,6 +363,8 @@ void app_main(void) {
     weather_ui_set_callbacks(on_search, on_select_city, on_refresh, on_settings_changed);
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
+    weather_ui_set_screensaver_callback(on_screensaver_changed);
+    weather_ui_set_local_time_callback(app_weather_get_local_time);
     weather_ui_set_brightness_adaptive_callback(on_brightness_adaptive);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
     weather_ui_set_ota_callbacks(on_ota_start, on_ota_cancel, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
@@ -346,6 +380,7 @@ void app_main(void) {
      * which this line does set correctly, just too late to matter to the
      * save that already fired. Setting it first avoids the whole race. */
     weather_ui_set_auto_refresh(prefs.auto_refresh_minutes);
+    weather_ui_set_screensaver(prefs.screensaver_minutes, prefs.screensaver_style);
     weather_ui_set_ota_auto_update(prefs.ota_auto_update);
     weather_ui_set_ota_update_coprocessor(prefs.ota_update_coprocessor);
     weather_ui_set_ota_test_channel(app_prefs_get_ota_channel() == OTA_CHANNEL_TEST);

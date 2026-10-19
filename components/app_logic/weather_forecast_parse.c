@@ -48,6 +48,9 @@ bool weather_forecast_parse(const char *json, wfp_forecast_t *out) {
     r.feels_like_c   = jnum(cur, "apparent_temperature", r.temp_c);
     r.precip_pct     = (int)jnum(cur, "precipitation_probability", 0);
     r.wind_kmh       = jnum(cur, "wind_speed_10m", 0);
+    r.wind_dir_deg   = jnum(cur, "wind_direction_10m", 0);
+    r.wind_gust_kmh  = jnum(cur, "wind_gusts_10m", r.wind_kmh);
+    r.is_night       = jnum(cur, "is_day", 1) == 0;
     r.weather_code   = (int)jnum(cur, "weather_code", 0);
 
     const cJSON *times = cJSON_GetObjectItemCaseSensitive(daily, "time");
@@ -65,6 +68,9 @@ bool weather_forecast_parse(const char *json, wfp_forecast_t *out) {
         r.days[i].feels_min_c  = jarr(daily, "apparent_temperature_min", i, r.days[i].temp_min_c);
         r.days[i].precip_pct   = (int)jarr(daily, "precipitation_probability_max", i, 0);
         r.days[i].wind_max_kmh = jarr(daily, "wind_speed_10m_max", i, 0);
+        r.days[i].precip_sum_mm = jarr(daily, "precipitation_sum", i, 0);
+        r.days[i].wind_gust_max_kmh = jarr(daily, "wind_gusts_10m_max", i, r.days[i].wind_max_kmh);
+        r.days[i].wind_dir_deg = jarr(daily, "wind_direction_10m_dominant", i, 0);
     }
 
     /* "Today" only (index 0) — see the struct field comments. */
@@ -89,6 +95,7 @@ bool weather_forecast_parse(const char *json, wfp_forecast_t *out) {
             for (int i = 0; i < cnt; i++) {
                 r.hourly[d].temp_c[i]    = jarr(hourly, "temperature_2m", base + i, 0);
                 r.hourly[d].precip_mm[i] = jarr(hourly, "precipitation", base + i, 0);
+                r.hourly[d].precip_prob_pct[i] = (int)jarr(hourly, "precipitation_probability", base + i, 0);
                 /* "time" is local ISO ("2026-09-08T14:00"); the hour is at offset 11. */
                 const cJSON *tv = cJSON_GetArrayItem(ht, base + i);
                 const char *ts = (cJSON_IsString(tv) && tv->valuestring) ? tv->valuestring : NULL;

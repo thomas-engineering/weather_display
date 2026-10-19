@@ -39,6 +39,12 @@ typedef struct {
     char uv_cat[24];      /* localized category, e.g. "Moderate" */
     char aqi_display[8];  /* rounded US AQI, e.g. "42" */
     char aqi_cat[24];
+    /* 2026-10-19 sync ("extra data"): wind arrow (degrees the arrow is rotated,
+     * pointing where the wind goes), gusts and whether it is night (is_day == 0),
+     * which picks the moon variants of the clear/partly-cloudy icons. */
+    int wind_arrow_deg;
+    float wind_gust_kmh;
+    bool is_night;
 } weather_current_t;
 
 typedef struct {
@@ -49,6 +55,13 @@ typedef struct {
     float feels_max_c, feels_min_c;
     float wind_max_kmh;
     int precip_pct;
+    /* 2026-10-19 sync: rain total ("0.4 mm" next to the percentage), gusts, and
+     * the dominant wind direction as arrow rotation plus compass point index
+     * (0..7 into weather_compass[][] in weather_i18n.h). */
+    float precip_sum_mm;
+    float wind_gust_kmh;
+    int wind_arrow_deg;
+    int wind_compass_idx;
 } weather_day_t;
 
 #define WEATHER_UI_CHART_POINTS 24
@@ -60,6 +73,7 @@ typedef struct {
     int count;
     float temp_c[WEATHER_UI_CHART_POINTS];       /* canonical Celsius; converted for display internally */
     float precip_mm[WEATHER_UI_CHART_POINTS];
+    int precip_prob_pct[WEATHER_UI_CHART_POINTS]; /* 0-100, drawn as the dotted rain-chance line */
     int hour[WEATHER_UI_CHART_POINTS];            /* 0-23, local time */
 } weather_hourly_t;
 
@@ -153,6 +167,26 @@ void weather_ui_set_brightness_adaptive_available(bool available);
  * without firing on_settings_changed — call once at startup with the
  * persisted value, same one-way pattern as weather_ui_set_brightness(). */
 void weather_ui_set_auto_refresh(int minutes);
+
+/* Screen saver (Claude Design, 2026-10-15 sync): Nixie clock that appears after
+ * `minutes` of inactivity (0 = never) and ends on the next tap. */
+#include <time.h>
+#include "screensaver_policy.h"
+/* Fired when the user changes the timeout or the colour style in Settings. */
+typedef void (*weather_ui_screensaver_cb_t)(int minutes, saver_style_t style);
+/* Fills the current local wall-clock time and the matching Unix time. Called
+ * from the LVGL task about once a second while the saver is up; return false
+ * when the clock is not set yet (the saver then keeps the last frame). */
+typedef bool (*weather_ui_local_time_cb_t)(struct tm *local, int64_t *unix_seconds);
+void weather_ui_set_screensaver_callback(weather_ui_screensaver_cb_t cb);
+void weather_ui_set_local_time_callback(weather_ui_local_time_cb_t cb);
+/* Applies the persisted setting without firing the callback (call once at startup). */
+void weather_ui_set_screensaver(int minutes, saver_style_t style);
+/* Test hooks: bring the saver up (true) or take it down (false) right now,
+ * through the same code a timeout and a tap use. The simulator's
+ * --screen screensaver* and the on-device fast-test build rely on them. */
+void weather_ui_screensaver_force(bool active);
+bool weather_ui_screensaver_active(void);
 
 /* Firmware update dialog state. WX_OTA_ERROR was added alongside the real
  * download/flash logic (main/ota_update.c) — the design's own fidelity only

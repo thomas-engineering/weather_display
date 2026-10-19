@@ -30,7 +30,15 @@ set +e
         idf.py -B "$BUILD_DIR" set-target esp32p4 || exit $?
     fi
     echo "== Build =="
-    idf.py -B "$BUILD_DIR" build
+    # SAVER_FAST_TEST=1: screen saver timeout counts seconds (docs/screensaver-test.md).
+    # Passed on every run so switching it back and forth only recompiles weather_ui.c.
+    # ccache: after a config change (sdkconfig.h) or a CMake edit the compiler is
+    # re-run for ~2000 files, most of which come out byte-identical (534 of them
+    # are empty after #if). ccache turns those into cache hits. NO_CCACHE=1 builds
+    # without it. Switching it on or off changes every compile command once.
+    CCACHE_FLAG=--ccache
+    [ "${NO_CCACHE:-0}" = 1 ] && CCACHE_FLAG=--no-ccache
+    idf.py -B "$BUILD_DIR" "$CCACHE_FLAG" -DWEATHER_SAVER_FAST_TEST="$([ "${SAVER_FAST_TEST:-0}" = 1 ] && echo ON || echo OFF)" build
 } >"$LOG" 2>&1
 status=$?
 set -e

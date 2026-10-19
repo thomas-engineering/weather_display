@@ -16,6 +16,7 @@ typedef struct {
     int   hour[WFP_HOURLY_POINTS];       /* 0-23, local time */
     float temp_c[WFP_HOURLY_POINTS];
     float precip_mm[WFP_HOURLY_POINTS];
+    int   precip_prob_pct[WFP_HOURLY_POINTS]; /* hourly rain chance, 0-100 (2026-10-19 sync) */
     int   count;                         /* may be < WFP_HOURLY_POINTS for a partial day */
     bool  valid;
 } wfp_hourly_t;
@@ -27,6 +28,11 @@ typedef struct {
     float temp_max_c, temp_min_c;
     float feels_max_c, feels_min_c;
     float wind_max_kmh;
+    /* 2026-10-19 sync ("extra data"): total rain, gusts and the direction the
+     * wind blows from. Missing fields default to 0 mm, wind_max_kmh and 0. */
+    float precip_sum_mm;
+    float wind_gust_max_kmh;
+    float wind_dir_deg;
 } wfp_day_t;
 
 typedef struct {
@@ -35,6 +41,10 @@ typedef struct {
     int   humidity_pct;
     int   precip_pct;
     float temp_c, feels_like_c, wind_kmh;
+    /* 2026-10-19 sync: direction the wind blows from, gusts (default: the
+     * wind speed) and Open-Meteo's is_day == 0. */
+    float wind_dir_deg, wind_gust_kmh;
+    bool  is_night;
 
     /* "Today" only (daily index 0), matching app_weather.c's do_refresh() —
      * these mirror the sunrise/sunset/uv_index_max fields added to the

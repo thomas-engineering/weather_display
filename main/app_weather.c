@@ -24,6 +24,7 @@
 #include "esp_system.h"
 #include "ota_update.h"
 #include "network_status_policy.h"
+#include "weather_display_math.h"
 #include "link_health_policy.h"
 #include "startup_retry_policy.h"
 #include "task_heartbeat.h"
@@ -37,6 +38,8 @@
 static const char *TAG = "weather";
 
 #define HTTP_BUF_MAX     (48 * 1024)
+/* Longest forecast request URL (current + hourly + daily field lists, 2026-10-19 sync). */
+#define FORECAST_URL_MAX_BYTES 768
 #define SEARCH_DEBOUNCE_MS 450
 #define SEARCH_MIN_QUERY_LEN 2
 
@@ -168,7 +171,10 @@ _Static_assert(APP_MS_TO_TICKS(OTA_AUTO_CHECK_INTERVAL_MS) >= 3600ULL * configTI
                "auto-check interval collapsed to under an hour -- tick conversion overflowed");
 static int   s_cur_code, s_cur_hum, s_cur_precip;
 static float s_cur_temp, s_cur_feel, s_cur_wind;
-static struct { char iso[12]; int code, precip; float tmax, tmin, fmax, fmin, wmax; } s_days[WEATHER_UI_DAYS];
+/* 2026-10-19 sync: wind direction (from), gusts, night flag. */
+static float s_cur_dir_deg, s_cur_gust;
+static bool  s_cur_night;
+static struct { char iso[12]; int code, precip; float tmax, tmin, fmax, fmin, wmax, psum, gust, dir_deg; } s_days[WEATHER_UI_DAYS];
 static int s_day_count;
 
 static weather_hourly_t s_hourly[WEATHER_UI_DAYS];
@@ -207,6 +213,7 @@ static char *http_get(const char *url) {
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = HTTP_TIMEOUT_MS,
         .buffer_size = HTTP_RX_BUFFER_BYTES,
+        .buffer_size_tx = HTTP_TX_BUFFER_BYTES,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) return NULL;
@@ -446,6 +453,15 @@ static void ui_error(const char *msg, bool is_manual) {
  * weather_ui_set_hourly() rebuilds the whole chart (~40 objects, several
  * lv_obj_update_layout() calls), all inside the same bsp_display_lock() the
  * LVGL renderer task also needs. */
+bool app_weather_get_local_time(struct tm *local, int64_t *unix_seconds) {
+    if (!s_have_forecast) return false;
+    time_t now_utc = time(NULL);
+    time_t shifted = now_utc + s_utc_offset;
+    gmtime_r(&shifted, local);
+    *unix_seconds = (int64_t)now_utc;
+    return true;
+}
+
 static void push_forecast_to_ui(bool full) {
     if (!s_have_forecast) return;
     const app_prefs_t *p = app_prefs_get();
@@ -490,6 +506,9 @@ static void push_forecast_to_ui(bool full) {
     cur.humidity_pct = s_cur_hum;
     cur.wind_kmh = s_cur_wind;
     cur.precip_pct = s_cur_precip;
+    cur.wind_arrow_deg = wdm_arrow_deg(s_cur_dir_deg);
+    cur.wind_gust_kmh = s_cur_gust;
+    cur.is_night = s_cur_night;
     fmt_real_feel(cur.real_feel_text, sizeof cur.real_feel_text,
                   s_cur_feel, s_cur_temp, s_cur_wind, s_cur_precip, lang);
     fmt_iso_time(cur.sunrise_str, sizeof cur.sunrise_str, s_sunrise_iso, p->time_fmt);
@@ -516,6 +535,10 @@ static void push_forecast_to_ui(bool full) {
         days[i].feels_min_c = s_days[i].fmin;
         days[i].wind_max_kmh = s_days[i].wmax;
         days[i].precip_pct = s_days[i].precip;
+        days[i].precip_sum_mm = s_days[i].psum;
+        days[i].wind_gust_kmh = s_days[i].gust;
+        days[i].wind_arrow_deg = wdm_arrow_deg(s_days[i].dir_deg);
+        days[i].wind_compass_idx = wdm_compass_index(s_days[i].dir_deg);
     }
 
     const weather_hourly_t *day_ptrs[WEATHER_UI_DAYS];
@@ -546,15 +569,16 @@ static bool do_refresh_body(bool is_manual) {
 
     if (bsp_display_lock(DISPLAY_LOCK_TIMEOUT_MS)) { weather_ui_set_loading(true); bsp_display_unlock(); }
 
-    char url[512];
+    char url[FORECAST_URL_MAX_BYTES];
     snprintf(url, sizeof url,
              "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
              "&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
-             "precipitation_probability,wind_speed_10m,weather_code"
-             "&hourly=temperature_2m,precipitation"
+             "precipitation_probability,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,weather_code"
+             "&hourly=temperature_2m,precipitation,precipitation_probability"
              "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
              "apparent_temperature_max,apparent_temperature_min,"
-             "precipitation_probability_max,wind_speed_10m_max,"
+             "precipitation_probability_max,precipitation_sum,wind_speed_10m_max,"
+             "wind_gusts_10m_max,wind_direction_10m_dominant,"
              "sunrise,sunset,uv_index_max"
              "&timezone=auto&forecast_days=%d",
              p->lat, p->lon, WEATHER_UI_DAYS);
@@ -582,6 +606,9 @@ static bool do_refresh_body(bool is_manual) {
     s_cur_feel   = jnum(cur, "apparent_temperature", s_cur_temp);
     s_cur_precip = (int)jnum(cur, "precipitation_probability", 0);
     s_cur_wind   = jnum(cur, "wind_speed_10m", 0);
+    s_cur_dir_deg = jnum(cur, "wind_direction_10m", 0);
+    s_cur_gust   = jnum(cur, "wind_gusts_10m", s_cur_wind);
+    s_cur_night  = wdm_is_night((int)jnum(cur, "is_day", 1));
     s_cur_code   = (int)jnum(cur, "weather_code", 0);
 
     const cJSON *times = cJSON_GetObjectItemCaseSensitive(daily, "time");
@@ -599,6 +626,9 @@ static bool do_refresh_body(bool is_manual) {
         s_days[i].fmin   = jarr(daily, "apparent_temperature_min", i, s_days[i].tmin);
         s_days[i].precip = (int)jarr(daily, "precipitation_probability_max", i, 0);
         s_days[i].wmax   = jarr(daily, "wind_speed_10m_max", i, 0);
+        s_days[i].psum   = jarr(daily, "precipitation_sum", i, 0);
+        s_days[i].gust   = jarr(daily, "wind_gusts_10m_max", i, s_days[i].wmax);
+        s_days[i].dir_deg = jarr(daily, "wind_direction_10m_dominant", i, 0);
     }
 
     /* Sunrise/sunset/UV: "today" only (index 0), matching the design's
@@ -625,6 +655,7 @@ static bool do_refresh_body(bool is_manual) {
             for (int i = 0; i < cnt; i++) {
                 s_hourly[d].temp_c[i]    = jarr(hourly, "temperature_2m", base + i, 0);
                 s_hourly[d].precip_mm[i] = jarr(hourly, "precipitation", base + i, 0);
+                s_hourly[d].precip_prob_pct[i] = (int)jarr(hourly, "precipitation_probability", base + i, 0);
                 const cJSON *tv = cJSON_GetArrayItem(ht, base + i);
                 const char *ts = (cJSON_IsString(tv) && tv->valuestring) ? tv->valuestring : NULL;
                 s_hourly[d].hour[i] = (ts && strlen(ts) >= ISO_HOUR_OFFSET + ISO_HOUR_DIGITS)

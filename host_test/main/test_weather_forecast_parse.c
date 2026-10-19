@@ -156,6 +156,77 @@ static void test_rejects_json_missing_current_or_daily(void) {
 /* Called from test_main.c's single main() — the host_test project builds one
  * executable for every component under test, so only one file may define
  * main()/setUp()/tearDown(). */
+/* 2026-10-19 sync: the same shape plus wind direction, gusts, is_day, hourly
+ * rain chance and the daily rain sum / gust maximum / dominant direction. */
+static const char *k_fixture_extra =
+    "{"
+    "\"utc_offset_seconds\":7200,"
+    "\"current\":{"
+        "\"temperature_2m\":9.0,\"relative_humidity_2m\":80,\"apparent_temperature\":7.0,"
+        "\"precipitation_probability\":60,\"wind_speed_10m\":20.0,"
+        "\"wind_direction_10m\":225,\"wind_gusts_10m\":41.5,\"is_day\":0,\"weather_code\":2"
+    "},"
+    "\"hourly\":{"
+        "\"time\":[\"2026-10-19T00:00\",\"2026-10-19T01:00\",\"2026-10-19T02:00\"],"
+        "\"temperature_2m\":[9,8,7],"
+        "\"precipitation\":[0,0.4,1.2],"
+        "\"precipitation_probability\":[10,20,95]"
+    "},"
+    "\"daily\":{"
+        "\"time\":[\"2026-10-19\",\"2026-10-20\"],"
+        "\"weather_code\":[2,61],"
+        "\"temperature_2m_max\":[12.0,11.0],\"temperature_2m_min\":[6.0,5.0],"
+        "\"apparent_temperature_max\":[10.0,9.0],\"apparent_temperature_min\":[4.0,3.0],"
+        "\"precipitation_probability_max\":[60,90],"
+        "\"precipitation_sum\":[0.4,12.6],"
+        "\"wind_speed_10m_max\":[25.0,30.0],"
+        "\"wind_gusts_10m_max\":[48.0,61.5],"
+        "\"wind_direction_10m_dominant\":[225,90]"
+    "}"
+    "}";
+
+static void test_parses_wind_direction_gusts_and_night_flag(void) {
+    wfp_forecast_t f;
+    TEST_ASSERT_TRUE(weather_forecast_parse(k_fixture_extra, &f));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 225.0f, f.wind_dir_deg);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 41.5f, f.wind_gust_kmh);
+    TEST_ASSERT_TRUE(f.is_night);
+}
+
+static void test_parses_daily_rain_sum_gusts_and_direction(void) {
+    wfp_forecast_t f;
+    TEST_ASSERT_TRUE(weather_forecast_parse(k_fixture_extra, &f));
+    TEST_ASSERT_EQUAL_INT(2, f.day_count);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.4f, f.days[0].precip_sum_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 12.6f, f.days[1].precip_sum_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 48.0f, f.days[0].wind_gust_max_kmh);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 61.5f, f.days[1].wind_gust_max_kmh);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 225.0f, f.days[0].wind_dir_deg);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 90.0f, f.days[1].wind_dir_deg);
+}
+
+static void test_parses_hourly_rain_chance(void) {
+    wfp_forecast_t f;
+    TEST_ASSERT_TRUE(weather_forecast_parse(k_fixture_extra, &f));
+    TEST_ASSERT_EQUAL_INT(3, f.hourly[0].count);
+    TEST_ASSERT_EQUAL_INT(10, f.hourly[0].precip_prob_pct[0]);
+    TEST_ASSERT_EQUAL_INT(20, f.hourly[0].precip_prob_pct[1]);
+    TEST_ASSERT_EQUAL_INT(95, f.hourly[0].precip_prob_pct[2]);
+}
+
+static void test_missing_extra_fields_fall_back_to_the_wind_speed(void) {
+    /* The old fixture has none of the new fields: gusts default to the wind
+     * speed, direction to 0, the rain sum to 0, and it is not night. */
+    wfp_forecast_t f;
+    TEST_ASSERT_TRUE(weather_forecast_parse(k_fixture, &f));
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f.wind_kmh, f.wind_gust_kmh);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, f.wind_dir_deg);
+    TEST_ASSERT_FALSE(f.is_night);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, f.days[0].precip_sum_mm);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, f.days[1].wind_max_kmh, f.days[1].wind_gust_max_kmh);
+    TEST_ASSERT_EQUAL_INT(0, f.hourly[0].precip_prob_pct[5]);
+}
+
 void test_weather_forecast_parse_run(void) {
     RUN_TEST(test_parses_current_conditions);
     RUN_TEST(test_parses_daily_series);
@@ -164,4 +235,8 @@ void test_weather_forecast_parse_run(void) {
     RUN_TEST(test_parses_sunrise_sunset_uv_for_today_only);
     RUN_TEST(test_rejects_malformed_json);
     RUN_TEST(test_rejects_json_missing_current_or_daily);
+    RUN_TEST(test_parses_wind_direction_gusts_and_night_flag);
+    RUN_TEST(test_parses_daily_rain_sum_gusts_and_direction);
+    RUN_TEST(test_parses_hourly_rain_chance);
+    RUN_TEST(test_missing_extra_fields_fall_back_to_the_wind_speed);
 }

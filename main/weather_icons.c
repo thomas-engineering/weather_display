@@ -1,5 +1,170 @@
 #include "weather_icons.h"
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* ---- filled shapes from the design's SVG paths ------------------------------
+ * LVGL cannot fill a Bezier path, so the moon and the wind arrow are rasterized
+ * once into an A8 coverage mask (scanline fill, 4 sub-rows with exact horizontal
+ * coverage) and shown as a recoloured, stretched image. */
+
+#define SHAPE_MASK_PX 128          /* mask resolution; the image is stretched to the icon size */
+#define SHAPE_SUBROWS 4
+#define SHAPE_BEZIER_STEPS 12
+#define SHAPE_MAX_SEGMENTS 8
+#define SHAPE_MAX_POINTS (SHAPE_MAX_SEGMENTS * SHAPE_BEZIER_STEPS + 2)
+#define MOON_BOX 64.0f             /* viewBox of WeatherIcon.dc.html */
+#define ARROW_BOX 24.0f            /* viewBox of the wind arrow */
+#define ARROW_ROTATION_TENTHS 10   /* LVGL rotation unit: 0.1 degree */
+#define SCALE_FULL 256             /* lv_image scale 256 = 100 % */
+
+typedef struct {
+    bool cubic;                    /* true: v = c1 c2 end, false: v[0..1] = end (straight line) */
+    float v[6];
+} shape_seg_t;
+
+typedef struct {
+    float box;                     /* side of the square the coordinates live in */
+    float start[2];
+    int count;
+    shape_seg_t seg[SHAPE_MAX_SEGMENTS];
+} shape_t;
+
+/* Crescent for the clear night, path "M38 6 C24 8 14 20 14 34 ..." of WeatherIcon.dc.html. */
+static const shape_t k_shape_moon = { MOON_BOX, { 38, 6 }, 6, {
+    { true, { 24, 8, 14, 20, 14, 34 } }, { true, { 14, 49, 26, 60, 41, 60 } },
+    { true, { 49, 60, 56, 56, 60, 50 } }, { true, { 56, 51, 53, 52, 49, 52 } },
+    { true, { 35, 52, 24, 41, 24, 27 } }, { true, { 24, 18, 30, 10, 38, 6 } } } };
+
+/* Smaller crescent behind the cloud for the partly-cloudy night, "M22 6 C14 8 9 15 9 23 ...". */
+static const shape_t k_shape_moon_small = { MOON_BOX, { 22, 6 }, 6, {
+    { true, { 14, 8, 9, 15, 9, 23 } }, { true, { 9, 31, 15, 36, 22, 36 } },
+    { true, { 27, 36, 31, 33, 33, 29 } }, { true, { 31, 30, 29, 30, 27, 30 } },
+    { true, { 20, 30, 15, 24, 15, 18 } }, { true, { 15, 13, 18, 9, 22, 6 } } } };
+
+/* Wind arrow "M12 2 L19 20 L12 16 L5 20 Z". */
+static const shape_t k_shape_arrow = { ARROW_BOX, { 12, 2 }, 3, {
+    { false, { 19, 20 } }, { false, { 12, 16 } }, { false, { 5, 20 } } } };
+
+typedef struct { float x, y; } pt_t;
+
+static int flatten_shape(const shape_t *s, pt_t *out) {
+    int n = 0;
+    out[n++] = (pt_t){ s->start[0], s->start[1] };
+    for (int i = 0; i < s->count; i++) {
+        const shape_seg_t *g = &s->seg[i];
+        pt_t p0 = out[n - 1];
+        if (!g->cubic) { out[n++] = (pt_t){ g->v[0], g->v[1] }; continue; }
+        for (int k = 1; k <= SHAPE_BEZIER_STEPS; k++) {
+            float t = (float)k / SHAPE_BEZIER_STEPS, u = 1.0f - t;
+            out[n].x = u * u * u * p0.x + 3 * u * u * t * g->v[0] + 3 * u * t * t * g->v[2] + t * t * t * g->v[4];
+            out[n].y = u * u * u * p0.y + 3 * u * u * t * g->v[1] + 3 * u * t * t * g->v[3] + t * t * t * g->v[5];
+            n++;
+        }
+    }
+    return n; /* the polygon closes from the last point back to the first */
+}
+
+static int cmp_float(const void *a, const void *b) {
+    float x = *(const float *)a, y = *(const float *)b;
+    return (x > y) - (x < y);
+}
+
+/* Fills `mask` (SHAPE_MASK_PX^2 bytes) with the shape's even-odd coverage. */
+static void rasterize_shape(const shape_t *s, uint8_t *mask) {
+    pt_t pts[SHAPE_MAX_POINTS];
+    int n = flatten_shape(s, pts);
+    float scale = SHAPE_MASK_PX / s->box;
+    float *acc = lv_malloc(sizeof(float) * SHAPE_MASK_PX);
+    if (!acc) { memset(mask, 0, SHAPE_MASK_PX * SHAPE_MASK_PX); return; }
+    for (int py = 0; py < SHAPE_MASK_PX; py++) {
+        for (int x = 0; x < SHAPE_MASK_PX; x++) acc[x] = 0.0f;
+        for (int sub = 0; sub < SHAPE_SUBROWS; sub++) {
+            float y = (py + (sub + 0.5f) / SHAPE_SUBROWS) / scale;
+            float xs[SHAPE_MAX_POINTS];
+            int nx = 0;
+            for (int i = 0; i < n; i++) {
+                pt_t a = pts[i], b = pts[(i + 1) % n];
+                if ((a.y <= y) == (b.y <= y)) continue;
+                xs[nx++] = a.x + (y - a.y) / (b.y - a.y) * (b.x - a.x);
+            }
+            qsort(xs, nx, sizeof(float), cmp_float);
+            for (int i = 0; i + 1 < nx; i += 2) {
+                float x0 = xs[i] * scale, x1 = xs[i + 1] * scale;
+                if (x1 <= 0.0f || x0 >= SHAPE_MASK_PX) continue;
+                if (x0 < 0.0f) x0 = 0.0f;
+                if (x1 > SHAPE_MASK_PX) x1 = SHAPE_MASK_PX;
+                for (int x = (int)x0; x <= (int)x1 && x < SHAPE_MASK_PX; x++) {
+                    float lo = x > x0 ? (float)x : x0, hi = (x + 1) < x1 ? (float)(x + 1) : x1;
+                    if (hi > lo) acc[x] += (hi - lo) / SHAPE_SUBROWS;
+                }
+            }
+        }
+        for (int x = 0; x < SHAPE_MASK_PX; x++) {
+            float a = acc[x] > 1.0f ? 1.0f : acc[x];
+            mask[py * SHAPE_MASK_PX + x] = (uint8_t)(a * LV_OPA_COVER + 0.5f);
+        }
+    }
+    lv_free(acc);
+}
+
+typedef struct { const shape_t *shape; lv_image_dsc_t dsc; uint8_t *buf; } shape_img_t;
+static shape_img_t s_moon = { .shape = &k_shape_moon }, s_moon_small = { .shape = &k_shape_moon_small },
+                     s_arrow = { .shape = &k_shape_arrow };
+
+/* Rasterizes on first use; keeps the mask for the life of the program. NULL if out of memory. */
+static const lv_image_dsc_t *shape_image(shape_img_t *si) {
+    if (!si->buf) {
+        si->buf = lv_malloc(SHAPE_MASK_PX * SHAPE_MASK_PX);
+        if (!si->buf) return NULL;
+        rasterize_shape(si->shape, si->buf);
+        si->dsc.header.magic = LV_IMAGE_HEADER_MAGIC;
+        si->dsc.header.cf = LV_COLOR_FORMAT_A8;
+        si->dsc.header.w = SHAPE_MASK_PX;
+        si->dsc.header.h = SHAPE_MASK_PX;
+        si->dsc.header.stride = SHAPE_MASK_PX;
+        si->dsc.data_size = SHAPE_MASK_PX * SHAPE_MASK_PX;
+        si->dsc.data = si->buf;
+    }
+    return &si->dsc;
+}
+
+/* A shape stretched to `size` px square at the top-left of `parent`, recoloured. */
+static lv_obj_t *shape_obj(lv_obj_t *parent, shape_img_t *si, int32_t size, lv_color_t color, lv_opa_t opa) {
+    const lv_image_dsc_t *dsc = shape_image(si);
+    if (!dsc) return NULL;
+    lv_obj_t *img = lv_image_create(parent);
+    lv_image_set_src(img, dsc);
+    lv_image_set_inner_align(img, LV_IMAGE_ALIGN_STRETCH);
+    lv_obj_set_size(img, size, size);
+    lv_obj_set_pos(img, 0, 0);
+    lv_obj_set_style_image_recolor(img, color, 0);
+    lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
+    lv_obj_set_style_image_opa(img, opa, 0);
+    lv_obj_remove_flag(img, LV_OBJ_FLAG_CLICKABLE); /* decorative, see dot() */
+    lv_obj_remove_flag(img, LV_OBJ_FLAG_SCROLLABLE);
+    return img;
+}
+
+lv_obj_t *weather_arrow_create(lv_obj_t *parent, int32_t size, lv_color_t color) {
+    lv_obj_t *img = shape_obj(parent, &s_arrow, size, color, LV_OPA_COVER);
+    if (!img) return NULL;
+    lv_obj_set_style_transform_pivot_x(img, size / 2, 0);
+    lv_obj_set_style_transform_pivot_y(img, size / 2, 0);
+    return img;
+}
+
+void weather_arrow_set_rotation(lv_obj_t *arrow, int deg) {
+    if (arrow) lv_obj_set_style_transform_rotation(arrow, deg * ARROW_ROTATION_TENTHS, 0);
+}
+
+weather_icon_t weather_icon_from_wmo_night(int code, bool night) {
+    weather_icon_t icon = weather_icon_from_wmo(code);
+    if (!night) return icon;
+    if (icon == WX_ICON_CLEAR) return WX_ICON_CLEAR_NIGHT;
+    if (icon == WX_ICON_PARTLY) return WX_ICON_PARTLY_NIGHT;
+    return icon;
+}
 
 weather_icon_t weather_icon_from_wmo(int code) {
     if (code == 0) return WX_ICON_CLEAR;
@@ -87,6 +252,13 @@ static void build_icon(lv_obj_t *cont, weather_icon_t icon, int32_t size, lv_col
         }
         case WX_ICON_PARTLY:
             dot(cont, size * 0.34f, size * 0.34f, size * 0.06f, size * 0.02f, color, LV_RADIUS_CIRCLE, LV_OPA_80);
+            build_cloud(cont, size, color, LV_OPA_COVER, 0.14f);
+            break;
+        case WX_ICON_CLEAR_NIGHT:
+            shape_obj(cont, &s_moon, size, color, LV_OPA_COVER);
+            break;
+        case WX_ICON_PARTLY_NIGHT:
+            shape_obj(cont, &s_moon_small, size, color, LV_OPA_80);
             build_cloud(cont, size, color, LV_OPA_COVER, 0.14f);
             break;
         case WX_ICON_CLOUD:

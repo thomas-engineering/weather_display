@@ -9,6 +9,8 @@
 #define APP_WEATHER_H
 
 #include <stdbool.h>
+#include <stdint.h>
+#include <time.h>
 #include "weather_i18n.h"
 
 #define APP_WEATHER_MAX_RESULTS 6
@@ -35,6 +37,12 @@ void app_weather_refresh(void);
 
 /* Re-renders already-fetched data in a new language (no network round-trip). */
 void app_weather_set_language(weather_lang_t lang);
+
+/* Local wall-clock time of the selected city plus the matching Unix time, for
+ * the screen saver's clock. Reads state the worker task updates; fine for a
+ * once-a-second display. Returns false until a first forecast has set the
+ * city's UTC offset (showing UTC meanwhile would be a wrong clock). */
+bool app_weather_get_local_time(struct tm *local, int64_t *unix_seconds);
 
 /* Wi-Fi setup, driven from the UI's network screen. All asynchronous. */
 void app_weather_wifi_scan(void);

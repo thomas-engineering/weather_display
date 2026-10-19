@@ -7,6 +7,17 @@
 </head>
 <body>
 <x-dc>
+<sc-if value="{{ isClearNight }}">
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M38 6 C24 8 14 20 14 34 C14 49 26 60 41 60 C49 60 56 56 60 50 C56 51 53 52 49 52 C35 52 24 41 24 27 C24 18 30 10 38 6 Z" fill="currentColor"></path>
+  </svg>
+</sc-if>
+<sc-if value="{{ isPartlyNight }}">
+  <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M22 6 C14 8 9 15 9 23 C9 31 15 36 22 36 C27 36 31 33 33 29 C31 30 29 30 27 30 C20 30 15 24 15 18 C15 13 18 9 22 6 Z" fill="currentColor" opacity="0.8"></path>
+    <path d="M18 46 C9 46 4 40 4 33 C4 26 10 21 17 22 C19 15 27 11 35 13 C42 15 46 21 45 27 C53 27 58 32 58 38 C58 43 53 46 47 46 Z" fill="currentColor"></path>
+  </svg>
+</sc-if>
 <sc-if value="{{ isClear }}" hint-placeholder-val="{{ true }}">
   <svg width="{{ size }}" height="{{ size }}" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
     <g fill="currentColor">
@@ -68,7 +79,7 @@
   </svg>
 </sc-if>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;code&quot;: {&quot;editor&quot;: null, &quot;default&quot;: 0, &quot;tsType&quot;: &quot;number&quot;}, &quot;size&quot;: {&quot;editor&quot;: null, &quot;default&quot;: 40, &quot;tsType&quot;: &quot;number&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;code&quot;:{&quot;editor&quot;:null,&quot;default&quot;:0,&quot;tsType&quot;:&quot;number&quot;},&quot;size&quot;:{&quot;editor&quot;:null,&quot;default&quot;:40,&quot;tsType&quot;:&quot;number&quot;},&quot;night&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
 class Component extends DCLogic {
   getCategory(code) {
     if (code === 0) return 'clear';
@@ -84,10 +95,13 @@ class Component extends DCLogic {
     const code = this.props.code ?? 0;
     const size = this.props.size ?? 40;
     const cat = this.getCategory(code);
+    const night = !!this.props.night;
     return {
       size,
-      isClear: cat === 'clear',
-      isPartly: cat === 'partly',
+      isClear: cat === 'clear' && !night,
+      isClearNight: cat === 'clear' && night,
+      isPartly: cat === 'partly' && !night,
+      isPartlyNight: cat === 'partly' && night,
       isCloud: cat === 'cloud',
       isFog: cat === 'fog',
       isRain: cat === 'rain',

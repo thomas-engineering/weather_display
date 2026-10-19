@@ -79,7 +79,7 @@
     <div class="card elev-md" style="flex:none;height:250px;display:flex;flex-direction:column;gap:12px;padding:16px 24px">
       <div style="flex:none;display:flex;flex-direction:row;align-items:center;gap:16px">
         <div style="flex:none;display:flex;align-items:center;justify-content:center;width:64px;height:64px">
-          <dc-import name="WeatherIcon" code="{{ current.weatherCode }}" size="64" hint-size="64px,64px"></dc-import>
+          <dc-import name="WeatherIcon" code="{{ current.weatherCode }}" night="{{ current.isNight }}" size="64" hint-size="64px,64px"></dc-import>
         </div>
         <div style="flex:none;width:150px">
           <span data-lv="tag.accent" class="tag tag-accent">{{ current.label }}</span>
@@ -98,7 +98,8 @@
           </div>
           <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 8px;overflow:hidden">
             <div data-lv="label.caption" style="font-size:11px;line-height:1.3;letter-spacing:0.03em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);overflow-wrap:break-word;hyphens:auto">{{ t.wind }}</div>
-            <div data-lv="label.value" style="font-size:16px;line-height:1.3;font-weight:500;font-family:var(--font-heading);overflow-wrap:break-word">{{ current.windDisplay }}</div>
+            <div data-lv="label.value" style="display:flex;align-items:center;gap:4px;font-size:16px;line-height:1.3;font-weight:500;font-family:var(--font-heading);white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" style="flex:none;transform:rotate({{ current.windArrowDeg }}deg)"><path d="M12 2 L19 20 L12 16 L5 20 Z" fill="var(--color-accent)"></path></svg><span>{{ current.windDisplay }}</span></div>
+            <div data-lv="label.caption" style="font-size:11px;color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.gusts }} {{ current.gustDisplay }}</div>
           </div>
           <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 8px;overflow:hidden">
             <div data-lv="label.caption" style="font-size:11px;line-height:1.3;letter-spacing:0.03em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);overflow-wrap:break-word;hyphens:auto">{{ t.precip }}</div>
@@ -124,6 +125,7 @@
           <div style="display:flex;flex-direction:column;gap:4px;flex:none">
             <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.temperature }}</span></div>
             <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--color-accent-700)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.precip }}</span></div>
+            <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="display:flex;gap:3px;width:8px;opacity:0.7"><span style="width:2px;height:2px;border-radius:50%;background:var(--color-accent-400)"></span><span style="width:2px;height:2px;border-radius:50%;background:var(--color-accent-400)"></span></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.rainChance }}</span></div>
           </div>
           <div style="position:relative;flex:1;height:100%">
             <svg viewBox="0 0 {{ current.chart.W }} {{ current.chart.H }}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible">
@@ -132,6 +134,7 @@
               <sc-for list="{{ current.chart.bars }}" as="bar" hint-placeholder-count="24">
                 <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.w }}" height="{{ bar.h }}" rx="1.5" fill="var(--color-accent-700)"></rect>
               </sc-for>
+              <polyline points="{{ current.chart.probPoints }}" fill="none" stroke="var(--color-accent-400)" stroke-width="1.5" stroke-dasharray="0 4" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"></polyline>
               <polyline points="{{ current.chart.linePoints }}" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
             </svg>
             <sc-for list="{{ current.chart.tempTicks }}" as="tick" hint-placeholder-count="3">
@@ -160,7 +163,7 @@
               <span data-lv="label.value" style="font-size:16px;font-weight:500">{{ day.hiDisplay }}</span>
               <span data-lv="label.caption" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 50%, transparent)">{{ day.loDisplay }}</span>
             </div>
-            <span data-lv="tag.outline" class="tag tag-outline" style="font-size:10px">{{ day.precipProb }}%</span>
+            <span data-lv="tag.outline" class="tag tag-outline" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap"><span>{{ day.precipProb }}%</span><span>·</span><span>{{ day.precipSumDisplay }}</span></span>
           </button>
         </sc-for>
       </div>
@@ -231,7 +234,7 @@
 
   <sc-if value="{{ settingsOpen }}">
     <div class="dialog-backdrop" style="position:absolute">
-      <div class="dialog">
+      <div class="dialog" style="width:max-content;max-width:calc(100% - 48px);max-height:calc(100% - 32px);overflow-y:auto;gap:var(--space-4)">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <div data-lv="label.title" class="dialog-title">{{ t.settings }}</div>
           <div style="display:flex;align-items:center;gap:8px">
@@ -243,7 +246,9 @@
           </button>
           </div>
         </div>
-        <div class="field">
+                <div style="display:grid;grid-template-columns:max-content max-content;gap:var(--space-4) var(--space-6);align-items:start">
+<div style="display:flex;flex-direction:column;gap:var(--space-4);min-width:0">
+<div class="field">
           <label data-lv="label.caption">{{ t.language }}</label>
           <div data-lv="segmented" class="seg">
             <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangDe }}" onChange="{{ setLangDe }}">Deutsch</label>
@@ -252,23 +257,23 @@
             <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="lg" checked="{{ isLangFr }}" onChange="{{ setLangFr }}">Français</label>
           </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4)">
-          <div class="field">
+<div style="display:flex;justify-content:space-between;gap:var(--space-4)">
+<div class="field">
             <label data-lv="label.caption">{{ t.temperature }}</label>
             <div data-lv="segmented" class="seg">
               <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempC }}" onChange="{{ setTempC }}">°C</label>
               <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tu" checked="{{ isTempF }}" onChange="{{ setTempF }}">°F</label>
             </div>
           </div>
-          <div class="field">
+<div class="field" style="align-items:flex-end;text-align:right">
             <label data-lv="label.caption">{{ t.timeFormat }}</label>
             <div data-lv="segmented" class="seg">
               <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime24 }}" onChange="{{ setTime24 }}">{{ t.h24 }}</label>
               <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="tf" checked="{{ isTime12 }}" onChange="{{ setTime12 }}">{{ t.h12 }}</label>
             </div>
           </div>
-        </div>
-        <div class="field">
+</div>
+<div class="field">
           <label data-lv="label.caption">{{ t.windSpeed }}</label>
           <div data-lv="segmented" class="seg">
             <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindKmh }}" onChange="{{ setWindKmh }}">km/h</label>
@@ -276,7 +281,21 @@
             <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="wu" checked="{{ isWindMs }}" onChange="{{ setWindMs }}">m/s</label>
           </div>
         </div>
-        <div class="field">
+<div class="field">
+          <div data-lv="panel.frame" style="display:flex;flex-direction:column;padding:var(--space-3) var(--space-4);border:1px solid var(--color-neutral-700);border-radius:var(--radius-md)">
+          <label data-lv="label.caption" style="display:block;font-size:12px;margin-bottom:5px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">{{ t.brightness }}</label>
+          <div style="padding:14px 0">
+            <input data-lv="input.range" type="range" min="4" max="100" step="1" value="{{ brightness }}" onInput="{{ setBrightness }}" style="display:block;width:100%;margin:0;accent-color:var(--color-accent)">
+          </div>
+          <div data-lv="switch.option" style="display:inline-flex;align-items:center;gap:var(--space-2);margin-top:var(--space-1);cursor:pointer" onClick="{{ toggleBrightnessAdaptive }}" role="switch" aria-checked="{{ brightnessAdaptive }}">
+            <span style="{{ switchTrackStyle }}"><span style="{{ switchThumbStyle }}"></span></span>
+            <span data-lv="label.caption" style="font-family:var(--font-body);font-size:12px;color:color-mix(in srgb, var(--color-text) 70%, transparent)">{{ t.brightnessAdaptive }}</span>
+          </div>
+          </div>
+        </div>
+</div>
+<div style="display:flex;flex-direction:column;gap:var(--space-4);min-width:0">
+<div class="field">
           <label data-lv="label.caption">{{ t.autoRefresh }}</label>
           <div data-lv="segmented" class="seg">
             <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ar" checked="{{ isAutoOff }}" onChange="{{ setAutoOff }}">{{ t.autoOff }}</label>
@@ -285,15 +304,23 @@
             <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ar" checked="{{ isAuto60 }}" onChange="{{ setAuto60 }}">{{ t.auto60 }}</label>
           </div>
         </div>
+<div class="field">
+          <label data-lv="label.caption">{{ t.screenSaver }}</label>
+          <div data-lv="segmented" class="seg">
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ss" checked="{{ isSaverOff }}" onChange="{{ setSaverOff }}">{{ t.autoOff }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ss" checked="{{ isSaver15 }}" onChange="{{ setSaver15 }}">{{ t.auto15 }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ss" checked="{{ isSaver30 }}" onChange="{{ setSaver30 }}">{{ t.auto30 }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="ss" checked="{{ isSaver60 }}" onChange="{{ setSaver60 }}">{{ t.auto60 }}</label>
+          </div>
+        </div>
         <div class="field">
-          <label data-lv="label.caption">{{ t.brightness }}</label>
-          <div style="padding:14px 0">
-            <input data-lv="input.range" type="range" min="10" max="100" step="1" value="{{ brightness }}" onInput="{{ setBrightness }}" style="display:block;width:100%;margin:0;accent-color:var(--color-accent)">
+          <label data-lv="label.caption">{{ t.saverStyle }}</label>
+          <div data-lv="segmented" class="seg">
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="sst" checked="{{ isSaverTheme }}" onChange="{{ setSaverTheme }}">{{ t.saverStyleTheme }}</label>
+            <label class="seg-opt" style="padding:12px 16px;font-size:14px;min-height:44px"><input type="radio" name="sst" checked="{{ isSaverOrange }}" onChange="{{ setSaverOrange }}">{{ t.saverStyleOrange }}</label>
           </div>
-          <div data-lv="switch.option" style="display:inline-flex;align-items:center;gap:var(--space-2);margin-top:var(--space-1);cursor:pointer" onClick="{{ toggleBrightnessAdaptive }}" role="switch" aria-checked="{{ brightnessAdaptive }}">
-            <span style="{{ switchTrackStyle }}"><span style="{{ switchThumbStyle }}"></span></span>
-            <span data-lv="label.body" style="font-size:13px">{{ t.brightnessAdaptive }}</span>
-          </div>
+        </div>
+</div>
         </div>
         <div class="field">
           <label data-lv="label.caption">{{ t.network }}</label>
@@ -547,11 +574,12 @@
           </div>
           <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:var(--space-3)">
             <div data-lv="label.caption" style="font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.precip }}</div>
-            <div data-lv="label.value" style="font-size:15px;font-weight:500;font-family:var(--font-heading)">{{ selectedDay.precipProb }}%</div>
+            <div data-lv="label.value" style="display:flex;align-items:center;gap:6px;font-size:15px;font-weight:500;font-family:var(--font-heading);white-space:nowrap"><span>{{ selectedDay.precipProb }}%</span><span>·</span><span>{{ selectedDay.precipSumDisplay }}</span></div>
           </div>
           <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:var(--space-3)">
             <div data-lv="label.caption" style="font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.wind }}</div>
-            <div data-lv="label.value" style="font-size:15px;font-weight:500;font-family:var(--font-heading)">{{ selectedDay.windDisplay }}</div>
+            <div data-lv="label.value" style="display:flex;align-items:center;gap:6px;font-size:15px;font-weight:500;font-family:var(--font-heading);white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" style="flex:none;transform:rotate({{ selectedDay.windArrowDeg }}deg)"><path d="M12 2 L19 20 L12 16 L5 20 Z" fill="var(--color-accent)"></path></svg><span>{{ selectedDay.windCompass }} · {{ selectedDay.windDisplay }}</span></div>
+            <div data-lv="label.caption" style="font-size:11px;color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.gusts }} {{ selectedDay.gustDisplay }}</div>
           </div>
         </div>
 
@@ -560,6 +588,7 @@
             <div style="display:flex;flex-direction:column;gap:4px;flex:none">
               <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.temperature }}</span></div>
               <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--color-accent-700)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.precip }}</span></div>
+            <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="display:flex;gap:3px;width:8px;opacity:0.7"><span style="width:2px;height:2px;border-radius:50%;background:var(--color-accent-400)"></span><span style="width:2px;height:2px;border-radius:50%;background:var(--color-accent-400)"></span></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.rainChance }}</span></div>
             </div>
             <div style="position:relative;flex:1;height:100%">
               <svg viewBox="0 0 {{ selectedDay.chart.W }} {{ selectedDay.chart.H }}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible">
@@ -568,7 +597,8 @@
                 <sc-for list="{{ selectedDay.chart.bars }}" as="bar" hint-placeholder-count="24">
                   <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.w }}" height="{{ bar.h }}" rx="1.5" fill="var(--color-accent-700)"></rect>
                 </sc-for>
-                <polyline points="{{ selectedDay.chart.linePoints }}" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+                <polyline points="{{ selectedDay.chart.probPoints }}" fill="none" stroke="var(--color-accent-400)" stroke-width="1.5" stroke-dasharray="0 4" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"></polyline>
+              <polyline points="{{ selectedDay.chart.linePoints }}" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
               </svg>
               <sc-for list="{{ selectedDay.chart.tempTicks }}" as="tick" hint-placeholder-count="3">
                 <div data-lv="label.caption" style="position:absolute;left:0;top:{{ tick.topPct }}%;transform:translateY(-50%);font-size:9px;color:var(--color-accent)">{{ tick.text }}</div>
@@ -586,9 +616,82 @@
     </div>
   </sc-if>
 
+  <sc-if value="{{ saverVisible }}">
+    <div data-screen-label="Screen saver" onClick="{{ dismissSaver }}" style="--sv-ghost:{{ sv.ghost }};--sv-g1:{{ sv.g1 }};--sv-g2:{{ sv.g2 }};--sv-g3:{{ sv.g3 }};--sv-g4:{{ sv.g4 }};--sv-bg:{{ sv.bg }};--sv-bar:{{ sv.bar }};--sv-bar-shadow:{{ sv.barShadow }};--sv-cage:{{ sv.cage }};--sv-cage-shadow:{{ sv.cageShadow }};--sv-mesh:{{ sv.mesh }};--sv-pin1:{{ sv.pin1 }};--sv-pin2:{{ sv.pin2 }};--sv-dot:{{ sv.dot }};--sv-dot-shadow:{{ sv.dotShadow }};--sv-text:{{ sv.text }};--sv-text-shadow:{{ sv.textShadow }};--sv-sep:{{ sv.sep }};--sv-sep-shadow:{{ sv.sepShadow }};position:absolute;inset:0;z-index:100;background:var(--sv-bg);display:flex;flex-direction:{{ saverDirection }};align-items:center;cursor:pointer">
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;transform:{{ saverShift }};transition:transform 3s ease-in-out">
+      <div style="position:relative;display:flex;align-items:center;gap:16px;padding:0 30px">
+        <div style="position:absolute;left:0;right:0;top:270px;height:46px;z-index:2;border-radius:6px;background:var(--sv-bar);box-shadow:var(--sv-bar-shadow)"></div>
+        <div style="display:flex;gap:6px">
+        <sc-for list="{{ saverH }}" as="tube" hint-placeholder-count="2">
+        <div style="position:relative;width:124px;height:300px;flex:none">
+          <div style="position:absolute;left:0;right:0;top:0;bottom:22px;border-radius:62px 62px 14px 14px / 56px 56px 10px 10px;background:linear-gradient(90deg, rgba(200,215,210,.20) 0%, rgba(200,215,210,.05) 9%, rgba(255,255,255,.02) 22%, rgba(255,255,255,0) 50%, rgba(255,255,255,.02) 78%, rgba(200,215,210,.06) 91%, rgba(200,215,210,.22) 100%);box-shadow:inset 0 0 0 1px rgba(210,225,220,.22), inset 0 6px 10px rgba(255,255,255,.06)"></div>
+          <div style="position:absolute;left:50%;top:-5px;width:10px;height:9px;margin-left:-5px;border-radius:5px 5px 2px 2px;background:linear-gradient(180deg, rgba(220,230,228,.35), rgba(220,230,228,.08))"></div>
+          <div style="position:absolute;left:21px;right:21px;top:56px;height:196px;border-radius:2px;background:var(--sv-cage);box-shadow:var(--sv-cage-shadow)"></div>
+          <div style="position:absolute;left:29px;right:29px;top:64px;height:180px">{{ tube.svg }}</div>
+          <div style="position:absolute;left:21px;right:21px;top:56px;height:196px;opacity:.5;background-image:repeating-linear-gradient(0deg, transparent 0 4px, var(--sv-mesh) 4px 4.6px), repeating-linear-gradient(60deg, transparent 0 4px, var(--sv-mesh) 4px 4.6px), repeating-linear-gradient(120deg, transparent 0 4px, var(--sv-mesh) 4px 4.6px)"></div>
+          <div style="position:absolute;left:58px;top:48px;width:8px;height:8px;border-radius:50%;background:var(--sv-pin1)"></div>
+          <div style="position:absolute;left:58px;top:252px;width:8px;height:8px;border-radius:50%;background:var(--sv-pin2)"></div>
+          <div style="position:absolute;left:3px;right:3px;bottom:22px;height:16px;border-radius:0 0 12px 12px / 0 0 8px 8px;background:linear-gradient(180deg, rgba(210,225,220,.05), rgba(210,225,220,.18));border-bottom:1px solid rgba(220,232,228,.35)"></div>
+                    <div style="position:absolute;left:14px;top:30px;width:6px;height:210px;border-radius:3px;background:linear-gradient(180deg, rgba(255,255,255,.0), rgba(255,255,255,.18) 20%, rgba(255,255,255,.06) 80%, rgba(255,255,255,0));pointer-events:none"></div>
+          <div style="position:absolute;right:10px;top:40px;width:3px;height:180px;border-radius:2px;background:linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,.12) 30%, rgba(255,255,255,0));pointer-events:none"></div>
+        </div>
+        </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:30px;flex:none;margin-bottom:22px">
+          <div style="width:9px;height:9px;border-radius:50%;background:var(--sv-dot);box-shadow:var(--sv-dot-shadow)"></div>
+          <div style="width:9px;height:9px;border-radius:50%;background:var(--sv-dot);box-shadow:var(--sv-dot-shadow)"></div>
+        </div>
+        <div style="display:flex;gap:6px">
+        <sc-for list="{{ saverM }}" as="tube" hint-placeholder-count="2">
+        <div style="position:relative;width:124px;height:300px;flex:none">
+          <div style="position:absolute;left:0;right:0;top:0;bottom:22px;border-radius:62px 62px 14px 14px / 56px 56px 10px 10px;background:linear-gradient(90deg, rgba(200,215,210,.20) 0%, rgba(200,215,210,.05) 9%, rgba(255,255,255,.02) 22%, rgba(255,255,255,0) 50%, rgba(255,255,255,.02) 78%, rgba(200,215,210,.06) 91%, rgba(200,215,210,.22) 100%);box-shadow:inset 0 0 0 1px rgba(210,225,220,.22), inset 0 6px 10px rgba(255,255,255,.06)"></div>
+          <div style="position:absolute;left:50%;top:-5px;width:10px;height:9px;margin-left:-5px;border-radius:5px 5px 2px 2px;background:linear-gradient(180deg, rgba(220,230,228,.35), rgba(220,230,228,.08))"></div>
+          <div style="position:absolute;left:21px;right:21px;top:56px;height:196px;border-radius:2px;background:var(--sv-cage);box-shadow:var(--sv-cage-shadow)"></div>
+          <div style="position:absolute;left:29px;right:29px;top:64px;height:180px">{{ tube.svg }}</div>
+          <div style="position:absolute;left:21px;right:21px;top:56px;height:196px;opacity:.5;background-image:repeating-linear-gradient(0deg, transparent 0 4px, var(--sv-mesh) 4px 4.6px), repeating-linear-gradient(60deg, transparent 0 4px, var(--sv-mesh) 4px 4.6px), repeating-linear-gradient(120deg, transparent 0 4px, var(--sv-mesh) 4px 4.6px)"></div>
+          <div style="position:absolute;left:58px;top:48px;width:8px;height:8px;border-radius:50%;background:var(--sv-pin1)"></div>
+          <div style="position:absolute;left:58px;top:252px;width:8px;height:8px;border-radius:50%;background:var(--sv-pin2)"></div>
+          <div style="position:absolute;left:3px;right:3px;bottom:22px;height:16px;border-radius:0 0 12px 12px / 0 0 8px 8px;background:linear-gradient(180deg, rgba(210,225,220,.05), rgba(210,225,220,.18));border-bottom:1px solid rgba(220,232,228,.35)"></div>
+                    <div style="position:absolute;left:14px;top:30px;width:6px;height:210px;border-radius:3px;background:linear-gradient(180deg, rgba(255,255,255,.0), rgba(255,255,255,.18) 20%, rgba(255,255,255,.06) 80%, rgba(255,255,255,0));pointer-events:none"></div>
+          <div style="position:absolute;right:10px;top:40px;width:3px;height:180px;border-radius:2px;background:linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,.12) 30%, rgba(255,255,255,0));pointer-events:none"></div>
+        </div>
+        </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:30px;flex:none;margin-bottom:22px">
+          <div style="width:9px;height:9px;border-radius:50%;background:var(--sv-dot);box-shadow:var(--sv-dot-shadow)"></div>
+          <div style="width:9px;height:9px;border-radius:50%;background:var(--sv-dot);box-shadow:var(--sv-dot-shadow)"></div>
+        </div>
+        <div style="display:flex;gap:6px">
+        <sc-for list="{{ saverS }}" as="tube" hint-placeholder-count="2">
+        <div style="position:relative;width:124px;height:300px;flex:none">
+          <div style="position:absolute;left:0;right:0;top:0;bottom:22px;border-radius:62px 62px 14px 14px / 56px 56px 10px 10px;background:linear-gradient(90deg, rgba(200,215,210,.20) 0%, rgba(200,215,210,.05) 9%, rgba(255,255,255,.02) 22%, rgba(255,255,255,0) 50%, rgba(255,255,255,.02) 78%, rgba(200,215,210,.06) 91%, rgba(200,215,210,.22) 100%);box-shadow:inset 0 0 0 1px rgba(210,225,220,.22), inset 0 6px 10px rgba(255,255,255,.06)"></div>
+          <div style="position:absolute;left:50%;top:-5px;width:10px;height:9px;margin-left:-5px;border-radius:5px 5px 2px 2px;background:linear-gradient(180deg, rgba(220,230,228,.35), rgba(220,230,228,.08))"></div>
+          <div style="position:absolute;left:21px;right:21px;top:56px;height:196px;border-radius:2px;background:var(--sv-cage);box-shadow:var(--sv-cage-shadow)"></div>
+          <div style="position:absolute;left:29px;right:29px;top:64px;height:180px">{{ tube.svg }}</div>
+          <div style="position:absolute;left:21px;right:21px;top:56px;height:196px;opacity:.5;background-image:repeating-linear-gradient(0deg, transparent 0 4px, var(--sv-mesh) 4px 4.6px), repeating-linear-gradient(60deg, transparent 0 4px, var(--sv-mesh) 4px 4.6px), repeating-linear-gradient(120deg, transparent 0 4px, var(--sv-mesh) 4px 4.6px)"></div>
+          <div style="position:absolute;left:58px;top:48px;width:8px;height:8px;border-radius:50%;background:var(--sv-pin1)"></div>
+          <div style="position:absolute;left:58px;top:252px;width:8px;height:8px;border-radius:50%;background:var(--sv-pin2)"></div>
+          <div style="position:absolute;left:3px;right:3px;bottom:22px;height:16px;border-radius:0 0 12px 12px / 0 0 8px 8px;background:linear-gradient(180deg, rgba(210,225,220,.05), rgba(210,225,220,.18));border-bottom:1px solid rgba(220,232,228,.35)"></div>
+                    <div style="position:absolute;left:14px;top:30px;width:6px;height:210px;border-radius:3px;background:linear-gradient(180deg, rgba(255,255,255,.0), rgba(255,255,255,.18) 20%, rgba(255,255,255,.06) 80%, rgba(255,255,255,0));pointer-events:none"></div>
+          <div style="position:absolute;right:10px;top:40px;width:3px;height:180px;border-radius:2px;background:linear-gradient(180deg, rgba(255,255,255,0), rgba(255,255,255,.12) 30%, rgba(255,255,255,0));pointer-events:none"></div>
+        </div>
+        </sc-for>
+        </div>
+      </div>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:var(--space-4);padding:32px 0;font-family:var(--font-heading);transform:{{ saverShift }};transition:transform 3s ease-in-out">
+        <span data-lv="label.title" style="font-size:22px;font-weight:500;color:var(--sv-text);text-shadow:var(--sv-text-shadow)">{{ saverDate }}</span>
+        <sc-if value="{{ saverHasTemp }}" hint-placeholder-val="{{ true }}">
+          <span style="width:4px;height:4px;border-radius:50%;background:var(--sv-sep);box-shadow:var(--sv-sep-shadow);align-self:center"></span>
+          <span data-lv="label.title" style="font-size:22px;font-weight:500;color:var(--sv-text);text-shadow:var(--sv-text-shadow)">{{ saverTemp }}</span>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1024, &quot;height&quot;: 600}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1024,&quot;height&quot;:600},&quot;previewScreenSaver&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Screen saver&quot;}}">
 class Component extends DCLogic {
   state = {
     location: { name: 'Trier', country: 'Germany', lat: 49.7499, lon: 6.6371 },
@@ -623,6 +726,10 @@ class Component extends DCLogic {
     isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
     lastFetchSuccessAt: null,
     autoRefreshMinutes: 30,
+    screenSaverMinutes: 0,
+    saverStyle: 'theme',
+    saverActive: false,
+    saverNow: new Date(),
     wifiForgetConfirmOpen: false,
     airQuality: null,
     favorites: new Array(6).fill(null),
@@ -640,13 +747,13 @@ class Component extends DCLogic {
         noCities: 'No cities found.', searching: 'Searching…', settings: 'Settings',
         temperature: 'Temperature', windSpeed: 'Wind speed', timeFormat: 'Time format',
         language: 'Language', favorites: 'Favorites', favorite: 'Favorite', emptyFavorite: 'Empty', removeFavorite: 'Remove favorite', h24: '24-hour', h12: '12-hour', humidity: 'Humidity',
-        feelsLike: 'Feels like', wind: 'Wind', precip: 'Precip.', forecast: '7-Day Forecast',
+        feelsLike: 'Feels like', wind: 'Wind', precip: 'Precip.', gusts: 'Gusts', rainChance: 'Rain chance', forecast: '7-Day Forecast',
         loading: 'Loading weather…', today: 'Today', tomorrow: 'Tomorrow', error: 'Could not load weather',
         dataUpdated: 'Weather data updated.',
         updatedNow: 'Updated just now', updatedAgoMin: 'Updated {n} min ago', updatedAgoHour: 'Updated {n} h ago',
         sunrise: 'Sunrise', sunset: 'Sunset', uvIndex: 'UV index',
         uvLow: 'Low', uvModerate: 'Moderate', uvHigh: 'High', uvVeryHigh: 'Very high', uvExtreme: 'Extreme',
-        autoRefresh: 'Auto-refresh', autoOff: 'Off', auto15: '15 min', auto30: '30 min', auto60: '1 h',
+        screenSaver: 'Screen saver after inactivity', saverStyle: 'Screen saver colours', saverStyleTheme: 'App theme', saverStyleOrange: 'Nixie orange', autoRefresh: 'Auto-refresh Weather Data', autoOff: 'Off', auto15: '15 min', auto30: '30 min', auto60: '1 h',
         airQuality: 'Air quality', aqiGood: 'Good', aqiModerate: 'Moderate', aqiUnhealthySensitive: 'Unhealthy (sensitive)',
         aqiUnhealthy: 'Unhealthy', aqiVeryUnhealthy: 'Very unhealthy', aqiHazardous: 'Hazardous',
         forgetConfirmTitle: 'Forget this network?', forgetConfirmBody: 'You will need to enter the password again to reconnect.',
@@ -661,7 +768,7 @@ class Component extends DCLogic {
         notConnected: 'Not connected to the internet',
         lastUpdate: 'Weather data as of', noUpdateYet: 'No update yet',
         space: 'Space', done: 'Done',
-        brightness: 'Brightness', brightnessAdaptive: 'Adapt to ambient light',
+        brightness: 'Screen-Brightness', brightnessAdaptive: 'Adapt to ambient light',
         network: 'Network', configureNetwork: 'Configure network', wifiTitle: 'Wi-Fi networks',
         scan: 'Scan', scanning: 'Scanning…', noNetworks: 'No networks found.', secured: 'Secured', open: 'Open',
         forgetSavedNetwork: 'Forget saved network',
@@ -678,13 +785,13 @@ class Component extends DCLogic {
         noCities: 'Keine Städte gefunden.', searching: 'Suche…', settings: 'Einstellungen',
         temperature: 'Temperatur', windSpeed: 'Windgeschwindigkeit', timeFormat: 'Zeitformat',
         language: 'Sprache', favorites: 'Favoriten', favorite: 'Favorit', emptyFavorite: 'Leer', removeFavorite: 'Favorit entfernen', h24: '24 Std.', h12: '12 Std.', humidity: 'Luftfeuchte',
-        feelsLike: 'Gefühlt', wind: 'Wind', precip: 'Niederschlag', forecast: '7-Tage-Vorhersage',
+        feelsLike: 'Gefühlt', wind: 'Wind', precip: 'Niederschlag', gusts: 'Böen', rainChance: 'Regenrisiko', forecast: '7-Tage-Vorhersage',
         loading: 'Wetter wird geladen…', today: 'Heute', tomorrow: 'Morgen', error: 'Wetter konnte nicht geladen werden',
         dataUpdated: 'Wetterdaten aktualisiert.',
         updatedNow: 'Gerade aktualisiert', updatedAgoMin: 'Vor {n} Min. aktualisiert', updatedAgoHour: 'Vor {n} Std. aktualisiert',
         sunrise: 'Sonnenaufgang', sunset: 'Sonnenuntergang', uvIndex: 'UV-Index',
         uvLow: 'Niedrig', uvModerate: 'Mäßig', uvHigh: 'Hoch', uvVeryHigh: 'Sehr hoch', uvExtreme: 'Extrem',
-        autoRefresh: 'Automatische Aktualisierung', autoOff: 'Aus', auto15: '15 Min', auto30: '30 Min', auto60: '1 Std',
+        screenSaver: 'Bildschirmschoner nach Inaktivität', saverStyle: 'Farben Bildschirmschoner', saverStyleTheme: 'App-Design', saverStyleOrange: 'Nixie-Orange', autoRefresh: 'Automatische Aktualisierung', autoOff: 'Aus', auto15: '15 Min', auto30: '30 Min', auto60: '1 Std',
         airQuality: 'Luftqualität', aqiGood: 'Gut', aqiModerate: 'Mäßig', aqiUnhealthySensitive: 'Ungesund (sensibel)',
         aqiUnhealthy: 'Ungesund', aqiVeryUnhealthy: 'Sehr ungesund', aqiHazardous: 'Gefährlich',
         forgetConfirmTitle: 'Dieses Netzwerk vergessen?', forgetConfirmBody: 'Du musst das Passwort erneut eingeben, um dich wieder zu verbinden.',
@@ -699,7 +806,7 @@ class Component extends DCLogic {
         notConnected: 'Nicht mit dem Internet verbunden',
         lastUpdate: 'Wetterdaten vom', noUpdateYet: 'Noch keine Aktualisierung',
         space: 'Leerzeichen', done: 'Fertig',
-        brightness: 'Helligkeit', brightnessAdaptive: 'An Umgebungslicht anpassen',
+        brightness: 'Bildschirmhelligkeit', brightnessAdaptive: 'An Umgebungslicht anpassen',
         network: 'Netzwerk', configureNetwork: 'Netzwerk konfigurieren', wifiTitle: 'WLAN-Netzwerke',
         scan: 'Suchen', scanning: 'Suche läuft…', noNetworks: 'Keine Netzwerke gefunden.', secured: 'Gesichert', open: 'Offen',
         forgetSavedNetwork: 'Gespeichertes Netzwerk vergessen',
@@ -716,13 +823,13 @@ class Component extends DCLogic {
         noCities: 'No se encontraron ciudades.', searching: 'Buscando…', settings: 'Ajustes',
         temperature: 'Temperatura', windSpeed: 'Velocidad del viento', timeFormat: 'Formato de hora',
         language: 'Idioma', favorites: 'Favoritos', favorite: 'Favorito', emptyFavorite: 'Vacío', removeFavorite: 'Quitar favorito', h24: '24 h', h12: '12 h', humidity: 'Humedad',
-        feelsLike: 'Sensación', wind: 'Viento', precip: 'Precip.', forecast: 'Pronóstico de 7 días',
+        feelsLike: 'Sensación', wind: 'Viento', precip: 'Precip.', gusts: 'Rachas', rainChance: 'Prob. lluvia', forecast: 'Pronóstico de 7 días',
         loading: 'Cargando el clima…', today: 'Hoy', tomorrow: 'Mañana', error: 'No se pudo cargar el clima',
         dataUpdated: 'Datos del clima actualizados.',
         updatedNow: 'Actualizado justo ahora', updatedAgoMin: 'Actualizado hace {n} min', updatedAgoHour: 'Actualizado hace {n} h',
         sunrise: 'Amanecer', sunset: 'Atardecer', uvIndex: 'Índice UV',
         uvLow: 'Bajo', uvModerate: 'Moderado', uvHigh: 'Alto', uvVeryHigh: 'Muy alto', uvExtreme: 'Extremo',
-        autoRefresh: 'Actualización automática', autoOff: 'Apagado', auto15: '15 min', auto30: '30 min', auto60: '1 h',
+        screenSaver: 'Salvapantallas tras inactividad', saverStyle: 'Colores del salvapantallas', saverStyleTheme: 'Tema de la app', saverStyleOrange: 'Naranja nixie', autoRefresh: 'Actualización automática', autoOff: 'Apagado', auto15: '15 min', auto30: '30 min', auto60: '1 h',
         airQuality: 'Calidad del aire', aqiGood: 'Buena', aqiModerate: 'Moderada', aqiUnhealthySensitive: 'Insalubre (sensibles)',
         aqiUnhealthy: 'Insalubre', aqiVeryUnhealthy: 'Muy insalubre', aqiHazardous: 'Peligrosa',
         forgetConfirmTitle: '¿Olvidar esta red?', forgetConfirmBody: 'Deberás introducir la contraseña de nuevo para volver a conectarte.',
@@ -737,7 +844,7 @@ class Component extends DCLogic {
         notConnected: 'Sin conexión a Internet',
         lastUpdate: 'Datos meteorológicos del', noUpdateYet: 'Aún sin actualizar',
         space: 'Espacio', done: 'Listo',
-        brightness: 'Brillo', brightnessAdaptive: 'Adaptar a la luz ambiental',
+        brightness: 'Brillo de pantalla', brightnessAdaptive: 'Adaptar a la luz ambiental',
         network: 'Red', configureNetwork: 'Configurar red', wifiTitle: 'Redes Wi-Fi',
         scan: 'Buscar', scanning: 'Buscando…', noNetworks: 'No se encontraron redes.', secured: 'Protegida', open: 'Abierta',
         forgetSavedNetwork: 'Olvidar red guardada',
@@ -754,13 +861,13 @@ class Component extends DCLogic {
         noCities: 'Aucune ville trouvée.', searching: 'Recherche…', settings: 'Paramètres',
         temperature: 'Température', windSpeed: 'Vitesse du vent', timeFormat: 'Format de l\u2019heure',
         language: 'Langue', favorites: 'Favoris', favorite: 'Favori', emptyFavorite: 'Vide', removeFavorite: 'Retirer le favori', h24: '24 h', h12: '12 h', humidity: 'Humidité',
-        feelsLike: 'Ressenti', wind: 'Vent', precip: 'Précip.', forecast: 'Prévisions sur 7 jours',
+        feelsLike: 'Ressenti', wind: 'Vent', precip: 'Précip.', gusts: 'Rafales', rainChance: 'Risque pluie', forecast: 'Prévisions sur 7 jours',
         loading: 'Chargement de la météo…', today: 'Aujourd\u2019hui', tomorrow: 'Demain', error: 'Impossible de charger la météo',
         dataUpdated: 'Données météo mises à jour.',
         updatedNow: 'Mis à jour à l\u2019instant', updatedAgoMin: 'Mis à jour il y a {n} min', updatedAgoHour: 'Mis à jour il y a {n} h',
         sunrise: 'Lever du soleil', sunset: 'Coucher du soleil', uvIndex: 'Indice UV',
         uvLow: 'Faible', uvModerate: 'Modéré', uvHigh: 'Élevé', uvVeryHigh: 'Très élevé', uvExtreme: 'Extrême',
-        autoRefresh: 'Actualisation automatique', autoOff: 'Désactivé', auto15: '15 min', auto30: '30 min', auto60: '1 h',
+        screenSaver: 'Économiseur d\u2019écran après inactivité', saverStyle: 'Couleurs de l\u2019économiseur', saverStyleTheme: 'Thème de l\u2019app', saverStyleOrange: 'Orange nixie', autoRefresh: 'Actualisation automatique', autoOff: 'Désactivé', auto15: '15 min', auto30: '30 min', auto60: '1 h',
         airQuality: 'Qualité de l\u2019air', aqiGood: 'Bonne', aqiModerate: 'Modérée', aqiUnhealthySensitive: 'Malsaine (sensibles)',
         aqiUnhealthy: 'Malsaine', aqiVeryUnhealthy: 'Très malsaine', aqiHazardous: 'Dangereuse',
         forgetConfirmTitle: 'Oublier ce réseau ?', forgetConfirmBody: 'Vous devrez à nouveau saisir le mot de passe pour vous reconnecter.',
@@ -775,7 +882,7 @@ class Component extends DCLogic {
         notConnected: 'Pas de connexion à Internet',
         lastUpdate: 'Données météo du', noUpdateYet: 'Pas encore de mise à jour',
         space: 'Espace', done: 'Terminé',
-        brightness: 'Luminosité', brightnessAdaptive: 'Adapter à la lumière ambiante',
+        brightness: 'Luminosité de l\u2019écran', brightnessAdaptive: 'Adapter à la lumière ambiante',
         network: 'Réseau', configureNetwork: 'Configurer le réseau', wifiTitle: 'Réseaux Wi-Fi',
         scan: 'Rechercher', scanning: 'Recherche…', noNetworks: 'Aucun réseau trouvé.', secured: 'Sécurisé', open: 'Ouvert',
         forgetSavedNetwork: 'Oublier le réseau enregistré',
@@ -793,6 +900,16 @@ class Component extends DCLogic {
 
   componentDidMount() {
     this.fetchWeather();
+    this.lastActivity = Date.now();
+    this.onActivity = () => { this.lastActivity = Date.now(); };
+    window.addEventListener('pointerdown', this.onActivity, true);
+    window.addEventListener('keydown', this.onActivity, true);
+    this.saverTimer = setInterval(() => {
+      const { saverActive, screenSaverMinutes } = this.state;
+      const forced = !!this.props.previewScreenSaver;
+      if (saverActive || forced) { this.setState({ saverNow: new Date() }); return; }
+      if (screenSaverMinutes && Date.now() - this.lastActivity >= screenSaverMinutes * 60000) this.setState({ saverActive: true, saverNow: new Date(), settingsOpen: false });
+    }, 1000);
     this.clockTimer = setInterval(() => this.setState({ now: new Date() }), 15000);
     this.onOnline = () => this.setState({ isOnline: true });
     this.onOffline = () => this.setState({ isOnline: false });
@@ -806,6 +923,9 @@ class Component extends DCLogic {
     }, 60000);
   }
   componentWillUnmount() {
+    clearInterval(this.saverTimer);
+    window.removeEventListener('pointerdown', this.onActivity, true);
+    window.removeEventListener('keydown', this.onActivity, true);
     clearInterval(this.clockTimer);
     clearTimeout(this.searchDebounce);
     clearTimeout(this.sheetTimer);
@@ -942,7 +1062,7 @@ class Component extends DCLogic {
     return this._fetchWeatherInner(lat, lon);
   }
   async _fetchWeatherInner(lat, lon) {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,wind_speed_10m,weather_code&hourly=temperature_2m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=7`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,weather_code&hourly=temperature_2m,precipitation,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=7`;
     const aqUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi&timezone=auto`;
     try {
       const res = await fetch(url);
@@ -1038,6 +1158,14 @@ class Component extends DCLogic {
   windLabel(unit) {
     return unit === 'mph' ? 'mph' : unit === 'ms' ? 'm/s' : 'km/h';
   }
+  precipStr(mm) {
+    const v = mm ?? 0;
+    return `${v >= 10 ? Math.round(v) : v.toFixed(1)} mm`;
+  }
+  compass(deg, lang) {
+    const P = { en: ['N','NE','E','SE','S','SW','W','NW'], de: ['N','NO','O','SO','S','SW','W','NW'], es: ['N','NE','E','SE','S','SO','O','NO'], fr: ['N','NE','E','SE','S','SO','O','NO'] };
+    return (P[lang] || P.en)[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+  }
   windStr(kmh, unit) {
     return `${Math.round(this.convertWind(kmh, unit))} ${this.windLabel(unit)}`;
   }
@@ -1083,6 +1211,76 @@ class Component extends DCLogic {
       return new Intl.DateTimeFormat(locale, { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: format === '12' }).format(date);
     } catch (e) { return ''; }
   }
+  saverDigits(date, tz, format) {
+    let parts;
+    try { parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: format === '12' ? 'h12' : 'h23' }).formatToParts(date); }
+    catch (e) { parts = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: format === '12' ? 'h12' : 'h23' }).formatToParts(date); }
+    let n = 0;
+    const g = (t) => (parts.find((p) => p.type === t)?.value || '00').padStart(2, '0').slice(-2).split('').map((d) => ({ d, svg: this.nixieSvg(Number(d), 'nx' + (n++)) }));
+    return { H: g('hour'), M: g('minute'), S: g('second') };
+  }
+  SAVER_STYLES = {
+    theme: {
+      bg: 'radial-gradient(120% 140% at 20% -10%, var(--color-accent-900), var(--color-bg) 55%)',
+      bar: 'linear-gradient(180deg, color-mix(in srgb, var(--color-neutral-300) 18%, transparent) 0, transparent 3px, transparent 70%, rgba(0,0,0,.35) 100%), linear-gradient(90deg, var(--color-neutral-800), var(--color-neutral-700) 30%, var(--color-neutral-800) 62%, var(--color-neutral-700))',
+      barShadow: 'var(--shadow-lg), inset 0 1px 0 color-mix(in srgb, var(--color-accent-300) 25%, transparent)',
+      cage: 'radial-gradient(65% 55% at 50% 50%, var(--color-accent-800), var(--color-neutral-900) 85%)',
+      cageShadow: '0 0 0 2px var(--color-neutral-700), 0 0 0 3px var(--color-neutral-900), 0 0 40px color-mix(in srgb, var(--color-accent) 25%, transparent)',
+      mesh: 'var(--color-neutral-600)', pin1: 'var(--color-neutral-700)', pin2: 'var(--color-neutral-800)', ghost: 'var(--color-neutral-500)',
+      g1: 'var(--color-accent-600)', g2: 'var(--color-accent)', g3: 'var(--color-accent-300)', g4: 'var(--color-accent-100)',
+      dot: 'radial-gradient(circle, var(--color-accent-100) 0 25%, var(--color-accent-300) 60%, var(--color-accent) 100%)',
+      dotShadow: '0 0 3px 1px var(--color-accent-300), 0 0 10px 3px color-mix(in srgb, var(--color-accent) 85%, transparent), 0 0 22px 8px color-mix(in srgb, var(--color-accent-600) 55%, transparent), 0 0 40px 14px color-mix(in srgb, var(--color-accent-700) 30%, transparent)',
+      text: 'var(--color-accent-300)', textShadow: '0 0 6px color-mix(in srgb, var(--color-accent) 60%, transparent), 0 0 16px color-mix(in srgb, var(--color-accent-600) 35%, transparent)',
+      sep: 'var(--color-accent-300)', sepShadow: '0 0 6px color-mix(in srgb, var(--color-accent) 60%, transparent)',
+    },
+    orange: {
+      bg: 'radial-gradient(80% 60% at 50% 45%, oklch(0.19 0.012 50), var(--color-neutral-900) 75%)',
+      bar: 'linear-gradient(180deg, rgba(255,220,180,.14) 0, rgba(255,220,180,0) 3px, rgba(0,0,0,0) 70%, rgba(0,0,0,.35) 100%), repeating-linear-gradient(178.6deg, rgba(0,0,0,0) 0 5px, rgba(0,0,0,.18) 5px 6px, rgba(0,0,0,0) 6px 11px, rgba(255,200,150,.05) 11px 12px, rgba(0,0,0,0) 12px 19px, rgba(0,0,0,.12) 19px 21px), repeating-linear-gradient(90deg, rgba(0,0,0,0) 0 140px, rgba(0,0,0,.08) 140px 220px, rgba(0,0,0,0) 220px 330px), linear-gradient(90deg, oklch(0.27 0.045 45), oklch(0.31 0.05 50) 30%, oklch(0.25 0.04 42) 62%, oklch(0.29 0.048 48))',
+      barShadow: '0 14px 30px rgba(0,0,0,.55), 0 2px 0 oklch(0.2 0.03 40), inset 0 1px 0 rgba(255,215,170,.18)',
+      cage: 'radial-gradient(65% 55% at 50% 50%, oklch(0.4 0.13 35), oklch(0.2 0.05 35) 85%)',
+      cageShadow: '0 0 0 2px oklch(0.32 0.01 60), 0 0 0 3px oklch(0.2 0.01 60), 0 0 40px oklch(0.55 0.18 35 / .25)',
+      mesh: 'oklch(0.42 0.02 60)', pin1: 'oklch(0.3 0.01 60)', pin2: 'oklch(0.26 0.01 60)', ghost: '#8a7462',
+      g1: '#e03000', g2: '#ff6a10', g3: '#ffa040', g4: '#ffe6b0',
+      dot: 'radial-gradient(circle, oklch(0.93 0.09 75) 0 25%, oklch(0.78 0.18 48) 60%, oklch(0.66 0.21 38) 100%)',
+      dotShadow: '0 0 3px 1px oklch(0.75 0.19 45), 0 0 10px 3px oklch(0.65 0.21 38 / .85), 0 0 22px 8px oklch(0.58 0.21 33 / .55), 0 0 40px 14px oklch(0.52 0.2 30 / .28)',
+      text: '#b44400', textShadow: '0 0 6px rgba(224,48,0,.6), 0 0 16px rgba(224,48,0,.35)',
+      sep: '#ff6a10', sepShadow: '0 0 6px rgba(224,48,0,.6)',
+    },
+  };
+  saverAntiRetention(date) {
+    const t = date.getTime(), m = Math.floor(t / 60000);
+    const dx = Math.round(28 * Math.sin((m * 2 * Math.PI) / 37));
+    const dy = Math.round(14 * Math.sin((m * 2 * Math.PI) / 23));
+    const swapped = Math.floor(t / 600000) % 2 === 1;
+    return { saverShift: `translate(${dx}px, ${dy}px)`, saverDirection: swapped ? 'column-reverse' : 'column' };
+  }
+  NIXIE_PATHS = [
+    'M30 4 C54 4 56 96 30 96 C4 96 6 4 30 4 Z',
+    'M30 2 L30 98',
+    'M9 27 C9 6 22 3 30 3 C42 3 51 11 51 26 C51 48 18 62 9 97 L52 97',
+    'M9 4 L51 4 L27 40 C44 38 53 50 53 66 C53 86 42 97 29 97 C18 97 10 90 7 80',
+    'M41 98 L41 3 L6 70 L55 70',
+    'M50 4 L17 4 L13 45 C19 39 25 37 31 37 C45 37 53 50 53 67 C53 86 42 97 30 97 C18 97 10 89 7 80',
+    'M45 4 C27 22 8 46 8 68 C8 86 18 97 30 97 C43 97 52 86 52 70 C52 54 43 44 30 44 C19 44 11 52 9 62',
+    'M6 4 L54 4 L20 98',
+    'M30 47 C16 47 12 37 12 26 C12 13 20 3 30 3 C40 3 48 13 48 26 C48 37 44 47 30 47 C15 47 8 58 8 71 C8 86 18 97 30 97 C42 97 52 86 52 71 C52 58 45 47 30 47 Z',
+    'M52 34 C50 47 41 55 30 55 C17 55 8 46 8 30 C8 14 18 3 30 3 C42 3 52 13 52 30 C52 54 38 78 20 98',
+  ];
+  nixieSvg(d, id) {
+    const h = React.createElement, P = this.NIXIE_SCALED || (this.NIXIE_SCALED = this.NIXIE_PATHS.map((pd) => { let k = 0; return pd.replace(/-?\d+(\.\d+)?/g, (n) => (k++ % 2 ? +(n * 1.64).toFixed(2) : n)); }));
+    const ghosts = P.map((pd, k) => k === d ? null : h('path', { key: 'g' + k, d: pd, fill: 'none', style: { stroke: 'var(--sv-ghost)' }, strokeWidth: 0.7, opacity: 0.5, strokeLinecap: 'round', strokeLinejoin: 'round' }));
+    const wm = 1;
+    const lit = (w, c, f, o) => h('path', { d: P[d], fill: 'none', style: { stroke: c }, strokeWidth: w * wm, strokeLinecap: 'round', strokeLinejoin: 'round', filter: f, opacity: o });
+    return h('svg', { viewBox: '0 0 60 164', width: '100%', height: '100%', style: { position: 'absolute', inset: 0, overflow: 'visible' } },
+      h('defs', null,
+        h('filter', { id: id + 'a', filterUnits: 'userSpaceOnUse', x: -30, y: -30, width: 120, height: 224 }, h('feGaussianBlur', { stdDeviation: 4.5 })),
+        h('filter', { id: id + 'b', filterUnits: 'userSpaceOnUse', x: -30, y: -30, width: 120, height: 224 }, h('feGaussianBlur', { stdDeviation: 1.4 }))),
+      ...ghosts,
+      lit(12, 'var(--sv-g1)', 'url(#' + id + 'a)', 0.85),
+      lit(5, 'var(--sv-g2)', 'url(#' + id + 'b)', 1),
+      lit(2.8, 'var(--sv-g3)', null, 1),
+      lit(1.3, 'var(--sv-g4)', null, 1));
+  }
   fmtDate(date, tz, locale) {
     try {
       return new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(date);
@@ -1118,6 +1316,7 @@ class Component extends DCLogic {
     const sliceTime = h.time.slice(start, start + n);
     const temps = h.temperature_2m.slice(start, start + n).map((c) => this.convertTemp(c, tempUnit));
     const precs = h.precipitation.slice(start, start + n);
+    const probs = (h.precipitation_probability || []).slice(start, start + n);
     const h_ = { time: sliceTime };
     const W = 480, H = 108, PAD_L = 26, PAD_R = 30, PAD_T = 6, PAD_B = 18;
     const chartW = W - PAD_L - PAD_R, chartH = H - PAD_T - PAD_B;
@@ -1130,6 +1329,7 @@ class Component extends DCLogic {
       const y = PAD_T + chartH - ((t - tMin) / tRange) * chartH;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
+    const probPoints = probs.map((pr, i) => `${(PAD_L + i * stepX).toFixed(1)},${(PAD_T + chartH - ((pr ?? 0) / 100) * chartH).toFixed(1)}`).join(' ');
     const barSlot = chartW / n;
     const barW = barSlot * 0.55;
     const bars = precs.map((p, i) => {
@@ -1159,7 +1359,7 @@ class Component extends DCLogic {
       return { key: f, topPct: +(((PAD_T + chartH - f * (chartH * 0.85)) / H) * 100).toFixed(2), text: `${val.toFixed(val < 1 ? 1 : 0)}mm` };
     });
     xLabels.forEach((l) => { l.leftPct = +((l.x / W) * 100).toFixed(2); });
-    return { W, H, linePoints, bars, xLabels, tempTicks, precipTicks, axisX0: PAD_L, axisX1: W - PAD_R, axisTop: PAD_T, axisBottom: PAD_T + chartH };
+    return { W, H, linePoints, probPoints, bars, xLabels, tempTicks, precipTicks, axisX0: PAD_L, axisX1: W - PAD_R, axisTop: PAD_T, axisBottom: PAD_T + chartH };
   }
 
   renderVals() {
@@ -1172,6 +1372,10 @@ class Component extends DCLogic {
     const nowTimeStr = this.fmtTime(now, timezone, units.time, locale);
     const nowDateStr = this.fmtDate(now, timezone, locale);
 
+    const saverD = this.saverDigits(this.state.saverNow, timezone, units.time);
+    let saverDate = '';
+    try { saverDate = new Intl.DateTimeFormat(locale, { timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(this.state.saverNow); } catch (e) { saverDate = this.state.saverNow.toDateString(); }
+    const saverTemp = weather?.current ? this.tempStr(weather.current.temperature_2m, units.temp) : '';
     let current = null, days = [], selectedDay = null;
     if (weather) {
       const c = weather.current;
@@ -1183,6 +1387,9 @@ class Component extends DCLogic {
         humidityCat: this.humidityCategory(c.relative_humidity_2m, strings),
         apparentDisplay: this.tempStr(c.apparent_temperature, units.temp),
         windDisplay: this.windStr(c.wind_speed_10m, units.wind),
+        gustDisplay: this.windStr(c.wind_gusts_10m ?? c.wind_speed_10m, units.wind),
+        windArrowDeg: Math.round(((c.wind_direction_10m ?? 0) + 180) % 360),
+        isNight: c.is_day === 0,
         precipProb: Math.round(c.precipitation_probability ?? 0),
         realFeelText: this.realFeelText(c.apparent_temperature, c.temperature_2m, c.wind_speed_10m, c.precipitation_probability ?? 0, strings),
       };
@@ -1203,6 +1410,7 @@ class Component extends DCLogic {
         hiDisplay: this.tempStr(d.temperature_2m_max[i], units.temp),
         loDisplay: this.tempStr(d.temperature_2m_min[i], units.temp),
         precipProb: Math.round(d.precipitation_probability_max?.[i] ?? 0),
+        precipSumDisplay: this.precipStr(d.precipitation_sum?.[i]),
         open: () => this.setState({ selectedDayIndex: i }),
       }));
       if (selectedDayIndex != null && d.time[selectedDayIndex]) {
@@ -1218,6 +1426,10 @@ class Component extends DCLogic {
           apparentLoDisplay: this.tempStr(d.apparent_temperature_min[i], units.temp),
           precipProb: Math.round(d.precipitation_probability_max?.[i] ?? 0),
           windDisplay: this.windStr(d.wind_speed_10m_max[i], units.wind),
+          gustDisplay: this.windStr(d.wind_gusts_10m_max?.[i] ?? d.wind_speed_10m_max[i], units.wind),
+          windArrowDeg: Math.round(((d.wind_direction_10m_dominant?.[i] ?? 0) + 180) % 360),
+          windCompass: this.compass(d.wind_direction_10m_dominant?.[i] ?? 0, language),
+          precipSumDisplay: this.precipStr(d.precipitation_sum?.[i]),
           chart: this.buildDayChart(weather, i, units.temp, units.time, locale),
         };
       }
@@ -1288,6 +1500,16 @@ class Component extends DCLogic {
       otaTestSwitchTrackStyle: `position:relative;display:inline-block;width:36px;height:20px;border-radius:10px;flex-shrink:0;transition:background-color .15s ease,border-color .15s ease;background:${otaTestChannel ? 'var(--color-accent-700)' : 'var(--color-neutral-800)'};border:1px solid ${otaTestChannel ? 'var(--color-accent)' : 'var(--color-neutral-600)'}`,
       otaTestSwitchThumbStyle: `position:absolute;top:1px;left:${otaTestChannel ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${otaTestChannel ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
       otaCoproSwitchThumbStyle: `position:absolute;top:1px;left:${otaUpdateCoprocessor ? '17px' : '1px'};width:16px;height:16px;border-radius:50%;background:${otaUpdateCoprocessor ? 'var(--color-accent-100)' : 'var(--color-neutral-300)'};transition:left .15s ease`,
+      saverVisible: this.state.saverActive || !!this.props.previewScreenSaver,
+      ...this.saverAntiRetention(this.state.saverNow),
+      sv: this.SAVER_STYLES[this.state.saverStyle] || this.SAVER_STYLES.theme,
+      isSaverTheme: this.state.saverStyle !== 'orange', isSaverOrange: this.state.saverStyle === 'orange',
+      setSaverTheme: () => this.setState({ saverStyle: 'theme' }), setSaverOrange: () => this.setState({ saverStyle: 'orange' }),
+      saverH: saverD.H, saverM: saverD.M, saverS: saverD.S, saverDate, saverTemp, saverHasTemp: !!saverTemp,
+      dismissSaver: () => { this.lastActivity = Date.now(); this.setState({ saverActive: false }); },
+      isSaverOff: !this.state.screenSaverMinutes, isSaver15: this.state.screenSaverMinutes === 15, isSaver30: this.state.screenSaverMinutes === 30, isSaver60: this.state.screenSaverMinutes === 60,
+      setSaverOff: () => this.setState({ screenSaverMinutes: 0 }), setSaver15: () => this.setState({ screenSaverMinutes: 15 }),
+      setSaver30: () => this.setState({ screenSaverMinutes: 30 }), setSaver60: () => this.setState({ screenSaverMinutes: 60 }),
       isAutoOff: autoRefreshMinutes === 0, isAuto15: autoRefreshMinutes === 15, isAuto30: autoRefreshMinutes === 30, isAuto60: autoRefreshMinutes === 60,
       setAutoOff: () => this.setState({ autoRefreshMinutes: 0 }), setAuto15: () => this.setState({ autoRefreshMinutes: 15 }),
       setAuto30: () => this.setState({ autoRefreshMinutes: 30 }), setAuto60: () => this.setState({ autoRefreshMinutes: 60 }),

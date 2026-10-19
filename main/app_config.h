@@ -12,6 +12,10 @@
 /* esp_http_client settings shared by the Open-Meteo and OTA downloads. */
 #define HTTP_TIMEOUT_MS 15000
 #define HTTP_RX_BUFFER_BYTES 4096
+/* Request buffer: esp_http_client defaults to 512 B for the request line and headers,
+ * and fails with "Out of buffer" once the URL grows past that. The forecast URL has ~580
+ * characters since the 2026-10-19 design sync (current + hourly + daily field lists). */
+#define HTTP_TX_BUFFER_BYTES 1024
 /* Starting size of a growing response buffer when Content-Length is unknown
  * or at least the caller's cap. */
 #define HTTP_BODY_INITIAL_CAP_BYTES 8192

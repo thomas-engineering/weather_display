@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 
 static const char *TAG = "heap";
 
@@ -58,6 +59,27 @@ void app_heap_probe_tick(const char *phase) {
     xSemaphoreGive(s_lock);
 
     if (level != HEAP_WATCH_SILENT) emit(phase ? phase : "?", &s, level == HEAP_WATCH_LOW);
+}
+
+/* Tasks whose stack headroom is worth knowing; looked up by name, so no trace
+ * facility (and no sdkconfig.h change) is needed. "swdraw" exists twice (the
+ * two LVGL draw units), the lookup returns one of them. */
+static const char *const k_stack_tasks[] = {
+    "lvgl", "swdraw", "weather", "light_sensor", "wifi_reconn", "main", "esp_timer",
+    "tiT", "sys_evt", "ipc0", "ipc1", "IDLE0", "IDLE1",
+};
+#define STACK_LOG_AFTER_MS 60000
+
+void app_heap_probe_log_task_stacks_once(void) {
+    static bool done;
+    if (done || esp_timer_get_time() / 1000 < STACK_LOG_AFTER_MS) return;
+    done = true;
+    for (size_t i = 0; i < sizeof k_stack_tasks / sizeof k_stack_tasks[0]; i++) {
+        TaskHandle_t h = xTaskGetHandle(k_stack_tasks[i]);
+        if (!h) continue;
+        ESP_LOGI(TAG, "stack %-12s never used: %u bytes", k_stack_tasks[i],
+                 (unsigned)uxTaskGetStackHighWaterMark(h));
+    }
 }
 
 void app_heap_probe_log_now(const char *phase) {

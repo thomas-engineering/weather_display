@@ -37,6 +37,7 @@
 #include "app_format.h"
 #include "cJSON.h"
 #include "favorites.h"
+#include "weather_display_math.h"
 #include "weather_forecast_parse.h"
 #include "weather_i18n.h"
 #include "weather_ui.h"
@@ -46,6 +47,7 @@
 
 /* Antwortzeit der gefakten "Netzwerkaufrufe". Lang genug, um Spinner und
  * Ladezustaende tatsaechlich zu sehen, kurz genug, um nicht zu nerven. */
+#define SIM_MS_PER_S        1000
 #define SIM_LATENCY_MS      700
 #define SIM_SCAN_LATENCY_MS 1500
 
@@ -87,6 +89,14 @@ static const int   k_precip[WEATHER_UI_DAYS]    = {  35,    80,    65,    15,   
  * beim Start leer und man sieht die Haelfte der Darstellung nie. */
 static const float k_precip_mm[WEATHER_UI_DAYS] = { 0.8f,  4.2f,  2.6f,  0.0f,  0.0f,  1.8f,  7.5f };
 
+/* Design sync 2026-10-19: Boeen, Windrichtung (woher der Wind weht), Regensumme,
+ * Nacht-Schalter fuer die Mond-Icons (--night). */
+static const float k_gust[WEATHER_UI_DAYS]      = { 21.0f, 41.5f, 52.8f, 16.0f, 11.2f, 33.0f, 71.4f };
+static const float k_wind_dir[WEATHER_UI_DAYS]  = { 225.0f, 90.0f, 315.0f, 0.0f, 180.0f, 45.0f, 270.0f };
+static const float k_psum[WEATHER_UI_DAYS]      = { 0.8f, 12.6f, 6.4f, 0.0f, 0.0f, 3.2f, 21.0f };
+static bool s_night;
+static int s_night_code = -1; /* --night / --night-clear: Wettercode fuer das aktuelle Icon, sonst Fixture */
+
 static const int s_humidity = 68;
 
 /* Tagesgang: Minimum kurz vor Sonnenaufgang, Maximum am spaeten Nachmittag.
@@ -108,6 +118,9 @@ static void fill_hourly(weather_hourly_t *h, int day)
                           : (i >= 12 && i <= 19) ? 0.25f
                           : 0.0f;
         h->precip_mm[i] = k_precip_mm[day] * share;
+        /* Regenrisiko: folgt der Tageswahrscheinlichkeit, mit Verlauf ueber den Tag. */
+        float wave = 0.65f + 0.35f * sinf((float)i / 24.0f * 2.0f * (float)M_PI);
+        h->precip_prob_pct[i] = (int)lroundf(k_precip[day] * wave);
     }
 }
 
@@ -115,6 +128,9 @@ static void fill_hourly(weather_hourly_t *h, int day)
  * Wird auch nach jeder Einstellungsaenderung erneut aufgerufen, weil Datums-,
  * Wochentags- und "Real feel"-Texte von der App vorformatiert kommen — genau wie
  * in main.c auf dem Geraet. */
+/* Header clock text as last published; the hold test finds the clock by it. */
+static char s_clock_text[16];
+
 static void publish_weather(void)
 {
     const time_t now = time(NULL);
@@ -124,6 +140,7 @@ static void publish_weather(void)
     snprintf(cur.location_name, sizeof(cur.location_name), "%s", s_city);
     snprintf(cur.location_country, sizeof(cur.location_country), "%s", s_country);
     fmt_time(cur.time_str, sizeof(cur.time_str), &lt, s_time_fmt);
+    snprintf(s_clock_text, sizeof s_clock_text, "%s", cur.time_str);
     fmt_date(cur.date_str, sizeof(cur.date_str), &lt, s_lang);
 
     cur.weather_code = k_code[0];
@@ -135,6 +152,10 @@ static void publish_weather(void)
     cur.humidity_pct = s_humidity;
     cur.wind_kmh = k_wind[0];
     cur.precip_pct = k_precip[0];
+    cur.wind_arrow_deg = wdm_arrow_deg(k_wind_dir[0]);
+    cur.wind_gust_kmh = k_gust[0];
+    cur.is_night = s_night;
+    if (s_night_code >= 0) cur.weather_code = s_night_code;
     fmt_real_feel(cur.real_feel_text, sizeof(cur.real_feel_text),
                   cur.feels_like_c, cur.temp_c, cur.wind_kmh, cur.precip_pct, s_lang);
 
@@ -171,6 +192,10 @@ static void publish_weather(void)
         days[i].feels_min_c = k_tmin[i] - 2.0f;
         days[i].wind_max_kmh = k_wind[i];
         days[i].precip_pct = k_precip[i];
+        days[i].precip_sum_mm = k_psum[i];
+        days[i].wind_gust_kmh = k_gust[i];
+        days[i].wind_arrow_deg = wdm_arrow_deg(k_wind_dir[i]);
+        days[i].wind_compass_idx = wdm_compass_index(k_wind_dir[i]);
 
         fill_hourly(&hourly[i], i);
         hourly_ptr[i] = &hourly[i];
@@ -294,6 +319,7 @@ static bool publish_weather_live(void) {
     snprintf(cur.location_name, sizeof(cur.location_name), "%s", s_city);
     snprintf(cur.location_country, sizeof(cur.location_country), "%s", s_country);
     fmt_time(cur.time_str, sizeof(cur.time_str), &lt, s_time_fmt);
+    snprintf(s_clock_text, sizeof s_clock_text, "%s", cur.time_str);
     fmt_date(cur.date_str, sizeof(cur.date_str), &lt, s_lang);
     cur.weather_code = f.weather_code;
     cur.temp_c = f.temp_c;
@@ -301,6 +327,9 @@ static bool publish_weather_live(void) {
     cur.humidity_pct = f.humidity_pct;
     cur.wind_kmh = f.wind_kmh;
     cur.precip_pct = f.precip_pct;
+    cur.wind_arrow_deg = wdm_arrow_deg(f.wind_dir_deg);
+    cur.wind_gust_kmh = f.wind_gust_kmh;
+    cur.is_night = f.is_night || s_night;
     fmt_real_feel(cur.real_feel_text, sizeof(cur.real_feel_text),
                   cur.feels_like_c, cur.temp_c, cur.wind_kmh, cur.precip_pct, s_lang);
 
@@ -354,12 +383,17 @@ static bool publish_weather_live(void) {
         days[i].feels_min_c = f.days[i].feels_min_c;
         days[i].wind_max_kmh = f.days[i].wind_max_kmh;
         days[i].precip_pct = f.days[i].precip_pct;
+        days[i].precip_sum_mm = f.days[i].precip_sum_mm;
+        days[i].wind_gust_kmh = f.days[i].wind_gust_max_kmh;
+        days[i].wind_arrow_deg = wdm_arrow_deg(f.days[i].wind_dir_deg);
+        days[i].wind_compass_idx = wdm_compass_index(f.days[i].wind_dir_deg);
 
         hourly[i].count = f.hourly[i].count;
         for (int h = 0; h < f.hourly[i].count; h++) {
             hourly[i].hour[h] = f.hourly[i].hour[h];
             hourly[i].temp_c[h] = f.hourly[i].temp_c[h];
             hourly[i].precip_mm[h] = f.hourly[i].precip_mm[h];
+            hourly[i].precip_prob_pct[h] = f.hourly[i].precip_prob_pct[h];
         }
         hourly_ptr[i] = f.hourly[i].valid ? &hourly[i] : NULL;
     }
@@ -513,10 +547,22 @@ typedef enum {
     ACT_OPEN_SCREEN,
     ACT_CLICK_FAVORITE_STAR,
     ACT_OTA_TICK,
+    ACT_SAVER_TAP,
+    ACT_SAVER_CHECK,
+    ACT_HOLD_EARLY,
+    ACT_HOLD_CHECK,
 } sim_action_t;
 
 static void open_screen(void);
 static void click_favorite_star_in_search(void);
+static void synth_tap(int x, int y);
+static void synth_mouse(bool down, int x, int y);
+#define HOLD_EARLY_CHECK_MS 2000 /* still no saver 2 s into the hold */
+#define HOLD_FINAL_CHECK_MS 3600 /* saver is up after the 3 s hold */
+static bool s_hold_early_active;
+static int s_hold_x, s_hold_y;
+#define SAVER_TAP_DELAY_MS 800   /* after the saver has been up for a few frames */
+#define SAVER_CHECK_DELAY_MS 300 /* long enough for the indev to deliver the press */
 static void defer(sim_action_t action, uint32_t delay_ms);
 
 /* Firmware update dialog's fake-progress simulation state — see
@@ -564,6 +610,30 @@ static void deferred_cb(lv_timer_t *timer)
         /* Erst nach publish_weather(): ein Detailpanel ohne Daten zeigt leere
          * Felder, und der Chart darin misst sich auf Hoehe null. */
         open_screen();
+        break;
+
+    case ACT_SAVER_TAP:
+        /* A real tap in the middle of the screen, through the mouse indev:
+         * this is the path a finger takes on the device. */
+        synth_tap(SIM_HOR_RES / 2, SIM_VER_RES / 2);
+        defer(ACT_SAVER_CHECK, SAVER_CHECK_DELAY_MS);
+        break;
+
+    case ACT_HOLD_EARLY:
+        s_hold_early_active = weather_ui_screensaver_active();
+        break;
+
+    case ACT_HOLD_CHECK:
+        /* Parsed by scripts/sim.sh --shots; do not change. */
+        printf("SAVER_HOLD %s\n", (!s_hold_early_active && weather_ui_screensaver_active()) ? "OK" : "FAIL");
+        fflush(stdout);
+        synth_mouse(false, s_hold_x, s_hold_y);
+        break;
+
+    case ACT_SAVER_CHECK:
+        /* Parsed by scripts/sim.sh --shots; do not change. */
+        printf("SAVER_DISMISS %s\n", weather_ui_screensaver_active() ? "FAIL" : "OK");
+        fflush(stdout);
         break;
 
     case ACT_CLICK_FAVORITE_STAR:
@@ -697,6 +767,39 @@ static void on_wifi_connect(const char *ssid, const char *password)
 
 /* The simulator has no real backlight to drive; this only needs to exist so
  * weather_ui_set_brightness_callback() has a target. */
+/* Fixed clock for the saver so screenshots are reproducible: Thursday
+ * 2026-10-15 10:08:42 (the device reads its real clock here). */
+static bool s_clock_runs; /* --clock-runs: the saver clock advances with real time */
+static uint32_t tick_get_cb(void);
+
+static bool sim_local_time(struct tm *local, int64_t *unix_seconds)
+{
+    memset(local, 0, sizeof *local);
+    local->tm_year = 2026 - 1900;
+    local->tm_mon = 10 - 1;
+    local->tm_mday = 15;
+    local->tm_hour = 10;
+    local->tm_min = 8;
+    local->tm_sec = 42;
+    time_t t = timegm(local);
+    if (s_clock_runs) {
+        static uint32_t start_ms;
+        if (start_ms == 0) start_ms = tick_get_cb();
+        t += (tick_get_cb() - start_ms) / SIM_MS_PER_S;
+        gmtime_r(&t, local);
+    }
+    local->tm_wday = 4;
+    *unix_seconds = (int64_t)t;
+    return true;
+}
+
+/* The simulator keeps no prefs; the UI already holds the new values. */
+static void on_screensaver(int minutes, saver_style_t style)
+{
+    LV_UNUSED(minutes);
+    LV_UNUSED(style);
+}
+
 static void on_brightness(int percent, bool final)
 {
     (void)percent;
@@ -735,6 +838,10 @@ typedef enum {
     SCREEN_FAVORITE_TAP,
     SCREEN_OTA,
     SCREEN_OTA_DONE,
+    SCREEN_SAVER,
+    SCREEN_SAVER_ORANGE,
+    SCREEN_SAVER_DISMISS,
+    SCREEN_SAVER_HOLD,
 } sim_screen_t;
 
 static sim_screen_t s_screen = SCREEN_MAIN;
@@ -752,25 +859,20 @@ extern void lv_sdl_mouse_handler(SDL_Event *event);
  * shortcut. Needed for bugs that are specifically about hit-testing at a
  * coordinate — click_owner_of() bypasses LVGL's indev press/release pipeline
  * entirely, so it can't reproduce them. */
-static void synth_tap(int x, int y) {
+static void synth_mouse(bool down, int x, int y) {
     SDL_Window *win = lv_sdl_window_get_window(s_disp);
-    Uint32 win_id = SDL_GetWindowID(win);
+    SDL_Event ev = {0};
+    ev.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
+    ev.button.windowID = SDL_GetWindowID(win);
+    ev.button.button = SDL_BUTTON_LEFT;
+    ev.button.x = x;
+    ev.button.y = y;
+    lv_sdl_mouse_handler(&ev);
+}
 
-    SDL_Event down = {0};
-    down.type = SDL_MOUSEBUTTONDOWN;
-    down.button.windowID = win_id;
-    down.button.button = SDL_BUTTON_LEFT;
-    down.button.x = x;
-    down.button.y = y;
-    lv_sdl_mouse_handler(&down);
-
-    SDL_Event up = {0};
-    up.type = SDL_MOUSEBUTTONUP;
-    up.button.windowID = win_id;
-    up.button.button = SDL_BUTTON_LEFT;
-    up.button.x = x;
-    up.button.y = y;
-    lv_sdl_mouse_handler(&up);
+static void synth_tap(int x, int y) {
+    synth_mouse(true, x, y);
+    synth_mouse(false, x, y);
 }
 
 static lv_obj_t *find_label(lv_obj_t *parent, const char *text)
@@ -952,6 +1054,37 @@ static void open_screen(void)
         break;
     }
 
+    case SCREEN_SAVER:
+        weather_ui_screensaver_force(true);
+        break;
+
+    case SCREEN_SAVER_ORANGE:
+        weather_ui_set_screensaver(0, SAVER_STYLE_ORANGE);
+        weather_ui_screensaver_force(true);
+        break;
+
+    case SCREEN_SAVER_HOLD: {
+        /* Hidden trigger: hold the header clock for 3 s. The press stays down
+         * (no release) until the check has run, like a finger would. */
+        lv_obj_t *clock = find_label(root, s_clock_text);
+        if (clock == NULL) { warn_missing("Uhr im Header"); break; }
+        lv_area_t a;
+        lv_obj_get_coords(clock, &a);
+        s_hold_x = (a.x1 + a.x2) / 2;
+        s_hold_y = (a.y1 + a.y2) / 2;
+        synth_mouse(true, s_hold_x, s_hold_y);
+        defer(ACT_HOLD_EARLY, HOLD_EARLY_CHECK_MS);
+        defer(ACT_HOLD_CHECK, HOLD_FINAL_CHECK_MS);
+        break;
+    }
+
+    case SCREEN_SAVER_DISMISS:
+        /* Test path for "ends when the display is tapped" without waiting for
+         * the timeout: bring the saver up, tap, report whether it ended. */
+        weather_ui_screensaver_force(true);
+        defer(ACT_SAVER_TAP, SAVER_TAP_DELAY_MS);
+        break;
+
     case SCREEN_OTA_DONE: {
         /* Same path as SCREEN_OTA, then presses "Check for update" too —
          * on_ota_start() -> ACT_OTA_TICK reposts every SIM_LATENCY_MS/2
@@ -1031,6 +1164,11 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--wifi-setup") == 0) {
             open_wifi_setup = true;
+        } else if (strcmp(argv[i], "--clock-runs") == 0) {
+            s_clock_runs = true;
+        } else if (strcmp(argv[i], "--night") == 0 || strcmp(argv[i], "--night-clear") == 0) {
+            s_night = true;
+            s_night_code = strcmp(argv[i], "--night") == 0 ? 2 : 0; /* 2 = teils bewoelkt, 0 = klar */
         } else if (strcmp(argv[i], "--live") == 0) {
             s_live = true;
         } else if (strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
@@ -1055,9 +1193,13 @@ int main(int argc, char **argv)
             else if (strcmp(name, "favorite-tap") == 0) s_screen = SCREEN_FAVORITE_TAP;
             else if (strcmp(name, "ota") == 0) s_screen = SCREEN_OTA;
             else if (strcmp(name, "ota-done") == 0) s_screen = SCREEN_OTA_DONE;
+            else if (strcmp(name, "screensaver") == 0) s_screen = SCREEN_SAVER;
+            else if (strcmp(name, "screensaver-orange") == 0) s_screen = SCREEN_SAVER_ORANGE;
+            else if (strcmp(name, "screensaver-dismiss") == 0) s_screen = SCREEN_SAVER_DISMISS;
+            else if (strcmp(name, "screensaver-hold") == 0) s_screen = SCREEN_SAVER_HOLD;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done\n", name);
+                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done, screensaver, screensaver-orange, screensaver-dismiss, screensaver-hold\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
@@ -1120,6 +1262,8 @@ int main(int argc, char **argv)
     weather_ui_set_callbacks(on_search, on_select_city, on_refresh, on_settings_changed);
     weather_ui_set_wifi_callbacks(on_wifi_scan, on_wifi_connect, on_wifi_forget);
     weather_ui_set_brightness_callback(on_brightness);
+    weather_ui_set_screensaver_callback(on_screensaver);
+    weather_ui_set_local_time_callback(sim_local_time);
     weather_ui_set_favorite_callbacks(on_favorite_toggle, on_favorite_select, on_favorite_remove);
     weather_ui_set_ota_callbacks(on_ota_start, on_ota_cancel, on_ota_toggle_auto_update, on_ota_toggle_update_coprocessor);
     weather_ui_set_ota_test_channel_callback(on_ota_toggle_test_channel);

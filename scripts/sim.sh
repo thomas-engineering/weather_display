@@ -90,6 +90,33 @@ if [ "${1:-}" = "--shots" ]; then
             || { echo "FEHLER bei Screen '$screen'." >&2; exit 1; }
         echo "  $screen.bmp"
     done
+    # Nacht-Variante der Icons (Mond), Design-Sync 2026-10-19: teils bewoelkt.
+    SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
+        "$BUILD_DIR/weather_sim" --night --screenshot "$OUT/main-night.bmp" \
+        || { echo "FEHLER bei Zustand 'main-night'." >&2; exit 1; }
+    echo "  main-night.bmp"
+
+    # Bildschirmschoner: beide Farbstile, dazu der Test "Tipp beendet ihn" ohne
+    # das Timeout abzuwarten (screensaver-dismiss meldet SAVER_DISMISS OK/FAIL).
+    for screen in screensaver screensaver-orange; do
+        SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
+            "$BUILD_DIR/weather_sim" --screen "$screen" --screenshot "$OUT/$screen.bmp" \
+            || { echo "FEHLER bei Screen '$screen'." >&2; exit 1; }
+        echo "  $screen.bmp"
+    done
+    dismiss_out="$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
+        "$BUILD_DIR/weather_sim" --screen screensaver-dismiss --screenshot "$OUT/screensaver-dismissed.bmp")" \
+        || { echo "FEHLER bei Screen 'screensaver-dismiss'." >&2; exit 1; }
+    echo "$dismiss_out" | grep -q '^SAVER_DISMISS OK$' \
+        || { echo "FEHLER: Tipp auf den Bildschirmschoner hat ihn nicht beendet." >&2; echo "$dismiss_out" >&2; exit 1; }
+    echo "  screensaver-dismissed.bmp (SAVER_DISMISS OK)"
+    # Verstecktes Ausloesen: Uhr im Header 3 s halten (screensaver-hold meldet SAVER_HOLD OK/FAIL).
+    hold_out="$(SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
+        "$BUILD_DIR/weather_sim" --screen screensaver-hold --screenshot "$OUT/screensaver-hold.bmp" --screenshot-after 6000)" \
+        || { echo "FEHLER bei Screen 'screensaver-hold'." >&2; exit 1; }
+    echo "$hold_out" | grep -q '^SAVER_HOLD OK$' \
+        || { echo "FEHLER: Uhr 3 s halten hat den Bildschirmschoner nicht gestartet (oder zu frueh)." >&2; echo "$hold_out" >&2; exit 1; }
+    echo "  screensaver-hold.bmp (SAVER_HOLD OK)"
     # Erstboot ist ein eigener Zustand, kein eigener Screen: offline, ohne Daten.
     SDL_VIDEODRIVER=dummy SDL_RENDER_DRIVER=software \
         "$BUILD_DIR/weather_sim" --wifi-setup --screenshot "$OUT/first-boot.bmp" \

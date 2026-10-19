@@ -7,6 +7,7 @@
 #define C_TEXT_MUTED  lv_color_hex(0x9397AB)
 #define C_ACCENT      lv_color_hex(0x9184D9)
 #define C_ACCENT_700  lv_color_hex(0x5D5294)
+#define C_ACCENT_400  lv_color_hex(0xB5ABFC)
 #define C_DIVIDER     lv_color_hex(0x3A3D4A)
 
 /* Pixel padding around the plot, reserved for the two axes' tick labels and
@@ -26,22 +27,65 @@
 #define LEGEND_GAP    6   /* between the two legend rows */
 #define LEGEND_MARK   8   /* legend dot/square side, matches the design's 8x8 */
 #define LINE_W        2
+#define PROB_DOT_SIZE 2   /* dotted rain-chance line, design: stroke-dasharray "0 4", round caps */
+#define PROB_DOT_SPACING 4.0f
+#define PROB_OPA      LV_OPA_70
+#define PROB_MAX_PCT  100.0f
+#define LEGEND_DOT    2   /* the two small dots in the rain-chance legend mark */
+#define LEGEND_DOT_GAP 3
 #define BAR_GAP_FRAC  0.4f /* bar takes 60% of its slot, 40% gap — design's barW = barSlot*0.55, close enough at FONT_10 scale */
 #define BAR_MAX_W     20
 #define PRECIP_HEIGHT_FRAC 0.85f /* bars/the precip axis only use the top 85% of the plot height, same as the design */
 
 typedef struct {
-    lv_obj_t *legend_temp_lbl, *legend_precip_lbl;
+    lv_obj_t *legend_temp_lbl, *legend_precip_lbl, *legend_rain_lbl;
     lv_obj_t *plot;
-    lv_obj_t *line;
+    lv_obj_t *line, *prob_obj;
     lv_point_precise_t *pts;      /* lv_line does not copy its points */
+    lv_point_precise_t *pts_prob; /* walked by prob_draw_cb() */
+    int prob_n;
 } chart_t;
 
 static void chart_free_cb(lv_event_t *e) {
     chart_t *c = lv_obj_get_user_data(lv_event_get_target_obj(e));
     if (!c) return;
     lv_free(c->pts);
+    lv_free(c->pts_prob);
     lv_free(c);
+}
+
+/* LVGL draws dashes only on horizontal and vertical lines, a sloped dashed
+ * lv_line comes out solid. So the dotted line is drawn dot by dot, in one
+ * object, along the polyline in pts_prob. */
+static void prob_draw_cb(lv_event_t *e) {
+    chart_t *c = lv_event_get_user_data(e);
+    lv_obj_t *obj = lv_event_get_target_obj(e);
+    lv_layer_t *layer = lv_event_get_layer(e);
+    if (!c || c->prob_n < 2) return;
+    lv_area_t origin;
+    lv_obj_get_coords(obj, &origin);
+    lv_draw_rect_dsc_t dot;
+    lv_draw_rect_dsc_init(&dot);
+    dot.bg_color = C_ACCENT_400;
+    dot.bg_opa = PROB_OPA;
+    dot.radius = LV_RADIUS_CIRCLE;
+    float next = 0.0f; /* distance along the line to the next dot */
+    float walked = 0.0f;
+    for (int i = 1; i < c->prob_n; i++) {
+        float x0 = (float)c->pts_prob[i - 1].x, y0 = (float)c->pts_prob[i - 1].y;
+        float dx = (float)c->pts_prob[i].x - x0, dy = (float)c->pts_prob[i].y - y0;
+        float len = sqrtf(dx * dx + dy * dy);
+        for (; next <= walked + len; next += PROB_DOT_SPACING) {
+            float t = len > 0.0f ? (next - walked) / len : 0.0f;
+            lv_area_t a;
+            a.x1 = origin.x1 + (int32_t)(x0 + dx * t);
+            a.y1 = origin.y1 + (int32_t)(y0 + dy * t);
+            a.x2 = a.x1 + PROB_DOT_SIZE - 1;
+            a.y2 = a.y1 + PROB_DOT_SIZE - 1;
+            lv_draw_rect(layer, &dot, &a);
+        }
+        walked += len;
+    }
 }
 
 static lv_obj_t *legend_row_create(lv_obj_t *parent, lv_color_t mark_color, bool round_mark) {
@@ -68,6 +112,42 @@ static lv_obj_t *legend_row_create(lv_obj_t *parent, lv_color_t mark_color, bool
     return lbl;
 }
 
+/* Legend row whose mark is two small dots (the rain-chance line is dotted). */
+static lv_obj_t *legend_dots_row_create(lv_obj_t *parent, lv_color_t mark_color) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_remove_style_all(row);
+    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(row, 5, 0);
+    lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *mark = lv_obj_create(row);
+    lv_obj_remove_style_all(mark);
+    lv_obj_set_size(mark, LEGEND_MARK, LEGEND_DOT);
+    lv_obj_set_flex_flow(mark, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(mark, LEGEND_DOT_GAP, 0);
+    lv_obj_set_style_opa(mark, PROB_OPA, 0);
+    lv_obj_remove_flag(mark, LV_OBJ_FLAG_SCROLLABLE);
+    for (int i = 0; i < 2; i++) {
+        lv_obj_t *d = lv_obj_create(mark);
+        lv_obj_remove_style_all(d);
+        lv_obj_set_size(d, LEGEND_DOT, LEGEND_DOT);
+        lv_obj_set_style_radius(d, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_color(d, mark_color, 0);
+        lv_obj_set_style_bg_opa(d, LV_OPA_COVER, 0);
+        lv_obj_remove_flag(d, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(d, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    lv_obj_remove_flag(mark, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *lbl = lv_label_create(row);
+    lv_obj_set_style_text_color(lbl, C_TEXT_MUTED, 0);
+    lv_obj_set_style_text_font(lbl, FONT_10, 0);
+    lv_label_set_text(lbl, "");
+    return lbl;
+}
+
 lv_obj_t *weather_chart_create(lv_obj_t *parent, int32_t w, int32_t h) {
     lv_obj_t *root = lv_obj_create(parent);
     lv_obj_remove_style_all(root);
@@ -81,6 +161,7 @@ lv_obj_t *weather_chart_create(lv_obj_t *parent, int32_t w, int32_t h) {
     if (!c) return root;
     lv_memset(c, 0, sizeof(chart_t));
     c->pts = lv_malloc(sizeof(lv_point_precise_t) * WEATHER_UI_CHART_POINTS);
+    c->pts_prob = lv_malloc(sizeof(lv_point_precise_t) * WEATHER_UI_CHART_POINTS);
     lv_obj_set_user_data(root, c);
     lv_obj_add_event_cb(root, chart_free_cb, LV_EVENT_DELETE, NULL);
 
@@ -96,6 +177,7 @@ lv_obj_t *weather_chart_create(lv_obj_t *parent, int32_t w, int32_t h) {
     lv_obj_remove_flag(legend_col, LV_OBJ_FLAG_SCROLLABLE);
     c->legend_temp_lbl = legend_row_create(legend_col, C_ACCENT, true);
     c->legend_precip_lbl = legend_row_create(legend_col, C_ACCENT_700, false);
+    c->legend_rain_lbl = legend_dots_row_create(legend_col, C_ACCENT_400);
 
     /* The plot itself: free-form (no flex), every child absolutely
      * positioned — axis lines, temperature line, precipitation bars, and
@@ -122,15 +204,18 @@ static void fmt_precip_tick(char *buf, size_t cap, float mm) {
 }
 
 void weather_chart_set_data(lv_obj_t *chart, const weather_hourly_t *h, bool fahrenheit,
-                             const char *temp_label, const char *precip_label) {
+                             const char *temp_label, const char *precip_label, const char *rain_chance_label) {
     chart_t *c = lv_obj_get_user_data(chart);
-    if (!c || !c->pts) return;
+    if (!c || !c->pts || !c->pts_prob) return;
 
     lv_label_set_text(c->legend_temp_lbl, temp_label ? temp_label : "");
     lv_label_set_text(c->legend_precip_lbl, precip_label ? precip_label : "");
+    lv_label_set_text(c->legend_rain_lbl, rain_chance_label ? rain_chance_label : "");
 
     lv_obj_clean(c->plot);
     c->line = NULL;
+    c->prob_obj = NULL;
+    c->prob_n = 0;
 
     int n = (h && h->count > 0) ? h->count : 0;
     if (n > WEATHER_UI_CHART_POINTS) n = WEATHER_UI_CHART_POINTS;
@@ -213,6 +298,24 @@ void weather_chart_set_data(lv_obj_t *chart, const weather_hourly_t *h, bool fah
          * close-on-tap handler: the panel just sat there. */
         lv_obj_remove_flag(bar, LV_OBJ_FLAG_CLICKABLE);
     }
+
+    /* Rain chance: dotted line over the bars, 0-100 % over the whole plot height
+     * (design: probPoints, stroke accent-400, opacity 0.7, dasharray "0 4"). */
+    for (int i = 0; i < n; i++) {
+        float pr = (float)h->precip_prob_pct[i];
+        if (pr < 0.0f) pr = 0.0f;
+        if (pr > PROB_MAX_PCT) pr = PROB_MAX_PCT;
+        c->pts_prob[i].x = (lv_value_precise_t)(PAD_L + i * step);
+        c->pts_prob[i].y = (lv_value_precise_t)(PAD_T + chart_h - (pr / PROB_MAX_PCT) * chart_h);
+    }
+    c->prob_n = n;
+    c->prob_obj = lv_obj_create(c->plot);
+    lv_obj_remove_style_all(c->prob_obj);
+    lv_obj_set_size(c->prob_obj, w, full_h);
+    lv_obj_set_pos(c->prob_obj, 0, 0);
+    lv_obj_remove_flag(c->prob_obj, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(c->prob_obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(c->prob_obj, prob_draw_cb, LV_EVENT_DRAW_MAIN, c);
 
     /* Temperature line. */
     for (int i = 0; i < n; i++) {
