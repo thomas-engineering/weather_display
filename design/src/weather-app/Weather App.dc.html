@@ -79,7 +79,7 @@
     <div class="card elev-md" style="flex:none;height:250px;display:flex;flex-direction:column;gap:12px;padding:16px 24px">
       <div style="flex:none;display:flex;flex-direction:row;align-items:center;gap:16px">
         <div style="flex:none;display:flex;align-items:center;justify-content:center;width:64px;height:64px">
-          <dc-import name="WeatherIcon" code="{{ current.weatherCode }}" size="64" hint-size="64px,64px"></dc-import>
+          <dc-import name="WeatherIcon" code="{{ current.weatherCode }}" night="{{ current.isNight }}" size="64" hint-size="64px,64px"></dc-import>
         </div>
         <div style="flex:none;width:150px">
           <span data-lv="tag.accent" class="tag tag-accent">{{ current.label }}</span>
@@ -98,7 +98,8 @@
           </div>
           <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 8px;overflow:hidden">
             <div data-lv="label.caption" style="font-size:11px;line-height:1.3;letter-spacing:0.03em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);overflow-wrap:break-word;hyphens:auto">{{ t.wind }}</div>
-            <div data-lv="label.value" style="font-size:16px;line-height:1.3;font-weight:500;font-family:var(--font-heading);overflow-wrap:break-word">{{ current.windDisplay }}</div>
+            <div data-lv="label.value" style="display:flex;align-items:center;gap:4px;font-size:16px;line-height:1.3;font-weight:500;font-family:var(--font-heading);white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" style="flex:none;transform:rotate({{ current.windArrowDeg }}deg)"><path d="M12 2 L19 20 L12 16 L5 20 Z" fill="var(--color-accent)"></path></svg><span>{{ current.windDisplay }}</span></div>
+            <div data-lv="label.caption" style="font-size:11px;color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.gusts }} {{ current.gustDisplay }}</div>
           </div>
           <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:10px 8px;overflow:hidden">
             <div data-lv="label.caption" style="font-size:11px;line-height:1.3;letter-spacing:0.03em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);overflow-wrap:break-word;hyphens:auto">{{ t.precip }}</div>
@@ -124,6 +125,7 @@
           <div style="display:flex;flex-direction:column;gap:4px;flex:none">
             <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.temperature }}</span></div>
             <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--color-accent-700)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.precip }}</span></div>
+            <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="display:flex;gap:3px;width:8px;opacity:0.7"><span style="width:2px;height:2px;border-radius:50%;background:var(--color-accent-400)"></span><span style="width:2px;height:2px;border-radius:50%;background:var(--color-accent-400)"></span></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.rainChance }}</span></div>
           </div>
           <div style="position:relative;flex:1;height:100%">
             <svg viewBox="0 0 {{ current.chart.W }} {{ current.chart.H }}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible">
@@ -132,6 +134,7 @@
               <sc-for list="{{ current.chart.bars }}" as="bar" hint-placeholder-count="24">
                 <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.w }}" height="{{ bar.h }}" rx="1.5" fill="var(--color-accent-700)"></rect>
               </sc-for>
+              <polyline points="{{ current.chart.probPoints }}" fill="none" stroke="var(--color-accent-400)" stroke-width="1.5" stroke-dasharray="0 4" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"></polyline>
               <polyline points="{{ current.chart.linePoints }}" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
             </svg>
             <sc-for list="{{ current.chart.tempTicks }}" as="tick" hint-placeholder-count="3">
@@ -160,7 +163,7 @@
               <span data-lv="label.value" style="font-size:16px;font-weight:500">{{ day.hiDisplay }}</span>
               <span data-lv="label.caption" style="font-size:13px;color:color-mix(in srgb, var(--color-text) 50%, transparent)">{{ day.loDisplay }}</span>
             </div>
-            <span data-lv="tag.outline" class="tag tag-outline" style="font-size:10px">{{ day.precipProb }}%</span>
+            <span data-lv="tag.outline" class="tag tag-outline" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;white-space:nowrap"><span>{{ day.precipProb }}%</span><span>·</span><span>{{ day.precipSumDisplay }}</span></span>
           </button>
         </sc-for>
       </div>
@@ -571,11 +574,12 @@
           </div>
           <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:var(--space-3)">
             <div data-lv="label.caption" style="font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.precip }}</div>
-            <div data-lv="label.value" style="font-size:15px;font-weight:500;font-family:var(--font-heading)">{{ selectedDay.precipProb }}%</div>
+            <div data-lv="label.value" style="display:flex;align-items:center;gap:6px;font-size:15px;font-weight:500;font-family:var(--font-heading);white-space:nowrap"><span>{{ selectedDay.precipProb }}%</span><span>·</span><span>{{ selectedDay.precipSumDisplay }}</span></div>
           </div>
           <div data-lv="card.stat" style="background:var(--color-neutral-900);border-radius:var(--radius-md);padding:var(--space-3)">
             <div data-lv="label.caption" style="font-size:10px;letter-spacing:0.06em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ t.wind }}</div>
-            <div data-lv="label.value" style="font-size:15px;font-weight:500;font-family:var(--font-heading)">{{ selectedDay.windDisplay }}</div>
+            <div data-lv="label.value" style="display:flex;align-items:center;gap:6px;font-size:15px;font-weight:500;font-family:var(--font-heading);white-space:nowrap"><svg width="14" height="14" viewBox="0 0 24 24" style="flex:none;transform:rotate({{ selectedDay.windArrowDeg }}deg)"><path d="M12 2 L19 20 L12 16 L5 20 Z" fill="var(--color-accent)"></path></svg><span>{{ selectedDay.windCompass }} · {{ selectedDay.windDisplay }}</span></div>
+            <div data-lv="label.caption" style="font-size:11px;color:color-mix(in srgb, var(--color-text) 55%, transparent);white-space:nowrap">{{ t.gusts }} {{ selectedDay.gustDisplay }}</div>
           </div>
         </div>
 
@@ -584,6 +588,7 @@
             <div style="display:flex;flex-direction:column;gap:4px;flex:none">
               <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:50%;background:var(--color-accent)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.temperature }}</span></div>
               <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="width:8px;height:8px;border-radius:2px;background:var(--color-accent-700)"></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.precip }}</span></div>
+            <div data-lv="label.caption" style="display:flex;align-items:center;gap:5px"><span style="display:flex;gap:3px;width:8px;opacity:0.7"><span style="width:2px;height:2px;border-radius:50%;background:var(--color-accent-400)"></span><span style="width:2px;height:2px;border-radius:50%;background:var(--color-accent-400)"></span></span><span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ t.rainChance }}</span></div>
             </div>
             <div style="position:relative;flex:1;height:100%">
               <svg viewBox="0 0 {{ selectedDay.chart.W }} {{ selectedDay.chart.H }}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible">
@@ -592,7 +597,8 @@
                 <sc-for list="{{ selectedDay.chart.bars }}" as="bar" hint-placeholder-count="24">
                   <rect x="{{ bar.x }}" y="{{ bar.y }}" width="{{ bar.w }}" height="{{ bar.h }}" rx="1.5" fill="var(--color-accent-700)"></rect>
                 </sc-for>
-                <polyline points="{{ selectedDay.chart.linePoints }}" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
+                <polyline points="{{ selectedDay.chart.probPoints }}" fill="none" stroke="var(--color-accent-400)" stroke-width="1.5" stroke-dasharray="0 4" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"></polyline>
+              <polyline points="{{ selectedDay.chart.linePoints }}" fill="none" stroke="var(--color-accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>
               </svg>
               <sc-for list="{{ selectedDay.chart.tempTicks }}" as="tick" hint-placeholder-count="3">
                 <div data-lv="label.caption" style="position:absolute;left:0;top:{{ tick.topPct }}%;transform:translateY(-50%);font-size:9px;color:var(--color-accent)">{{ tick.text }}</div>
@@ -741,7 +747,7 @@ class Component extends DCLogic {
         noCities: 'No cities found.', searching: 'Searching…', settings: 'Settings',
         temperature: 'Temperature', windSpeed: 'Wind speed', timeFormat: 'Time format',
         language: 'Language', favorites: 'Favorites', favorite: 'Favorite', emptyFavorite: 'Empty', removeFavorite: 'Remove favorite', h24: '24-hour', h12: '12-hour', humidity: 'Humidity',
-        feelsLike: 'Feels like', wind: 'Wind', precip: 'Precip.', forecast: '7-Day Forecast',
+        feelsLike: 'Feels like', wind: 'Wind', precip: 'Precip.', gusts: 'Gusts', rainChance: 'Rain chance', forecast: '7-Day Forecast',
         loading: 'Loading weather…', today: 'Today', tomorrow: 'Tomorrow', error: 'Could not load weather',
         dataUpdated: 'Weather data updated.',
         updatedNow: 'Updated just now', updatedAgoMin: 'Updated {n} min ago', updatedAgoHour: 'Updated {n} h ago',
@@ -779,7 +785,7 @@ class Component extends DCLogic {
         noCities: 'Keine Städte gefunden.', searching: 'Suche…', settings: 'Einstellungen',
         temperature: 'Temperatur', windSpeed: 'Windgeschwindigkeit', timeFormat: 'Zeitformat',
         language: 'Sprache', favorites: 'Favoriten', favorite: 'Favorit', emptyFavorite: 'Leer', removeFavorite: 'Favorit entfernen', h24: '24 Std.', h12: '12 Std.', humidity: 'Luftfeuchte',
-        feelsLike: 'Gefühlt', wind: 'Wind', precip: 'Niederschlag', forecast: '7-Tage-Vorhersage',
+        feelsLike: 'Gefühlt', wind: 'Wind', precip: 'Niederschlag', gusts: 'Böen', rainChance: 'Regenrisiko', forecast: '7-Tage-Vorhersage',
         loading: 'Wetter wird geladen…', today: 'Heute', tomorrow: 'Morgen', error: 'Wetter konnte nicht geladen werden',
         dataUpdated: 'Wetterdaten aktualisiert.',
         updatedNow: 'Gerade aktualisiert', updatedAgoMin: 'Vor {n} Min. aktualisiert', updatedAgoHour: 'Vor {n} Std. aktualisiert',
@@ -817,7 +823,7 @@ class Component extends DCLogic {
         noCities: 'No se encontraron ciudades.', searching: 'Buscando…', settings: 'Ajustes',
         temperature: 'Temperatura', windSpeed: 'Velocidad del viento', timeFormat: 'Formato de hora',
         language: 'Idioma', favorites: 'Favoritos', favorite: 'Favorito', emptyFavorite: 'Vacío', removeFavorite: 'Quitar favorito', h24: '24 h', h12: '12 h', humidity: 'Humedad',
-        feelsLike: 'Sensación', wind: 'Viento', precip: 'Precip.', forecast: 'Pronóstico de 7 días',
+        feelsLike: 'Sensación', wind: 'Viento', precip: 'Precip.', gusts: 'Rachas', rainChance: 'Prob. lluvia', forecast: 'Pronóstico de 7 días',
         loading: 'Cargando el clima…', today: 'Hoy', tomorrow: 'Mañana', error: 'No se pudo cargar el clima',
         dataUpdated: 'Datos del clima actualizados.',
         updatedNow: 'Actualizado justo ahora', updatedAgoMin: 'Actualizado hace {n} min', updatedAgoHour: 'Actualizado hace {n} h',
@@ -855,7 +861,7 @@ class Component extends DCLogic {
         noCities: 'Aucune ville trouvée.', searching: 'Recherche…', settings: 'Paramètres',
         temperature: 'Température', windSpeed: 'Vitesse du vent', timeFormat: 'Format de l\u2019heure',
         language: 'Langue', favorites: 'Favoris', favorite: 'Favori', emptyFavorite: 'Vide', removeFavorite: 'Retirer le favori', h24: '24 h', h12: '12 h', humidity: 'Humidité',
-        feelsLike: 'Ressenti', wind: 'Vent', precip: 'Précip.', forecast: 'Prévisions sur 7 jours',
+        feelsLike: 'Ressenti', wind: 'Vent', precip: 'Précip.', gusts: 'Rafales', rainChance: 'Risque pluie', forecast: 'Prévisions sur 7 jours',
         loading: 'Chargement de la météo…', today: 'Aujourd\u2019hui', tomorrow: 'Demain', error: 'Impossible de charger la météo',
         dataUpdated: 'Données météo mises à jour.',
         updatedNow: 'Mis à jour à l\u2019instant', updatedAgoMin: 'Mis à jour il y a {n} min', updatedAgoHour: 'Mis à jour il y a {n} h',
@@ -1056,7 +1062,7 @@ class Component extends DCLogic {
     return this._fetchWeatherInner(lat, lon);
   }
   async _fetchWeatherInner(lat, lon) {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,wind_speed_10m,weather_code&hourly=temperature_2m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,wind_speed_10m_max,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=7`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation_probability,wind_speed_10m,wind_direction_10m,wind_gusts_10m,is_day,weather_code&hourly=temperature_2m,precipitation,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=7`;
     const aqUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=us_aqi&timezone=auto`;
     try {
       const res = await fetch(url);
@@ -1151,6 +1157,14 @@ class Component extends DCLogic {
   }
   windLabel(unit) {
     return unit === 'mph' ? 'mph' : unit === 'ms' ? 'm/s' : 'km/h';
+  }
+  precipStr(mm) {
+    const v = mm ?? 0;
+    return `${v >= 10 ? Math.round(v) : v.toFixed(1)} mm`;
+  }
+  compass(deg, lang) {
+    const P = { en: ['N','NE','E','SE','S','SW','W','NW'], de: ['N','NO','O','SO','S','SW','W','NW'], es: ['N','NE','E','SE','S','SO','O','NO'], fr: ['N','NE','E','SE','S','SO','O','NO'] };
+    return (P[lang] || P.en)[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
   }
   windStr(kmh, unit) {
     return `${Math.round(this.convertWind(kmh, unit))} ${this.windLabel(unit)}`;
@@ -1302,6 +1316,7 @@ class Component extends DCLogic {
     const sliceTime = h.time.slice(start, start + n);
     const temps = h.temperature_2m.slice(start, start + n).map((c) => this.convertTemp(c, tempUnit));
     const precs = h.precipitation.slice(start, start + n);
+    const probs = (h.precipitation_probability || []).slice(start, start + n);
     const h_ = { time: sliceTime };
     const W = 480, H = 108, PAD_L = 26, PAD_R = 30, PAD_T = 6, PAD_B = 18;
     const chartW = W - PAD_L - PAD_R, chartH = H - PAD_T - PAD_B;
@@ -1314,6 +1329,7 @@ class Component extends DCLogic {
       const y = PAD_T + chartH - ((t - tMin) / tRange) * chartH;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(' ');
+    const probPoints = probs.map((pr, i) => `${(PAD_L + i * stepX).toFixed(1)},${(PAD_T + chartH - ((pr ?? 0) / 100) * chartH).toFixed(1)}`).join(' ');
     const barSlot = chartW / n;
     const barW = barSlot * 0.55;
     const bars = precs.map((p, i) => {
@@ -1343,7 +1359,7 @@ class Component extends DCLogic {
       return { key: f, topPct: +(((PAD_T + chartH - f * (chartH * 0.85)) / H) * 100).toFixed(2), text: `${val.toFixed(val < 1 ? 1 : 0)}mm` };
     });
     xLabels.forEach((l) => { l.leftPct = +((l.x / W) * 100).toFixed(2); });
-    return { W, H, linePoints, bars, xLabels, tempTicks, precipTicks, axisX0: PAD_L, axisX1: W - PAD_R, axisTop: PAD_T, axisBottom: PAD_T + chartH };
+    return { W, H, linePoints, probPoints, bars, xLabels, tempTicks, precipTicks, axisX0: PAD_L, axisX1: W - PAD_R, axisTop: PAD_T, axisBottom: PAD_T + chartH };
   }
 
   renderVals() {
@@ -1371,6 +1387,9 @@ class Component extends DCLogic {
         humidityCat: this.humidityCategory(c.relative_humidity_2m, strings),
         apparentDisplay: this.tempStr(c.apparent_temperature, units.temp),
         windDisplay: this.windStr(c.wind_speed_10m, units.wind),
+        gustDisplay: this.windStr(c.wind_gusts_10m ?? c.wind_speed_10m, units.wind),
+        windArrowDeg: Math.round(((c.wind_direction_10m ?? 0) + 180) % 360),
+        isNight: c.is_day === 0,
         precipProb: Math.round(c.precipitation_probability ?? 0),
         realFeelText: this.realFeelText(c.apparent_temperature, c.temperature_2m, c.wind_speed_10m, c.precipitation_probability ?? 0, strings),
       };
@@ -1391,6 +1410,7 @@ class Component extends DCLogic {
         hiDisplay: this.tempStr(d.temperature_2m_max[i], units.temp),
         loDisplay: this.tempStr(d.temperature_2m_min[i], units.temp),
         precipProb: Math.round(d.precipitation_probability_max?.[i] ?? 0),
+        precipSumDisplay: this.precipStr(d.precipitation_sum?.[i]),
         open: () => this.setState({ selectedDayIndex: i }),
       }));
       if (selectedDayIndex != null && d.time[selectedDayIndex]) {
@@ -1406,6 +1426,10 @@ class Component extends DCLogic {
           apparentLoDisplay: this.tempStr(d.apparent_temperature_min[i], units.temp),
           precipProb: Math.round(d.precipitation_probability_max?.[i] ?? 0),
           windDisplay: this.windStr(d.wind_speed_10m_max[i], units.wind),
+          gustDisplay: this.windStr(d.wind_gusts_10m_max?.[i] ?? d.wind_speed_10m_max[i], units.wind),
+          windArrowDeg: Math.round(((d.wind_direction_10m_dominant?.[i] ?? 0) + 180) % 360),
+          windCompass: this.compass(d.wind_direction_10m_dominant?.[i] ?? 0, language),
+          precipSumDisplay: this.precipStr(d.precipitation_sum?.[i]),
           chart: this.buildDayChart(weather, i, units.temp, units.time, locale),
         };
       }
