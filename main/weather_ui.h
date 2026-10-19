@@ -39,6 +39,12 @@ typedef struct {
     char uv_cat[24];      /* localized category, e.g. "Moderate" */
     char aqi_display[8];  /* rounded US AQI, e.g. "42" */
     char aqi_cat[24];
+    /* 2026-10-19 sync ("extra data"): wind arrow (degrees the arrow is rotated,
+     * pointing where the wind goes), gusts and whether it is night (is_day == 0),
+     * which picks the moon variants of the clear/partly-cloudy icons. */
+    int wind_arrow_deg;
+    float wind_gust_kmh;
+    bool is_night;
 } weather_current_t;
 
 typedef struct {
@@ -49,6 +55,13 @@ typedef struct {
     float feels_max_c, feels_min_c;
     float wind_max_kmh;
     int precip_pct;
+    /* 2026-10-19 sync: rain total ("0.4 mm" next to the percentage), gusts, and
+     * the dominant wind direction as arrow rotation plus compass point index
+     * (0..7 into weather_compass[][] in weather_i18n.h). */
+    float precip_sum_mm;
+    float wind_gust_kmh;
+    int wind_arrow_deg;
+    int wind_compass_idx;
 } weather_day_t;
 
 #define WEATHER_UI_CHART_POINTS 24
@@ -60,6 +73,7 @@ typedef struct {
     int count;
     float temp_c[WEATHER_UI_CHART_POINTS];       /* canonical Celsius; converted for display internally */
     float precip_mm[WEATHER_UI_CHART_POINTS];
+    int precip_prob_pct[WEATHER_UI_CHART_POINTS]; /* 0-100, drawn as the dotted rain-chance line */
     int hour[WEATHER_UI_CHART_POINTS];            /* 0-23, local time */
 } weather_hourly_t;
 
