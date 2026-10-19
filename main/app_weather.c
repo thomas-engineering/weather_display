@@ -213,6 +213,7 @@ static char *http_get(const char *url) {
         .crt_bundle_attach = esp_crt_bundle_attach,
         .timeout_ms = HTTP_TIMEOUT_MS,
         .buffer_size = HTTP_RX_BUFFER_BYTES,
+        .buffer_size_tx = HTTP_TX_BUFFER_BYTES,
     };
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) return NULL;
