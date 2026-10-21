@@ -20,7 +20,9 @@ which renders the same LVGL UI source the firmware does — see
 ## Features
 
 - Current conditions, 7-day forecast strip, and a slide-up per-day detail
-  panel with an hourly temperature + precipitation chart.
+  panel with an hourly temperature + precipitation chart (with a dotted
+  rain-chance line). Wind shows direction and gusts; the daily rain value is
+  "chance · amount"; night hours get moon icons.
 - Sunrise/sunset, UV index, and air quality (from a separate Open-Meteo
   endpoint) on the current-conditions card.
 - Up to three favorite cities, alongside city search over Open-Meteo's
@@ -38,6 +40,10 @@ which renders the same LVGL UI source the firmware does — see
   network details, last successful sync.
 - Settings: language (EN/DE/ES/FR), °C/°F, km/h · mph · m/s, 12/24-hour clock,
   auto-refresh interval. All of it persists across reboots.
+- Nixie-tube screen saver after 15, 30 or 60 minutes without a touch (or
+  off): six glowing digits showing the local time, plus the date and current
+  temperature, slowly drifting to avoid burn-in. Colours follow the app theme
+  or a fixed Nixie orange; a tap ends it. See [Screen saver](#screen-saver).
 - Header shows online/offline and warns when data is more than an hour stale.
 
 ## Layout
@@ -62,6 +68,7 @@ main/
 ├── lv_mem_psram.c        LVGL allocator that prefers PSRAM over internal RAM
 ├── ui_fonts.h            Inter ⇄ Montserrat font mapping
 ├── weather_chart.c/h     hourly temperature + precipitation chart
+├── weather_saver.c/h     Nixie screen saver overlay (digits in weather_saver_digits.h)
 ├── weather_ui.c/h        ── imported from Claude Design ──
 ├── weather_icons.c/h     ── imported from Claude Design ──
 ├── weather_i18n.c/h      ── imported from Claude Design ──
@@ -79,6 +86,8 @@ components/app_logic/     hardware-free application logic, host-tested (see Test
 ├── coprocessor_health_policy.c  when to restart the C6 link, with cooldown and give-up
 ├── startup_retry_policy.c     retry delays for the initial network steps
 ├── network_status_policy.c    error state and refresh-toast transitions
+├── screensaver_policy.c  when the saver starts/stops, digit split, burn-in drift
+├── hold_gesture.c        long-press detection for the hidden saver trigger
 └── heap_watch.c          low-heap detection and report throttling
 
 host_test/                Unity tests for components/app_logic/, run on the Linux target
@@ -148,6 +157,38 @@ itself; pick a network and type the passphrase. Credentials go to NVS, so it onl
 happens once. You can also pre-seed a network under
 *Weather Display Configuration → Fallback WiFi SSID* if you prefer.
 
+## Screen saver
+
+After the configured inactivity time the UI is replaced by a Nixie-tube clock
+(`main/weather_saver.c`): six tubes with the local time, the short date and
+the current temperature. The whole thing drifts slowly to spread wear on the
+panel. Any tap dismisses it and restarts the countdown.
+
+Settings → **Screen saver** has two options, stored in their own NVS record
+and kept across reboots:
+
+- **Screen saver after inactivity**: Off, 15, 30 or 60 minutes.
+- **Screen saver colours**: *App theme* or *Nixie orange*.
+
+| App theme | Nixie orange |
+|---|---|
+| ![Screen saver, app theme colours](docs/screenshots/screensaver-theme.png) | ![Screen saver, Nixie orange](docs/screenshots/screensaver-orange.png) |
+
+Both are simulator captures (`./scripts/sim.sh --screen screensaver` and
+`--screen screensaver-orange`).
+
+Holding the clock in the header for 3 seconds starts the saver immediately,
+whatever the timeout setting says (also in release builds; nothing in the UI
+hints at it).
+
+The saver needs the city's UTC offset, so it only starts after the first
+successful weather fetch. The digits, glow, tube cage and base are
+pre-rendered into images and the normal UI is hidden while the saver runs:
+drawing them live as LVGL lines froze the display for tens of seconds. The
+start/stop decisions live in `components/app_logic/` (`screensaver_policy.c`,
+`hold_gesture.c`) and are host-tested; how to test the rest without waiting
+for the timeout is in `docs/screensaver-test.md`.
+
 ## Firmware updates
 
 Settings → Network → **Update** opens a dialog that checks the latest
@@ -186,10 +227,27 @@ The workflow has a `channel` input:
 | `test` (default) | `v<version.txt>-test.<run number>` | pre-release, no `release/` branch | only devices with the **Test channel** switch on |
 | `release` | `v<version.txt>` | regular release, `release/v…` branch | all devices |
 
-The C6 coprocessor firmware follows the channel too: `test` builds the newest
-matching esp-hosted tag, `release` builds exactly the version in
-`c6_release_version.txt`, which is only raised after that firmware passed the
-procedure in `docs/c6-firmware-test.md` (`./scripts/c6-compat-test.sh`).
+### ESP32-C6 firmware
+
+The C6 runs esp-hosted slave firmware that must match the host component in
+the P4 image (host `espressif/esp_hosted` `3.0.*`, pinned to 3.0.7 in
+`dependencies.lock`). It follows the release channel:
+
+| `channel` | C6 firmware built |
+|---|---|
+| `test` | the newest `v3.0.*` tag of `espressif/esp-hosted-mcu` |
+| `release` | exactly the tag in `c6_release_version.txt` (currently `3.0.7`) |
+
+`c6_release_version.txt` is only raised after that firmware passed the
+hardware procedure in `docs/c6-firmware-test.md` (test build, on-board update,
+`./scripts/c6-compat-test.sh`, outage test, update under load, soak). The
+release run fails if the tag is missing, violates the constraint in
+`main/idf_component.yml`, or builds a different version than the file says, so
+an untested Espressif tag never reaches a release. The C6 is updated from the
+device (toggle "Update Wi-Fi coprocessor with application" in the update
+dialog); if a failed update leaves it unreachable, flash it over UART with
+`scripts/c6_firmware_via_UART/flash_c6_via_uart.sh` (`binaries_v3.0.7` is in
+the repo).
 
 Devices on the normal channel read GitHub's `/releases/latest`, which never
 returns pre-releases. The **Test channel** switch in the update dialog
@@ -231,7 +289,7 @@ the full rationale. In order of speed:
 | Changed | Run |
 |---|---|
 | `components/app_logic/**` | `./scripts/host-test.sh` |
-| UI rendering (`weather_ui.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, fonts) | `./scripts/sim.sh --shots <dir>` |
+| UI rendering (`weather_ui.c`, `weather_saver.c`, `weather_chart.c`, `weather_icons.c`, `weather_i18n.c`, `app_format.c`, fonts) | `./scripts/sim.sh --shots <dir>` |
 | everything else in `main/`, sdkconfig, dependencies, CMake | `./scripts/fw-build.sh` |
 | peripherals, startup, Wi-Fi, OTA, timing, memory layout | additionally `./scripts/hw-flash.sh [/dev/ttyACM0]` (`REQUIRE_IP=1` for Wi-Fi/OTA) |
 | Wi-Fi recovery (`app_wifi.c`, reconnect and link-health policies) | additionally `./scripts/hil-outage-test.sh` (a human triggers the outage) |
@@ -280,7 +338,8 @@ blocks until it is closed.
 
 Screens: `main`, `search`, `settings`, `settings-adaptive-on`, `device-info`,
 `forecast-icon-tap`, `refresh-toast`, `detail`, `wifi`,
-`wifi-forget-confirm`, `favorite-tap`, `ota`, `ota-done`, plus the first-boot
+`wifi-forget-confirm`, `favorite-tap`, `ota`, `ota-done`, `screensaver`,
+`screensaver-orange`, `screensaver-dismiss`, `screensaver-hold`, plus the first-boot
 state via `--wifi-setup` (captured as `first-boot` by `--shots`). The capture path is headless
 (`SDL_VIDEODRIVER=dummy`), so it works over SSH. Screens are opened by
 walking the object tree for a known label and clicking its owner, not by
@@ -410,7 +469,7 @@ you change these versions, delete `sdkconfig` — stale esp_hosted values persis
 including the SDIO reset polarity.
 
 Host and C6 esp-hosted versions must match (host `3.0.*`, slave firmware
-3.0.7, binaries in `scripts/c6_firmware_via_UART/binaries_v3.0.7`). A C6 still
+3.0.7 — see [ESP32-C6 firmware](#esp32-c6-firmware); binaries in `scripts/c6_firmware_via_UART/binaries_v3.0.7`). A C6 still
 on older firmware (e.g. 2.6.7) logs `major version mismatch — OTA coprocessor
 from host`; update it via [Firmware updates](#firmware-updates) or, if the OTA
 path itself is unusable on that firmware, flash it over UART with
