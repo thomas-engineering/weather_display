@@ -15,6 +15,7 @@
       "Bash(git diff:*)",
       "Bash(git log:*)",
       "Bash(git checkout -b:*)",
+      "Bash(gh pr merge 11 --merge)",
       "Bash(rg:*)",
       "Bash(grep:*)",
       "Bash(tail:*)",
