@@ -45,7 +45,12 @@ if [ ! -e "$PORT" ]; then
 fi
 
 echo "== Flash auf $PORT =="
-idf.py -B "$BUILD_DIR" -p "$PORT" flash
+# Not "idf.py flash": it would run CMake a second time. fw-build.sh passes
+# --ccache and -DWEATHER_SAVER_FAST_TEST, idf.py without them sees different
+# cache values and reconfigures the whole project again (~30 s). The flash
+# target of the already configured build dir does the same flashing; the
+# port comes in through ESPPORT.
+ESPPORT="$PORT" cmake --build "$BUILD_DIR" --target flash
 
 # idf.py flash setzt das Board bereits per Reset neu — direkt danach lesen,
 # damit der Boot-Log nicht verpasst wird.
