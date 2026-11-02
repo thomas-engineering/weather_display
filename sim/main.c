@@ -40,6 +40,7 @@
 #include "weather_display_math.h"
 #include "weather_forecast_parse.h"
 #include "weather_i18n.h"
+#include "weather_icons.h"
 #include "weather_ui.h"
 
 #define SIM_HOR_RES 1024
@@ -842,6 +843,7 @@ typedef enum {
     SCREEN_SAVER_ORANGE,
     SCREEN_SAVER_DISMISS,
     SCREEN_SAVER_HOLD,
+    SCREEN_ICONS,
 } sim_screen_t;
 
 static sim_screen_t s_screen = SCREEN_MAIN;
@@ -930,6 +932,45 @@ static void open_screen(void)
     switch (s_screen) {
     case SCREEN_MAIN:
         break;
+
+    case SCREEN_ICONS: {
+        /* Gallery of every weather_icon_t glyph at the sizes the UI uses
+         * (forecast tile, current card, day-detail sheet), drawn through the
+         * same weather_icon_create() on an opaque overlay. */
+        static const char *const names[] = {
+            "CLEAR", "PARTLY", "CLOUD", "FOG", "RAIN",
+            "SNOW", "STORM", "CLEAR_NIGHT", "PARTLY_NIGHT",
+        };
+        static const int32_t sizes[] = { 72, 64, 36 };
+        enum { ICON_COUNT = sizeof(names) / sizeof(names[0]),
+               SIZE_COUNT = sizeof(sizes) / sizeof(sizes[0]),
+               MARGIN_X = 70, CELL_W = 106, TOP_Y = 14, NAME_H = 30, ROW_H = 110, LABEL_GAP = 4 };
+        _Static_assert(ICON_COUNT == WX_ICON_PARTLY_NIGHT + 1, "icons gallery is missing a weather_icon_t");
+        const lv_color_t bg = lv_color_hex(0x161826), text = lv_color_hex(0xE9E9ED), muted = lv_color_hex(0x9397AB);
+        lv_obj_t *overlay = lv_obj_create(root);
+        lv_obj_remove_style_all(overlay);
+        lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+        lv_obj_set_style_bg_color(overlay, bg, 0);
+        lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+        for (int i = 0; i < ICON_COUNT; i++) {
+            lv_obj_t *name = lv_label_create(overlay);
+            lv_label_set_text(name, names[i]);
+            lv_obj_set_style_text_color(name, muted, 0);
+            lv_obj_set_pos(name, MARGIN_X + i * CELL_W, TOP_Y);
+            for (int r = 0; r < SIZE_COUNT; r++) {
+                int32_t y = TOP_Y + NAME_H + r * ROW_H;
+                lv_obj_t *icon = weather_icon_create(overlay, (weather_icon_t)i, sizes[r], text);
+                lv_obj_set_pos(icon, MARGIN_X + i * CELL_W, y);
+            }
+        }
+        for (int r = 0; r < SIZE_COUNT; r++) {
+            lv_obj_t *size_lbl = lv_label_create(overlay);
+            lv_label_set_text_fmt(size_lbl, "%d px", (int)sizes[r]);
+            lv_obj_set_style_text_color(size_lbl, muted, 0);
+            lv_obj_set_pos(size_lbl, LABEL_GAP, TOP_Y + NAME_H + r * ROW_H + LABEL_GAP);
+        }
+        break;
+    }
 
     case SCREEN_SEARCH: {
         lv_obj_t *pin = find_label(root, LV_SYMBOL_GPS);
@@ -1197,9 +1238,10 @@ int main(int argc, char **argv)
             else if (strcmp(name, "screensaver-orange") == 0) s_screen = SCREEN_SAVER_ORANGE;
             else if (strcmp(name, "screensaver-dismiss") == 0) s_screen = SCREEN_SAVER_DISMISS;
             else if (strcmp(name, "screensaver-hold") == 0) s_screen = SCREEN_SAVER_HOLD;
+            else if (strcmp(name, "icons") == 0) s_screen = SCREEN_ICONS;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done, screensaver, screensaver-orange, screensaver-dismiss, screensaver-hold\n", name);
+                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done, screensaver, screensaver-orange, screensaver-dismiss, screensaver-hold, icons\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {

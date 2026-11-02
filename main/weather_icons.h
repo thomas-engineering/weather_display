@@ -34,8 +34,11 @@ lv_obj_t *weather_arrow_create(lv_obj_t *parent, int32_t size, lv_color_t color)
 /* Rotation in whole degrees, clockwise, around the arrow's centre. */
 void weather_arrow_set_rotation(lv_obj_t *arrow, int deg);
 
-/* Builds a solid-glyph weather icon out of plain LVGL primitives (circles, rounded
- * rects, a polyline) at `size` px, tinted with `color` — no image assets required.
+/* Builds a solid-glyph weather icon at `size` px, tinted with `color` — no image
+ * assets required. The fog icon's cloud is the exception: it is always the
+ * design's fixed dark gray (Nocturne neutral-600) and ignores `color`. Parts that
+ * need curves or rotation (sun and rays, snowflakes, bolt, moon) are rasterized
+ * into one A8 mask per size, the rest are plain LVGL rects and circles.
  * Returns the container object; destroy with lv_obj_delete() to remove it. */
 lv_obj_t *weather_icon_create(lv_obj_t *parent, weather_icon_t icon, int32_t size, lv_color_t color);
 
