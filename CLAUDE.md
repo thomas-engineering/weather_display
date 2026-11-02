@@ -103,6 +103,12 @@ und umschreiben, wenn die Datei sonst nicht angefasst wird.
 - **UI-Werte:** Farben, Abstände und Radien kommen aus dem Nocturne-Designsystem
   (`design/src/nocturne/`, extrahiert mit `tools/extract-design.mjs`). Keine
   Werte frei erfinden.
+- **Design-Änderungen gehören nach Claude Design:** Das Design (Aussehen,
+  Maße, Icons, Texte, Layout) wird in Claude Design geändert, nicht in der
+  Firmware. Soll Claude Code etwas ändern, das das Design betrifft, erinnert er
+  vorher daran, dass die Änderung zuerst in Claude Design erfolgen sollte, und
+  fragt, bevor er ändert. Gilt auch für `design/src/` und die UI-Dateien in
+  `main/`. Ohne ausdrückliche Zustimmung weicht die Firmware nicht vom Design ab.
 - **`managed_components/`** ist gitignored und wird nie direkt geändert. Nötige
   Änderungen als Patch in `patches/` mit Eintrag in `patches/README.md`; nach
   jeder Neuauflösung der Abhängigkeiten erneut anwenden (aktuell
