@@ -68,6 +68,10 @@ extern const char *const weather_compass[LANG_COUNT][8];
 extern const char *weather_wday_short[LANG_COUNT][7];
 extern const char *weather_mon_short[LANG_COUNT][12];
 
+/* Full weekday and month names, same indexing as the short tables above. */
+extern const char *const weather_wday_long[LANG_COUNT][7];
+extern const char *const weather_mon_long[LANG_COUNT][12];
+
 /* "Real feel" sentence fragments — app_format.c's fmt_real_feel() picks `same`/
  * `cooler`/`warmer` by the apparent-vs-actual temperature delta, then appends
  * `rain` or `breezy` (or neither). Mirrors the design's getStrings().rf. */

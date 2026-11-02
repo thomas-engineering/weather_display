@@ -809,7 +809,7 @@ static void build_forecast_strip(lv_obj_t *parent) {
         ui.day_date_lbl[i] = lv_label_create(card);
         lv_label_set_text(ui.day_date_lbl[i], "");
         lv_obj_set_style_text_color(ui.day_date_lbl[i], C_TEXT_MUTED, 0);
-        lv_obj_set_style_text_font(ui.day_date_lbl[i], FONT_10, 0);
+        lv_obj_set_style_text_font(ui.day_date_lbl[i], FONT_12, 0);
 
         /* FIX: same as ui.current_icon — the design's forecast tile sets
          * color:var(--color-text) on the whole card, no accent override. */
@@ -1056,7 +1056,7 @@ static void day_card_click_cb(lv_event_t *e) {
     int i = (int)(intptr_t)lv_event_get_user_data(e);
     if (i < 0 || i >= WEATHER_UI_DAYS || !ui.days_valid) return;
     weather_day_t *d = &ui.days[i];
-    lv_label_set_text_fmt(ui.detail_day_lbl, "%s\n%s", d->day_label, d->date_label);
+    lv_label_set_text_fmt(ui.detail_day_lbl, "%s\n%s", d->day_label_long, d->date_label);
     weather_icon_set_type(ui.detail_icon, weather_icon_from_wmo(d->weather_code), DETAIL_ICON_PX, C_TEXT);
     lv_label_set_text_fmt(ui.detail_hilo_lbl, "%d\xC2\xB0 / %d\xC2\xB0", temp_disp(d->temp_max_c), temp_disp(d->temp_min_c));
     lv_label_set_text(ui.detail_cond_lbl, weather_cond_text[ui.lang][wmo_bucket(d->weather_code)]);
@@ -1682,7 +1682,7 @@ static void saver_render(void) {
         unix_s = now;
     }
     char date[48];
-    fmt_date(date, sizeof date, &lt, ui.lang);
+    fmt_date_long(date, sizeof date, &lt, ui.lang);
     char temp[16] = "";
     if (ui.has_data) snprintf(temp, sizeof temp, "%d\xC2\xB0%c", temp_disp(ui.cur.temp_c), temp_unit_ch());
     weather_saver_update(&lt, ui.time_fmt == WX_TIME_12, unix_s, date, temp);

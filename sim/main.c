@@ -185,6 +185,7 @@ static void publish_weather(void)
         struct tm d = *localtime(&t);
 
         fmt_day_label(days[i].day_label, sizeof(days[i].day_label), &d, i, s_lang);
+        fmt_day_label_long(days[i].day_label_long, sizeof(days[i].day_label_long), &d, i, s_lang);
         fmt_day_date(days[i].date_label, sizeof(days[i].date_label), &d, s_lang);
         days[i].weather_code = k_code[i];
         days[i].temp_max_c = k_tmax[i];
@@ -370,11 +371,16 @@ static bool publish_weather_live(void) {
     const weather_hourly_t *hourly_ptr[WEATHER_UI_DAYS];
 
     for (int i = 0; i < WEATHER_UI_DAYS; i++) {
-        if (i >= f.day_count) { snprintf(days[i].day_label, sizeof(days[i].day_label), "--"); continue; }
+        if (i >= f.day_count) {
+            snprintf(days[i].day_label, sizeof(days[i].day_label), "--");
+            snprintf(days[i].day_label_long, sizeof(days[i].day_label_long), "--");
+            continue;
+        }
 
         struct tm dt;
         if (parse_iso_date(f.days[i].iso_date, &dt)) {
             fmt_day_label(days[i].day_label, sizeof(days[i].day_label), &dt, i, s_lang);
+            fmt_day_label_long(days[i].day_label_long, sizeof(days[i].day_label_long), &dt, i, s_lang);
             fmt_day_date(days[i].date_label, sizeof(days[i].date_label), &dt, s_lang);
         }
         days[i].weather_code = f.days[i].weather_code;

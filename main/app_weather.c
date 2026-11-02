@@ -522,10 +522,15 @@ static void push_forecast_to_ui(bool full) {
 
     weather_day_t days[WEATHER_UI_DAYS] = {0};
     for (int i = 0; i < WEATHER_UI_DAYS; i++) {
-        if (i >= s_day_count) { snprintf(days[i].day_label, sizeof days[i].day_label, "--"); continue; }
+        if (i >= s_day_count) {
+            snprintf(days[i].day_label, sizeof days[i].day_label, "--");
+            snprintf(days[i].day_label_long, sizeof days[i].day_label_long, "--");
+            continue;
+        }
         struct tm dt;
         if (parse_iso_date(s_days[i].iso, &dt)) {
             fmt_day_label(days[i].day_label, sizeof days[i].day_label, &dt, i, lang);
+            fmt_day_label_long(days[i].day_label_long, sizeof days[i].day_label_long, &dt, i, lang);
             fmt_day_date(days[i].date_label, sizeof days[i].date_label, &dt, lang);
         }
         days[i].weather_code = s_days[i].code;
