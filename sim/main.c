@@ -40,6 +40,7 @@
 #include "weather_display_math.h"
 #include "weather_forecast_parse.h"
 #include "weather_i18n.h"
+#include "weather_icons.h"
 #include "weather_ui.h"
 
 #define SIM_HOR_RES 1024
@@ -842,6 +843,7 @@ typedef enum {
     SCREEN_SAVER_ORANGE,
     SCREEN_SAVER_DISMISS,
     SCREEN_SAVER_HOLD,
+    SCREEN_ICONS,
 } sim_screen_t;
 
 static sim_screen_t s_screen = SCREEN_MAIN;
@@ -930,6 +932,36 @@ static void open_screen(void)
     switch (s_screen) {
     case SCREEN_MAIN:
         break;
+
+    case SCREEN_ICONS: {
+        /* Gallery of every weather_icon_t glyph, drawn through the same
+         * weather_icon_create() the UI uses, on an opaque overlay. */
+        static const char *const names[] = {
+            "CLEAR", "PARTLY", "CLOUD", "FOG", "RAIN",
+            "SNOW", "STORM", "CLEAR_NIGHT", "PARTLY_NIGHT",
+        };
+        enum { ICON_COUNT = sizeof(names) / sizeof(names[0]), COLUMNS = 5,
+               CELL_W = 200, CELL_H = 240, ICON_SIZE = 120, LABEL_GAP = 16 };
+        lv_obj_t *overlay = lv_obj_create(root);
+        lv_obj_remove_style_all(overlay);
+        lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
+        lv_obj_set_style_bg_color(overlay, lv_color_hex(0x161826), 0);
+        lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
+        for (int i = 0; i < ICON_COUNT; i++) {
+            lv_obj_t *cell = lv_obj_create(overlay);
+            lv_obj_remove_style_all(cell);
+            lv_obj_set_size(cell, CELL_W, CELL_H);
+            lv_obj_set_pos(cell, (i % COLUMNS) * CELL_W + 12, (i / COLUMNS) * CELL_H + 40);
+            lv_obj_t *icon = weather_icon_create(cell, (weather_icon_t)i, ICON_SIZE,
+                                                 lv_color_hex(0xE9E9ED));
+            lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 0);
+            lv_obj_t *lbl = lv_label_create(cell);
+            lv_label_set_text(lbl, names[i]);
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0x9397AB), 0);
+            lv_obj_align_to(lbl, icon, LV_ALIGN_OUT_BOTTOM_MID, 0, LABEL_GAP);
+        }
+        break;
+    }
 
     case SCREEN_SEARCH: {
         lv_obj_t *pin = find_label(root, LV_SYMBOL_GPS);
@@ -1197,9 +1229,10 @@ int main(int argc, char **argv)
             else if (strcmp(name, "screensaver-orange") == 0) s_screen = SCREEN_SAVER_ORANGE;
             else if (strcmp(name, "screensaver-dismiss") == 0) s_screen = SCREEN_SAVER_DISMISS;
             else if (strcmp(name, "screensaver-hold") == 0) s_screen = SCREEN_SAVER_HOLD;
+            else if (strcmp(name, "icons") == 0) s_screen = SCREEN_ICONS;
             else {
                 fprintf(stderr, "Unbekannter Screen '%s'. Moeglich: main, search, "
-                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done, screensaver, screensaver-orange, screensaver-dismiss, screensaver-hold\n", name);
+                                "settings, settings-adaptive-on, device-info, forecast-icon-tap, refresh-toast, detail, wifi, wifi-forget-confirm, favorite-tap, ota, ota-done, screensaver, screensaver-orange, screensaver-dismiss, screensaver-hold, icons\n", name);
                 return 2;
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {

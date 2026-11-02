@@ -42,6 +42,11 @@ static const shape_t k_shape_moon_small = { MOON_BOX, { 22, 6 }, 6, {
     { true, { 27, 36, 31, 33, 33, 29 } }, { true, { 31, 30, 29, 30, 27, 30 } },
     { true, { 20, 30, 15, 24, 15, 18 } }, { true, { 15, 13, 18, 9, 22, 6 } } } };
 
+/* Lightning bolt for the storm icon, sitting below the cloud in the 64-unit box. */
+static const shape_t k_shape_bolt = { MOON_BOX, { 31, 46 }, 6, {
+    { false, { 39, 46 } }, { false, { 34, 53 } }, { false, { 41, 53 } },
+    { false, { 25, 64 } }, { false, { 29, 56 } }, { false, { 22, 56 } } } };
+
 /* Wind arrow "M12 2 L19 20 L12 16 L5 20 Z". */
 static const shape_t k_shape_arrow = { ARROW_BOX, { 12, 2 }, 3, {
     { false, { 19, 20 } }, { false, { 12, 16 } }, { false, { 5, 20 } } } };
@@ -110,7 +115,7 @@ static void rasterize_shape(const shape_t *s, uint8_t *mask) {
 
 typedef struct { const shape_t *shape; lv_image_dsc_t dsc; uint8_t *buf; } shape_img_t;
 static shape_img_t s_moon = { .shape = &k_shape_moon }, s_moon_small = { .shape = &k_shape_moon_small },
-                     s_arrow = { .shape = &k_shape_arrow };
+                     s_arrow = { .shape = &k_shape_arrow }, s_bolt = { .shape = &k_shape_bolt };
 
 /* Rasterizes on first use; keeps the mask for the life of the program. NULL if out of memory. */
 static const lv_image_dsc_t *shape_image(shape_img_t *si) {
@@ -206,6 +211,14 @@ static lv_obj_t *dot(lv_obj_t *parent, int32_t w, int32_t h, int32_t x, int32_t 
     return o;
 }
 
+#define SUN_RAY_COUNT 8
+#define SNOWFLAKE_ARMS 3           /* bars crossing at the center, 60 degrees apart */
+#define SNOWFLAKE_STEP_DEG 60
+
+/* Nocturne neutral-600: the fog icon's cloud is a solid dark gray, independent
+ * of the tint the caller passes in. */
+#define FOG_CLOUD_COLOR lv_color_hex(0x75798C)
+
 /* A classic "cloud from three circles + a base" silhouette, scaled to `size`. */
 static void build_cloud(lv_obj_t *parent, int32_t size, lv_color_t c, lv_opa_t opa, float y_off) {
     int32_t base_h = size * 0.34f;
@@ -215,8 +228,34 @@ static void build_cloud(lv_obj_t *parent, int32_t size, lv_color_t c, lv_opa_t o
     dot(parent, size * 0.34f, size * 0.34f, size * 0.58f, size * (0.34f + y_off), c, LV_RADIUS_CIRCLE, opa);
 }
 
-static void bolt_free_cb(lv_event_t *e) {
-    lv_free(lv_obj_get_user_data(lv_event_get_target_obj(e)));
+/* Eight rounded rays around (cx, cy), each pointing outward along its own
+ * radius; `dist` is the center-to-ray-center distance. */
+static void build_sun_rays(lv_obj_t *parent, float cx, float cy, float dist,
+                           int32_t ray_w, int32_t ray_len, lv_color_t c, lv_opa_t opa) {
+    for (int i = 0; i < SUN_RAY_COUNT; i++) {
+        float a = (float)i * (float)M_PI / 4.0f;
+        float rx = cx + cosf(a) * dist;
+        float ry = cy + sinf(a) * dist;
+        lv_obj_t *ray = dot(parent, ray_w, ray_len, (int32_t)(rx - ray_w / 2), (int32_t)(ry - ray_len / 2),
+                            c, ray_w / 2, opa);
+        /* The un-rotated rect points along -y (our a = 270deg / i = 6); turning
+         * it to point along this ray's own radius needs the same +90deg offset
+         * from its placement angle at every i. Pivot must be the ray's own
+         * center since its position is already placed on the circle above. */
+        lv_obj_set_style_transform_pivot_x(ray, ray_w / 2, 0);
+        lv_obj_set_style_transform_pivot_y(ray, ray_len / 2, 0);
+        lv_obj_set_style_transform_rotation(ray, ((i * 45 + 90) % 360) * 10, 0);
+    }
+}
+
+/* Six-armed flake: SNOWFLAKE_ARMS rounded bars crossing at (cx, cy). */
+static void build_snowflake(lv_obj_t *parent, float cx, float cy, int32_t len, int32_t w, lv_color_t c) {
+    for (int i = 0; i < SNOWFLAKE_ARMS; i++) {
+        lv_obj_t *bar = dot(parent, w, len, (int32_t)(cx - w / 2), (int32_t)(cy - len / 2), c, w / 2, LV_OPA_COVER);
+        lv_obj_set_style_transform_pivot_x(bar, w / 2, 0);
+        lv_obj_set_style_transform_pivot_y(bar, len / 2, 0);
+        lv_obj_set_style_transform_rotation(bar, i * SNOWFLAKE_STEP_DEG * 10, 0);
+    }
 }
 
 static void build_icon(lv_obj_t *cont, weather_icon_t icon, int32_t size, lv_color_t color) {
@@ -232,26 +271,15 @@ static void build_icon(lv_obj_t *cont, weather_icon_t icon, int32_t size, lv_col
             dot(cont, core_d, core_d, (size - core_d) / 2, (size - core_d) / 2, color, LV_RADIUS_CIRCLE, LV_OPA_COVER);
             int32_t ray_w = size * 0.09375f, ray_len = size * 0.171875f;      /* 6/64, 11/64 */
             float dist = size * 0.3828125f;                                  /* center-to-ray-center, 24.5/64 */
-            for (int i = 0; i < 8; i++) {
-                float a = (float)i * (float)M_PI / 4.0f;
-                float cx = size / 2.0f + cosf(a) * dist;
-                float cy = size / 2.0f + sinf(a) * dist;
-                lv_obj_t *ray = dot(cont, ray_w, ray_len, (int32_t)(cx - ray_w / 2), (int32_t)(cy - ray_len / 2),
-                                     color, ray_w / 2, LV_OPA_COVER);
-                /* The design's un-rotated rect already sits at the "up" position
-                 * (our a = 270°/i=6) pointing outward along -y; turning it to
-                 * point along this ray's own radius needs the same +90° offset
-                 * from its placement angle at every i. Pivot must be the ray's
-                 * own center (not the default top-left) since its position is
-                 * already placed on the circle above. */
-                lv_obj_set_style_transform_pivot_x(ray, ray_w / 2, 0);
-                lv_obj_set_style_transform_pivot_y(ray, ray_len / 2, 0);
-                lv_obj_set_style_transform_rotation(ray, ((i * 45 + 90) % 360) * 10, 0);
-            }
+            build_sun_rays(cont, size / 2.0f, size / 2.0f, dist, ray_w, ray_len, color, LV_OPA_COVER);
             break;
         }
         case WX_ICON_PARTLY:
-            dot(cont, size * 0.34f, size * 0.34f, size * 0.06f, size * 0.02f, color, LV_RADIUS_CIRCLE, LV_OPA_80);
+            dot(cont, size * 0.34f, size * 0.34f, size * 0.20f, size * 0.23f, color, LV_RADIUS_CIRCLE, LV_OPA_80);
+            /* Rays share the sun's color and opacity; the cloud drawn after
+             * them covers the ones behind it. Center = circle's center. */
+            build_sun_rays(cont, size * 0.37f, size * 0.40f, size * 0.27f,
+                           size * 0.05f, size * 0.12f, color, LV_OPA_80);
             build_cloud(cont, size, color, LV_OPA_COVER, 0.14f);
             break;
         case WX_ICON_CLEAR_NIGHT:
@@ -265,9 +293,9 @@ static void build_icon(lv_obj_t *cont, weather_icon_t icon, int32_t size, lv_col
             build_cloud(cont, size, color, LV_OPA_COVER, 0.0f);
             break;
         case WX_ICON_FOG:
-            build_cloud(cont, size, color, LV_OPA_70, -0.14f);
-            dot(cont, size * 0.86f, size * 0.10f, size * 0.06f, size * 0.70f, color, size * 0.05f, LV_OPA_60);
-            dot(cont, size * 0.62f, size * 0.10f, size * 0.06f, size * 0.86f, color, size * 0.05f, LV_OPA_40);
+            build_cloud(cont, size, FOG_CLOUD_COLOR, LV_OPA_COVER, -0.18f);
+            dot(cont, size * 0.86f, size * 0.10f, size * 0.06f, size * 0.73f, color, size * 0.05f, LV_OPA_60);
+            dot(cont, size * 0.62f, size * 0.10f, size * 0.06f, size * 0.90f, color, size * 0.05f, LV_OPA_40);
             break;
         case WX_ICON_RAIN: {
             /* FIX: two mismatches against WeatherIcon.dc.html's own rain
@@ -282,37 +310,21 @@ static void build_icon(lv_obj_t *cont, weather_icon_t icon, int32_t size, lv_col
             build_cloud(cont, size, color, LV_OPA_COVER, -0.10f);
             const float drop_y[3] = { 0.78f, 0.82f, 0.78f };
             for (int i = 0; i < 3; i++)
-                dot(cont, size * 0.08f, size * 0.18f, size * (0.22f + i * 0.28f), size * drop_y[i], color, size * 0.04f, LV_OPA_COVER);
+                dot(cont, size * 0.08f, size * 0.18f, size * (0.17f + i * 0.28f), size * drop_y[i], color, size * 0.04f, LV_OPA_COVER);
             break;
         }
         case WX_ICON_SNOW:
-            build_cloud(cont, size, color, LV_OPA_COVER, -0.10f);
-            for (int i = 0; i < 3; i++)
-                dot(cont, size * 0.12f, size * 0.12f, size * (0.20f + i * 0.30f), size * 0.76f, color, LV_RADIUS_CIRCLE, LV_OPA_COVER);
-            break;
-        case WX_ICON_STORM: {
             build_cloud(cont, size, color, LV_OPA_COVER, -0.14f);
-            /* One bolt array per icon object: the design export shared a single
-             * `static` array across every storm glyph, so a second storm icon
-             * silently rewrote the first one's points. lv_line does not copy the
-             * point array, so it has to stay alive as long as the line does —
-             * hang it off the line object and free it when the line is deleted. */
-            lv_point_precise_t *bolt = lv_malloc(sizeof(lv_point_precise_t) * 5);
-            if (!bolt) break;
-            bolt[0].x = size * 0.56f; bolt[0].y = size * 0.62f;
-            bolt[1].x = size * 0.36f; bolt[1].y = size * 0.82f;
-            bolt[2].x = size * 0.50f; bolt[2].y = size * 0.82f;
-            bolt[3].x = size * 0.34f; bolt[3].y = size * 1.02f;
-            bolt[4].x = size * 0.64f; bolt[4].y = size * 0.78f;
-            lv_obj_t *line = lv_line_create(cont);
-            lv_line_set_points(line, bolt, 5);
-            lv_obj_set_user_data(line, bolt);
-            lv_obj_add_event_cb(line, bolt_free_cb, LV_EVENT_DELETE, NULL);
-            lv_obj_set_style_line_color(line, color, 0);
-            lv_obj_set_style_line_width(line, size * 0.08f, 0);
-            lv_obj_set_style_line_rounded(line, true, 0);
+            const float flake_y[3] = { 0.86f, 0.89f, 0.86f };   /* middle flake sits lower */
+            for (int i = 0; i < 3; i++)
+                build_snowflake(cont, size * (0.19f + i * 0.30f), size * flake_y[i], size * 0.22f, size * 0.05f, color);
             break;
-        }
+        case WX_ICON_STORM:
+            /* Solid bolt fully below the cloud: the old stroked polyline
+             * touched the cloud in the same color and was hard to read. */
+            build_cloud(cont, size, color, LV_OPA_COVER, -0.18f);
+            shape_obj(cont, &s_bolt, size, color, LV_OPA_COVER);
+            break;
     }
 }
 
