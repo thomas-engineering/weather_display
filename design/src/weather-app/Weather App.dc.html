@@ -157,7 +157,7 @@
         <sc-for list="{{ days }}" as="day" hint-placeholder-count="7">
           <button data-lv="list.item" onClick="{{ day.open }}" style="flex:1;min-width:120px;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:12px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);cursor:pointer;color:var(--color-text)" class="card elev-sm">
             <div data-lv="label.title" style="font-size:13px;font-weight:500;font-family:var(--font-heading)">{{ day.dayLabel }}</div>
-            <div data-lv="label.caption" style="font-size:11px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ day.dateLabel }}</div>
+            <div data-lv="label.caption" style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ day.dateLabel }}</div>
             <dc-import name="WeatherIcon" code="{{ day.weatherCode }}" size="36" hint-size="36px,36px"></dc-import>
             <div style="display:flex;gap:6px;align-items:baseline;font-family:var(--font-heading)">
               <span data-lv="label.value" style="font-size:16px;font-weight:500">{{ day.hiDisplay }}</span>
@@ -1286,11 +1286,11 @@ class Component extends DCLogic {
       return new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' }).format(date);
     } catch (e) { return ''; }
   }
-  dayLabel(dateStr, idx, strings, locale) {
+  dayLabel(dateStr, idx, strings, locale, long) {
     if (idx === 0) return strings.today;
     if (idx === 1) return strings.tomorrow;
     const d = new Date(dateStr + 'T00:00:00');
-    return new Intl.DateTimeFormat(locale, { weekday: 'short' }).format(d);
+    return new Intl.DateTimeFormat(locale, { weekday: long ? 'long' : 'short' }).format(d);
   }
   dayDateLabel(dateStr, locale) {
     const d = new Date(dateStr + 'T00:00:00');
@@ -1416,7 +1416,7 @@ class Component extends DCLogic {
       if (selectedDayIndex != null && d.time[selectedDayIndex]) {
         const i = selectedDayIndex;
         selectedDay = {
-          dayLabel: this.dayLabel(d.time[i], i, strings, locale),
+          dayLabel: this.dayLabel(d.time[i], i, strings, locale, true),
           dateLabel: this.dayDateLabel(d.time[i], locale),
           weatherCode: d.weather_code[i],
           label: this.weatherMeta(d.weather_code[i], strings),
