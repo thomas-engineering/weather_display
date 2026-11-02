@@ -46,6 +46,18 @@ which renders the same LVGL UI source the firmware does — see
   or a fixed Nixie orange; a tap ends it. See [Screen saver](#screen-saver).
 - Header shows online/offline and warns when data is more than an hour stale.
 
+## Known limitations
+
+- **Country names are not re-localized.** The country shown next to a city
+  ("Trier, Germany") is the string Open-Meteo's geocoding API returns in the
+  language that was active when the city was picked or saved as a favorite, and
+  it is stored as is. Changing the device language later does not translate it,
+  so one list can show "Deutschland" next to "Germany". A city picked again
+  after a language change gets the new language. The design behaves the same
+  way (it stores `r.country` once), and the default city's "Germany" comes from
+  `CONFIG_WEATHER_DEFAULT_CITY_COUNTRY`. Fixing it means storing the country
+  code and translating it on the device; that change starts in Claude Design.
+
 ## Layout
 
 ```
