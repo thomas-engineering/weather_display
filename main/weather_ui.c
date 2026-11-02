@@ -547,6 +547,8 @@ static lv_obj_t *stat_box_create(lv_obj_t *parent, const char *label, lv_obj_t *
 static void day_card_click_cb(lv_event_t *e);
 
 #define WIND_ARROW_PX 14       /* design: 14x14 svg next to the wind value */
+#define CURRENT_ICON_PX 64     /* design: weather icon on the current-conditions card */
+#define DETAIL_ICON_PX 72      /* design: weather icon in the day-detail sheet */
 #define WIND_ROW_GAP_PX 4
 
 /* The design's wind tile: the value gets a rotated arrow in front of it, and a
@@ -595,7 +597,7 @@ static void build_current_card(lv_obj_t *parent) {
     /* FIX: the design has no color override on the icon — it inherits the
      * ambient text color, same as the temperature next to it. C_ACCENT made
      * the icon purple while the temperature stayed C_TEXT. */
-    ui.current_icon = weather_icon_create(ui.current_card, WX_ICON_CLOUD, 64, C_TEXT);
+    ui.current_icon = weather_icon_create(ui.current_card, WX_ICON_CLOUD, CURRENT_ICON_PX, C_TEXT);
 
     lv_obj_t *temp_wrap = lv_obj_create(ui.current_card);
     lv_obj_remove_style_all(temp_wrap);
@@ -856,7 +858,7 @@ static void render_current(void) {
 
     int bucket = wmo_bucket(ui.cur.weather_code);
     lv_label_set_text(ui.current_cond_tag, weather_cond_text[ui.lang][bucket]);
-    weather_icon_set_type(ui.current_icon, weather_icon_from_wmo_night(ui.cur.weather_code, ui.cur.is_night), 72, C_TEXT);
+    weather_icon_set_type(ui.current_icon, weather_icon_from_wmo_night(ui.cur.weather_code, ui.cur.is_night), CURRENT_ICON_PX, C_TEXT);
     lv_label_set_text_fmt(ui.current_temp_lbl, "%d\xC2\xB0%c", temp_disp(ui.cur.temp_c), temp_unit_ch());
     lv_label_set_text(ui.current_feel_lbl, ui.cur.real_feel_text);
 
@@ -983,7 +985,7 @@ static void build_detail_panel(lv_obj_t *parent) {
     lv_obj_set_style_pad_column(body, 20, 0);
     lv_obj_remove_flag(body, LV_OBJ_FLAG_SCROLLABLE);
     /* FIX: same as ui.current_icon — no accent override in the design. */
-    ui.detail_icon = weather_icon_create(body, WX_ICON_CLOUD, 64, C_TEXT);
+    ui.detail_icon = weather_icon_create(body, WX_ICON_CLOUD, DETAIL_ICON_PX, C_TEXT);
     lv_obj_t *hilo_wrap = lv_obj_create(body);
     lv_obj_remove_style_all(hilo_wrap);
     lv_obj_set_size(hilo_wrap, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -1055,7 +1057,7 @@ static void day_card_click_cb(lv_event_t *e) {
     if (i < 0 || i >= WEATHER_UI_DAYS || !ui.days_valid) return;
     weather_day_t *d = &ui.days[i];
     lv_label_set_text_fmt(ui.detail_day_lbl, "%s\n%s", d->day_label, d->date_label);
-    weather_icon_set_type(ui.detail_icon, weather_icon_from_wmo(d->weather_code), 64, C_TEXT);
+    weather_icon_set_type(ui.detail_icon, weather_icon_from_wmo(d->weather_code), DETAIL_ICON_PX, C_TEXT);
     lv_label_set_text_fmt(ui.detail_hilo_lbl, "%d\xC2\xB0 / %d\xC2\xB0", temp_disp(d->temp_max_c), temp_disp(d->temp_min_c));
     lv_label_set_text(ui.detail_cond_lbl, weather_cond_text[ui.lang][wmo_bucket(d->weather_code)]);
     lv_label_set_text(ui.detail_feel_cap, weather_strings[ui.lang].feels_like);

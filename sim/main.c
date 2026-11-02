@@ -934,31 +934,40 @@ static void open_screen(void)
         break;
 
     case SCREEN_ICONS: {
-        /* Gallery of every weather_icon_t glyph, drawn through the same
-         * weather_icon_create() the UI uses, on an opaque overlay. */
+        /* Gallery of every weather_icon_t glyph at the sizes the UI uses
+         * (forecast tile, current card, day-detail sheet), drawn through the
+         * same weather_icon_create() on an opaque overlay. */
         static const char *const names[] = {
             "CLEAR", "PARTLY", "CLOUD", "FOG", "RAIN",
             "SNOW", "STORM", "CLEAR_NIGHT", "PARTLY_NIGHT",
         };
-        enum { ICON_COUNT = sizeof(names) / sizeof(names[0]), COLUMNS = 5,
-               CELL_W = 200, CELL_H = 240, ICON_SIZE = 120, LABEL_GAP = 16 };
+        static const int32_t sizes[] = { 72, 64, 36 };
+        enum { ICON_COUNT = sizeof(names) / sizeof(names[0]),
+               SIZE_COUNT = sizeof(sizes) / sizeof(sizes[0]),
+               MARGIN_X = 70, CELL_W = 106, TOP_Y = 14, NAME_H = 30, ROW_H = 110, LABEL_GAP = 4 };
+        _Static_assert(ICON_COUNT == WX_ICON_PARTLY_NIGHT + 1, "icons gallery is missing a weather_icon_t");
+        const lv_color_t bg = lv_color_hex(0x161826), text = lv_color_hex(0xE9E9ED), muted = lv_color_hex(0x9397AB);
         lv_obj_t *overlay = lv_obj_create(root);
         lv_obj_remove_style_all(overlay);
         lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
-        lv_obj_set_style_bg_color(overlay, lv_color_hex(0x161826), 0);
+        lv_obj_set_style_bg_color(overlay, bg, 0);
         lv_obj_set_style_bg_opa(overlay, LV_OPA_COVER, 0);
         for (int i = 0; i < ICON_COUNT; i++) {
-            lv_obj_t *cell = lv_obj_create(overlay);
-            lv_obj_remove_style_all(cell);
-            lv_obj_set_size(cell, CELL_W, CELL_H);
-            lv_obj_set_pos(cell, (i % COLUMNS) * CELL_W + 12, (i / COLUMNS) * CELL_H + 40);
-            lv_obj_t *icon = weather_icon_create(cell, (weather_icon_t)i, ICON_SIZE,
-                                                 lv_color_hex(0xE9E9ED));
-            lv_obj_align(icon, LV_ALIGN_TOP_MID, 0, 0);
-            lv_obj_t *lbl = lv_label_create(cell);
-            lv_label_set_text(lbl, names[i]);
-            lv_obj_set_style_text_color(lbl, lv_color_hex(0x9397AB), 0);
-            lv_obj_align_to(lbl, icon, LV_ALIGN_OUT_BOTTOM_MID, 0, LABEL_GAP);
+            lv_obj_t *name = lv_label_create(overlay);
+            lv_label_set_text(name, names[i]);
+            lv_obj_set_style_text_color(name, muted, 0);
+            lv_obj_set_pos(name, MARGIN_X + i * CELL_W, TOP_Y);
+            for (int r = 0; r < SIZE_COUNT; r++) {
+                int32_t y = TOP_Y + NAME_H + r * ROW_H;
+                lv_obj_t *icon = weather_icon_create(overlay, (weather_icon_t)i, sizes[r], text);
+                lv_obj_set_pos(icon, MARGIN_X + i * CELL_W, y);
+            }
+        }
+        for (int r = 0; r < SIZE_COUNT; r++) {
+            lv_obj_t *size_lbl = lv_label_create(overlay);
+            lv_label_set_text_fmt(size_lbl, "%d px", (int)sizes[r]);
+            lv_obj_set_style_text_color(size_lbl, muted, 0);
+            lv_obj_set_pos(size_lbl, LABEL_GAP, TOP_Y + NAME_H + r * ROW_H + LABEL_GAP);
         }
         break;
     }
