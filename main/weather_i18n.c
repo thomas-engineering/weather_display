@@ -24,6 +24,27 @@ const char *weather_mon_short[LANG_COUNT][12] = {
     /* FR */ { "janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc." },
 };
 
+/* Full weekday and month names (Intl.DateTimeFormat's 'long' output): the
+ * day-detail sheet title and the screen saver's date line. Spanish and French
+ * are lowercase, as in the design. */
+const char *const weather_wday_long[LANG_COUNT][7] = {
+    /* EN */ { "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday" },
+    /* DE */ { "Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag" },
+    /* ES */ { "domingo", "lunes", "martes", "mi\xC3\xA9rcoles", "jueves", "viernes", "s\xC3\xA1" "bado" },
+    /* FR */ { "dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi" },
+};
+
+const char *const weather_mon_long[LANG_COUNT][12] = {
+    /* EN */ { "January", "February", "March", "April", "May", "June", "July", "August",
+               "September", "October", "November", "December" },
+    /* DE */ { "Januar", "Februar", "M\xC3\xA4rz", "April", "Mai", "Juni", "Juli", "August",
+               "September", "Oktober", "November", "Dezember" },
+    /* ES */ { "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
+               "septiembre", "octubre", "noviembre", "diciembre" },
+    /* FR */ { "janvier", "f\xC3\xA9vrier", "mars", "avril", "mai", "juin", "juillet", "ao\xC3\xBB" "t",
+               "septembre", "octobre", "novembre", "d\xC3\xA9" "cembre" },
+};
+
 /* Mirrors the design's getStrings().rf. */
 const weather_real_feel_t weather_real_feel[LANG_COUNT] = {
     [LANG_EN] = {

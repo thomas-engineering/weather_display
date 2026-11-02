@@ -56,6 +56,7 @@ add_executable(weather_sim
     "${APP_LOGIC_DIR}/screensaver_policy.c"
     "${APP_LOGIC_DIR}/hold_gesture.c"
     "${APP_LOGIC_DIR}/weather_display_math.c"
+    "${APP_LOGIC_DIR}/long_date.c"
     "${APP_DIR}/weather_icons.c"
     "${APP_DIR}/weather_i18n.c"
     "${APP_DIR}/app_format.c"

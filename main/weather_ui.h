@@ -49,6 +49,7 @@ typedef struct {
 
 typedef struct {
     char day_label[16];  /* "Today" / "Tue" — pre-localized by the app */
+    char day_label_long[24]; /* "Today" / "Tuesday" — the day-detail sheet's title */
     char date_label[16]; /* "Sep 3" — pre-localized by the app */
     int weather_code;
     float temp_max_c, temp_min_c;

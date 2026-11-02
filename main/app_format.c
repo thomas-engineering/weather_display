@@ -1,4 +1,5 @@
 #include "app_format.h"
+#include "long_date.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -44,6 +45,19 @@ void fmt_date(char *out, size_t n, const struct tm *t, weather_lang_t lang) {
         snprintf(out, n, "%s, %s %d", weather_wday_short[lang][wd], weather_mon_short[lang][mo], t->tm_mday);
 }
 
+/* tm_year counts from 1900. */
+#define TM_YEAR_BASE 1900
+
+void fmt_date_long(char *out, size_t n, const struct tm *t, weather_lang_t lang) {
+    lang = clamp_lang(lang);
+    long_date_style_t style = (lang == LANG_DE) ? LONG_DATE_D_DOT_MY
+                            : (lang == LANG_ES) ? LONG_DATE_D_DE_M_DE_Y
+                            : (lang == LANG_FR) ? LONG_DATE_D_M_Y
+                                                : LONG_DATE_MDY;
+    long_date_format(out, n, style, t->tm_year + TM_YEAR_BASE, t->tm_mon, t->tm_mday, t->tm_wday,
+                     weather_wday_long[lang], weather_mon_long[lang]);
+}
+
 void fmt_day_date(char *out, size_t n, const struct tm *t, weather_lang_t lang) {
     lang = clamp_lang(lang);
     int mo = (t->tm_mon >= 0 && t->tm_mon < 12) ? t->tm_mon : 0;
@@ -58,6 +72,14 @@ void fmt_day_label(char *out, size_t n, const struct tm *t, int idx, weather_lan
     if (idx == 1) { snprintf(out, n, "%s", weather_strings[lang].tomorrow); return; }
     int wd = (t->tm_wday >= 0 && t->tm_wday < 7) ? t->tm_wday : 0;
     snprintf(out, n, "%s", weather_wday_short[lang][wd]);
+}
+
+void fmt_day_label_long(char *out, size_t n, const struct tm *t, int idx, weather_lang_t lang) {
+    lang = clamp_lang(lang);
+    if (idx == 0) { snprintf(out, n, "%s", weather_strings[lang].today); return; }
+    if (idx == 1) { snprintf(out, n, "%s", weather_strings[lang].tomorrow); return; }
+    int wd = (t->tm_wday >= 0 && t->tm_wday < 7) ? t->tm_wday : 0;
+    snprintf(out, n, "%s", weather_wday_long[lang][wd]);
 }
 
 void fmt_real_feel(char *out, size_t n, float apparent_c, float actual_c,

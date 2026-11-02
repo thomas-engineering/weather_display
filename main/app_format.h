@@ -18,11 +18,18 @@ void fmt_time(char *out, size_t n, const struct tm *t, wx_time_fmt_t fmt);
 /* "Thu, Sep 3" — weekday short, month short, day numeric. */
 void fmt_date(char *out, size_t n, const struct tm *t, weather_lang_t lang);
 
+/* "Thursday, September 3, 2026" — the screen saver's date line: weekday and
+ * month spelled out, with the year, in the order the language uses. */
+void fmt_date_long(char *out, size_t n, const struct tm *t, weather_lang_t lang);
+
 /* "Sep 3" — month short, day numeric. */
 void fmt_day_date(char *out, size_t n, const struct tm *t, weather_lang_t lang);
 
 /* "Today" / "Tomorrow" for idx 0/1, otherwise the short weekday name. */
 void fmt_day_label(char *out, size_t n, const struct tm *t, int idx, weather_lang_t lang);
+
+/* Same, but the full weekday name ("Wednesday") — the day-detail sheet's title. */
+void fmt_day_label_long(char *out, size_t n, const struct tm *t, int idx, weather_lang_t lang);
 
 /* Mirrors the web version's realFeelText(): a base sentence chosen from the
  * apparent-vs-actual delta, with an optional rain or wind clause appended. */
